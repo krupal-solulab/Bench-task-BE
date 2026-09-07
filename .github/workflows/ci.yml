@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      PORT: 3000
+      API_PREFIX: api/v1
+      MONGO_URI: mongodb://localhost:27017/project_task_management_ci
+      MONGO_DB_NAME: project_task_management_ci
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      JWT_ACCESS_SECRET: ci_access_secret_please_replace_me
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: ci_refresh_secret_please_replace_me
+      JWT_REFRESH_EXPIRES_IN: 7d
+      BCRYPT_SALT_ROUNDS: 4
+      CORS_ORIGIN: http://localhost:5173
+      LOG_LEVEL: silent
+      THROTTLE_TTL: 60
+      THROTTLE_LIMIT: 1000
+      AUTH_THROTTLE_LIMIT: 1000
+      SWAGGER_ENABLED: "true"
+      SEED_ADMIN_EMAIL: admin@example.com
+      SEED_ADMIN_PASSWORD: Admin@12345
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run format:check
+
+      - run: npm run build
+
+      - run: npm run test:unit
+
+      - run: npm run test:integration
+
+      # TODO(Phase 6): switch to `npm run test:cov` and enforce the coverage
+      # threshold once the unit/integration suites are filled in.
+      - run: npm run test:cov
+        continue-on-error: true
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+
+      # - name: Deploy
+      #   run: echo "Deploy stage goes here (bonus scope, not implemented)"

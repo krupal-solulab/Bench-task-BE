@@ -1,0 +1,1877 @@
+{
+  "info": {
+    "_postman_id": "b6f1a2c4-3d2e-4f6a-9b1a-1a2b3c4d5e6f",
+    "name": "Project Task Management API",
+    "description": "Full REST API collection for the Project & Task Management System (Auth, Users, Projects, Tasks, Comments, Dashboard). Import the companion environment (ProjectTaskManagement.postman_environment.json), then run the requests inside 'Auth > Login as Admin' (or Manager/Developer) first — it auto-saves the access/refresh tokens used by every other request. Requests that create a resource (Create Project, Create Task, Create Comment) auto-save the new id for use by later requests in the same folder.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api/v1"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "refreshToken",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "projectId",
+      "value": ""
+    },
+    {
+      "key": "taskId",
+      "value": ""
+    },
+    {
+      "key": "commentId",
+      "value": ""
+    },
+    {
+      "key": "targetUserId",
+      "value": ""
+    },
+    {
+      "key": "adminEmail",
+      "value": "admin@example.com"
+    },
+    {
+      "key": "adminPassword",
+      "value": "Admin@12345"
+    },
+    {
+      "key": "managerEmail",
+      "value": "manager@example.com"
+    },
+    {
+      "key": "managerPassword",
+      "value": "Manager@12345"
+    },
+    {
+      "key": "developerEmail",
+      "value": "developer@example.com"
+    },
+    {
+      "key": "developerPassword",
+      "value": "Developer@12345"
+    },
+    {
+      "key": "errorScenarioProjectId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"New Developer\",\n  \"email\": \"newdev-{{$timestamp}}@example.com\",\n  \"password\": \"Password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Self-registration always creates a Developer, regardless of any role field sent."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.environment.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Manager",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{managerEmail}}\",\n  \"password\": \"{{managerPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.environment.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "  pm.environment.set('userId', json.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Developer",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{developerEmail}}\",\n  \"password\": \"{{developerPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.environment.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "  pm.environment.set('userId', json.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Admin",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.environment.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "  pm.environment.set('userId', json.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Rotating refresh: the old token is revoked and a new pair issued. Re-using an already-rotated token returns 401 and revokes the whole family."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.environment.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get current user (me)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Change password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"Password123\",\n  \"newPassword\": \"NewPassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/me/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me",
+                "password"
+              ]
+            },
+            "description": "Revokes all of the caller's refresh tokens on success. The example currentPassword is deliberately a placeholder that won't match any seeded account, so running this as-is safely 409s instead of silently changing the shared demo Admin's password — replace it with your real current password before running for real."
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout all sessions",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout-all"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users (Admin)",
+      "item": [
+        {
+          "name": "List users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/users?page=1&limit=20&sortBy=createdAt&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "isActive",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List assignable developers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/users/assignable",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "assignable"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get user by id",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/users/{{targetUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{targetUserId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Casey Contractor\",\n  \"email\": \"casey-{{$timestamp}}@example.com\",\n  \"password\": \"Password123\",\n  \"role\": \"Developer\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json?.data?.id) pm.collectionVariables.set('targetUserId', json.data.id);",
+                  "if (json?.data?.id) pm.environment.set('targetUserId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update user",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Casey C. Contractor\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/{{targetUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{targetUserId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Change user role",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"Manager\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/{{targetUserId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{targetUserId}}",
+                "role"
+              ]
+            },
+            "description": "409 if targeting yourself — Admins cannot change their own role."
+          }
+        },
+        {
+          "name": "Activate/deactivate user",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/{{targetUserId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{targetUserId}}",
+                "status"
+              ]
+            },
+            "description": "409 if targeting yourself. Deactivating invalidates that user's existing access tokens immediately."
+          }
+        },
+        {
+          "name": "Get user workload",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/users/{{targetUserId}}/workload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "{{targetUserId}}",
+                "workload"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Projects",
+      "item": [
+        {
+          "name": "Create project",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Demo Project\",\n  \"description\": \"Created from the Postman collection.\",\n  \"startDate\": \"2026-01-01\",\n  \"dueDate\": \"2026-12-31\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects"
+              ]
+            },
+            "description": "Admin or Manager only. Manager becomes owner automatically; Admin may pass an explicit `owner`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.id) pm.collectionVariables.set('projectId', json.data.id);",
+                  "if (json?.data?.id) pm.environment.set('projectId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List projects",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects?page=1&limit=20&sortBy=createdAt&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "owner",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "member",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc"
+                }
+              ]
+            },
+            "description": "Auto-scoped by role: Admin sees all, Manager sees owned + member-of, Developer sees member-of only."
+          }
+        },
+        {
+          "name": "Get project by id",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update project",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated from Postman.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update project status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"In Progress\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}",
+                "status"
+              ]
+            },
+            "description": "Legal transitions only: Planning->In Progress, In Progress->Completed/Planning, Completed->In Progress. Illegal jumps (e.g. Planning->Completed) return 409."
+          }
+        },
+        {
+          "name": "List project members",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}/members?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}",
+                "members"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Add project members",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userIds\": [\"{{targetUserId}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}",
+                "members"
+              ]
+            },
+            "description": "Must be active Developers. Idempotent — adding an existing member again is a no-op, not an error."
+          }
+        },
+        {
+          "name": "Remove project member",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}/members/{{targetUserId}}?reassignTo=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}",
+                "members",
+                "{{targetUserId}}"
+              ],
+              "query": [
+                {
+                  "key": "reassignTo",
+                  "value": "",
+                  "description": "Required if the member has open tasks in this project — otherwise this returns 409."
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List project tasks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}/tasks?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}",
+                "tasks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Same filter set as GET /tasks (status, priority, assignee, dueDateFrom/To, overdue, search), pre-scoped to this project."
+          }
+        },
+        {
+          "name": "Get project stats",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}",
+                "stats"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "item": [
+        {
+          "name": "Create task",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Demo Task\",\n  \"description\": \"Created from the Postman collection.\",\n  \"project\": \"{{projectId}}\",\n  \"priority\": \"P2\",\n  \"dueDate\": \"2026-12-01\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tasks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks"
+              ]
+            },
+            "description": "Admin, or Manager on their own project. 409 if the project is Completed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.id) pm.collectionVariables.set('taskId', json.data.id);",
+                  "if (json?.data?.id) pm.environment.set('taskId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List tasks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tasks?page=1&limit=20&sortBy=createdAt&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "project",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "assignee",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Todo | In Progress | Review | Done"
+                },
+                {
+                  "key": "priority",
+                  "value": "",
+                  "disabled": true,
+                  "description": "P1 | P2 | P3"
+                },
+                {
+                  "key": "dueDateFrom",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "dueDateTo",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "overdue",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Substring match on title + description"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc"
+                }
+              ]
+            },
+            "description": "Auto-scoped by role, same as GET /projects."
+          }
+        },
+        {
+          "name": "List overdue tasks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tasks/overdue?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "overdue"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "dueDate < now AND status != Done AND not deleted — computed in the query, never in JS after fetching."
+          }
+        },
+        {
+          "name": "My tasks",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tasks/my-tasks?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "my-tasks"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get task by id",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update task",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"priority\": \"P1\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            },
+            "description": "title/description/priority/dueDate only — reassignment has its own endpoint. Admin, or Manager on their own project."
+          }
+        },
+        {
+          "name": "Update task status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"In Progress\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}",
+                "status"
+              ]
+            },
+            "description": "Admin/Manager(own project), or a Developer on their own assigned task. Legal transitions: Todo->In Progress->Review->Done, with Review->In Progress and In Progress->Todo and Done->In Progress also allowed. Illegal jumps return 409."
+          }
+        },
+        {
+          "name": "Reassign task",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"assignee\": \"{{targetUserId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}/assignee",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}",
+                "assignee"
+              ]
+            },
+            "description": "assignee must be the project owner or a member — 400 otherwise. Pass null to unassign."
+          }
+        },
+        {
+          "name": "List task activity",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}/activity?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}",
+                "activity"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Comments",
+      "item": [
+        {
+          "name": "Add comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Looks good, starting this now.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}",
+                "comments"
+              ]
+            },
+            "description": "Any project member (including the owner). 403 for non-members."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.id) pm.collectionVariables.set('commentId', json.data.id);",
+                  "if (json?.data?.id) pm.environment.set('commentId', json.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List comments",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}/comments?page=1&limit=20&sortOrder=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}",
+                "comments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "sortOrder",
+                  "value": "desc",
+                  "description": "desc = newest first (default)"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update comment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Edited: looks good, starting now.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/comments/{{commentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "comments",
+                "{{commentId}}"
+              ]
+            },
+            "description": "Author only (Admin may edit any)."
+          }
+        },
+        {
+          "name": "Delete comment",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/comments/{{commentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "comments",
+                "{{commentId}}"
+              ]
+            },
+            "description": "Author or Admin. Soft delete, 204."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "summary"
+              ]
+            },
+            "description": "Cached (see X-Cache response header: MISS then HIT on the next call within the TTL). Role-scoped: org-wide for Admin, owned/member projects for Manager, assigned tasks for Developer."
+          }
+        },
+        {
+          "name": "Projects by status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/projects-by-status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "projects-by-status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Tasks status (open vs completed)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/tasks-status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "tasks-status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Tasks by priority",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/tasks-by-priority",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "tasks-by-priority"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Developer workload",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/developer-workload?sortBy=workload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "developer-workload"
+              ],
+              "query": [
+                {
+                  "key": "sortBy",
+                  "value": "workload",
+                  "description": "workload | completionRate | name"
+                }
+              ]
+            },
+            "description": "Admin and Manager only — a Developer gets 403."
+          }
+        },
+        {
+          "name": "Overdue summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/overdue-summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "overdue-summary"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Task trend (30 days)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/task-trend?days=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard",
+                "task-trend"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error Scenarios",
+      "description": "Representative failure cases for the four error statuses the API documents (400/401/403/404/409). Run 'Auth > Login as Developer' before the 403 examples.",
+      "item": [
+        {
+          "name": "Setup: create scratch project (as Admin, for the 409 example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Error Scenario Scratch Project\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects"
+              ]
+            },
+            "description": "Always starts in Planning, independent of whatever the Projects folder left {{projectId}} as."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json?.data?.id) { pm.environment.set('errorScenarioProjectId', json.data.id); pm.collectionVariables.set('errorScenarioProjectId', json.data.id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "401 - No token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 - Validation failed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects"
+              ]
+            },
+            "description": "Missing required 'name' — expect { statusCode: 400, message: 'Validation failed', details: [...] }."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "400 - Malformed id",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects/not-a-valid-id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "not-a-valid-id"
+              ]
+            },
+            "description": "A malformed ObjectId returns 400, never a raw 500."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Developer",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{developerEmail}}\",\n  \"password\": \"{{developerPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.environment.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "  pm.environment.set('userId', json.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "403 - Developer creates a project",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Should Be Forbidden\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects"
+              ]
+            },
+            "description": "Run 'Auth > Login as Developer' first. Project creation is Admin/Manager only."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Admin",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.environment.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "  pm.environment.set('userId', json.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "404 - Project not found",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/projects/000000000000000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "000000000000000000000000"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "409 - Illegal project status transition",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Completed\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{errorScenarioProjectId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{errorScenarioProjectId}}",
+                "status"
+              ]
+            },
+            "description": "Scratch project is fresh from setup (Planning), so Planning -> Completed is illegal and must 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 409', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cleanup",
+      "description": "Run last — deletes the resources the earlier folders created.",
+      "item": [
+        {
+          "name": "Delete task",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "tasks",
+                "{{taskId}}"
+              ]
+            },
+            "description": "Soft delete, 204. Admin or Manager(own project) only — a Developer gets 403 even on their own assigned task."
+          }
+        },
+        {
+          "name": "Delete project",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{projectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{projectId}}"
+              ]
+            },
+            "description": "Soft delete — cascades to the project's tasks and their comments. Returns 204. Run this last, or against a throwaway project."
+          }
+        },
+        {
+          "name": "Delete scratch project",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/projects/{{errorScenarioProjectId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "projects",
+                "{{errorScenarioProjectId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

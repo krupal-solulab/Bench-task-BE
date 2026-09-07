@@ -1,0 +1,52 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "27017:27017"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/${MONGO_DB_NAME:-project_task_management}
+      REDIS_HOST: redis
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
+
+networks:
+  default:
+    name: bench-be-network
+
+volumes:
+  mongo_data:
+  redis_data:

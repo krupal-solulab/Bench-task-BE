@@ -1,0 +1,2608 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "operationId": "HealthController_check",
+        "summary": "Service health check",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "All dependencies up"
+          },
+          "503": {
+            "description": "One or more dependencies down"
+          }
+        },
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "operationId": "UsersController_list",
+        "summary": "List users (Admin only)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "Admin",
+                "Manager",
+                "Developer"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "isActive",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "name",
+                "email",
+                "createdAt",
+                "role"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "UsersController_create",
+        "summary": "Create a user with an explicit role (Admin only)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/assignable": {
+      "get": {
+        "operationId": "UsersController_assignable",
+        "summary": "List active developers for assignee pickers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}": {
+      "get": {
+        "operationId": "UsersController_findOne",
+        "summary": "Get a single user (Admin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "UsersController_update",
+        "summary": "Update name/email (Admin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}/role": {
+      "patch": {
+        "operationId": "UsersController_updateRole",
+        "summary": "Change a user role (Admin only, cannot self-demote)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}/status": {
+      "patch": {
+        "operationId": "UsersController_updateStatus",
+        "summary": "Activate/deactivate a user (Admin only, cannot self-deactivate)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}/workload": {
+      "get": {
+        "operationId": "UsersController_workload",
+        "summary": "Task counts by status for one user",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "operationId": "AuthController_register",
+        "summary": "Self-register (always created as Developer)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "AuthController_login",
+        "summary": "Log in with email + password",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "AuthController_refresh",
+        "summary": "Rotate a refresh token for a new access/refresh pair",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "summary": "Revoke the current user's refresh tokens",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/logout-all": {
+      "post": {
+        "operationId": "AuthController_logoutAll",
+        "summary": "Revoke every refresh token for the current user",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "AuthController_me",
+        "summary": "Get the current authenticated user",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/me/password": {
+      "patch": {
+        "operationId": "AuthController_changePassword",
+        "summary": "Change own password (revokes all sessions on success)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects": {
+      "post": {
+        "operationId": "ProjectsController_create",
+        "summary": "Create a project",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "ProjectsController_list",
+        "summary": "List projects (auto-scoped by role)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "Planning",
+                "In Progress",
+                "Completed"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "member",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "name",
+                "status",
+                "startDate",
+                "dueDate",
+                "createdAt"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}": {
+      "get": {
+        "operationId": "ProjectsController_findOne",
+        "summary": "Get a single project",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "ProjectsController_update",
+        "summary": "Update project fields",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ProjectsController_remove",
+        "summary": "Soft-delete a project (cascades to tasks/comments)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/status": {
+      "patch": {
+        "operationId": "ProjectsController_updateStatus",
+        "summary": "Transition project status",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/members": {
+      "get": {
+        "operationId": "ProjectsController_listMembers",
+        "summary": "List project members (paginated)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "ProjectsController_addMembers",
+        "summary": "Add members (must be active Developers, idempotent)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddMembersDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/members/{userId}": {
+      "delete": {
+        "operationId": "ProjectsController_removeMember",
+        "summary": "Remove a member (409 if they have open tasks and no reassignTo)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/tasks": {
+      "get": {
+        "operationId": "ProjectsController_listTasks",
+        "summary": "List tasks for a project (pre-scoped, same filters as /tasks)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "project",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Todo",
+                  "In Progress",
+                  "Review",
+                  "Done"
+                ]
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3"
+                ]
+              }
+            }
+          },
+          {
+            "name": "dueDateFrom",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dueDateTo",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "overdue",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "createdBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "dueDate",
+                "priority",
+                "status",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/stats": {
+      "get": {
+        "operationId": "ProjectsController_stats",
+        "summary": "Per-project task aggregation for the detail page",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks": {
+      "post": {
+        "operationId": "TasksController_create",
+        "summary": "Create a task under a project",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "TasksController_list",
+        "summary": "List tasks (auto-scoped by role)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "project",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Todo",
+                  "In Progress",
+                  "Review",
+                  "Done"
+                ]
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3"
+                ]
+              }
+            }
+          },
+          {
+            "name": "dueDateFrom",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dueDateTo",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "overdue",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "createdBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "dueDate",
+                "priority",
+                "status",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/overdue": {
+      "get": {
+        "operationId": "TasksController_overdue",
+        "summary": "Paginated overdue task list (scoped by role)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "project",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Todo",
+                  "In Progress",
+                  "Review",
+                  "Done"
+                ]
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3"
+                ]
+              }
+            }
+          },
+          {
+            "name": "dueDateFrom",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dueDateTo",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "overdue",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "createdBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "dueDate",
+                "priority",
+                "status",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/my-tasks": {
+      "get": {
+        "operationId": "TasksController_myTasks",
+        "summary": "Tasks assigned to the current user",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "project",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Todo",
+                  "In Progress",
+                  "Review",
+                  "Done"
+                ]
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3"
+                ]
+              }
+            }
+          },
+          {
+            "name": "dueDateFrom",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dueDateTo",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "overdue",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "createdBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "dueDate",
+                "priority",
+                "status",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}": {
+      "get": {
+        "operationId": "TasksController_findOne",
+        "summary": "Get a single task",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "TasksController_update",
+        "summary": "Update title/description/priority/dueDate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TasksController_remove",
+        "summary": "Soft-delete a task",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/status": {
+      "patch": {
+        "operationId": "TasksController_updateStatus",
+        "summary": "Transition task status (Developer limited to own assigned task)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/assignee": {
+      "patch": {
+        "operationId": "TasksController_updateAssignee",
+        "summary": "Reassign a task (assignee must be owner or project member)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskAssigneeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/activity": {
+      "get": {
+        "operationId": "TasksController_activity",
+        "summary": "Paginated audit trail for a task",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{taskId}/comments": {
+      "post": {
+        "operationId": "CommentsController_create",
+        "summary": "Add a comment to a task (project members only)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "comments"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "CommentsController_list",
+        "summary": "List comments for a task (paginated, newest first by default)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "comments"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/comments/{id}": {
+      "patch": {
+        "operationId": "CommentsController_update",
+        "summary": "Edit own comment (Admin may edit any)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCommentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "comments"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CommentsController_remove",
+        "summary": "Soft-delete own comment (Admin may delete any)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "comments"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/summary": {
+      "get": {
+        "operationId": "DashboardController_summary",
+        "summary": "Top stat cards (role-scoped, cached)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/projects-by-status": {
+      "get": {
+        "operationId": "DashboardController_projectsByStatus",
+        "summary": "Projects grouped by status, zero-filled",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/tasks-status": {
+      "get": {
+        "operationId": "DashboardController_tasksStatus",
+        "summary": "Open vs completed task breakdown",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/tasks-by-priority": {
+      "get": {
+        "operationId": "DashboardController_tasksByPriority",
+        "summary": "Task counts by priority, zero-filled",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/developer-workload": {
+      "get": {
+        "operationId": "DashboardController_developerWorkload",
+        "summary": "Per-developer task distribution and completion rate",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "workload",
+              "enum": [
+                "workload",
+                "completionRate",
+                "name"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/overdue-summary": {
+      "get": {
+        "operationId": "DashboardController_overdueSummary",
+        "summary": "Overdue tasks list",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/task-trend": {
+      "get": {
+        "operationId": "DashboardController_taskTrend",
+        "summary": "Created vs completed tasks per day",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": 30,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Project & Task Management API",
+    "description": "REST API for a Jira/Trello-style project and task management system",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "CreateUserDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Jane Doe"
+          },
+          "email": {
+            "type": "string",
+            "example": "jane@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password123"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "Admin",
+              "Manager",
+              "Developer"
+            ],
+            "example": "Developer"
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password",
+          "role"
+        ]
+      },
+      "UpdateUserDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Jane Doe"
+          },
+          "email": {
+            "type": "string",
+            "example": "jane@example.com"
+          }
+        }
+      },
+      "UpdateRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "Admin",
+              "Manager",
+              "Developer"
+            ]
+          }
+        },
+        "required": [
+          "role"
+        ]
+      },
+      "UpdateStatusDto": {
+        "type": "object",
+        "properties": {
+          "isActive": {
+            "type": "boolean",
+            "example": false
+          }
+        },
+        "required": [
+          "isActive"
+        ]
+      },
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Jane Doe"
+          },
+          "email": {
+            "type": "string",
+            "example": "jane@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password123"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "Admin",
+              "Manager",
+              "Developer"
+            ],
+            "description": "Ignored — self-registration always creates a Developer."
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "password"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "jane@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password123"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "RefreshDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "refreshToken"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string"
+          },
+          "newPassword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ]
+      },
+      "CreateProjectDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Website Redesign"
+          },
+          "description": {
+            "type": "string",
+            "example": "Revamp the marketing site."
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2026-01-01",
+            "description": "Defaults to today if omitted."
+          },
+          "dueDate": {
+            "type": "string",
+            "example": "2026-12-31"
+          },
+          "memberIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "owner": {
+            "type": "string",
+            "description": "Admin only: assign a different Manager/Admin as owner"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateProjectDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Website Redesign"
+          },
+          "description": {
+            "type": "string",
+            "example": "Revamp the marketing site."
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2026-01-01",
+            "description": "Defaults to today if omitted."
+          },
+          "dueDate": {
+            "type": "string",
+            "example": "2026-12-31"
+          }
+        }
+      },
+      "UpdateProjectStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "Planning",
+              "In Progress",
+              "Completed"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "AddMembersDto": {
+        "type": "object",
+        "properties": {
+          "userIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "userIds"
+        ]
+      },
+      "CreateTaskDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Set up CI pipeline"
+          },
+          "description": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": "object",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ]
+          },
+          "dueDate": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "title",
+          "project",
+          "priority"
+        ]
+      },
+      "UpdateTaskDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Set up CI pipeline"
+          },
+          "description": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ]
+          },
+          "dueDate": {
+            "type": "object",
+            "nullable": true
+          }
+        }
+      },
+      "UpdateTaskStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "Todo",
+              "In Progress",
+              "Review",
+              "Done"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "UpdateTaskAssigneeDto": {
+        "type": "object",
+        "properties": {
+          "assignee": {
+            "type": "object",
+            "nullable": true,
+            "description": "null to unassign"
+          }
+        }
+      },
+      "CreateCommentDto": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "example": "Looks good, ready for review."
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "UpdateCommentDto": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string",
+            "example": "Looks good, ready for review."
+          }
+        },
+        "required": [
+          "body"
+        ]
+      }
+    }
+  }
+}
