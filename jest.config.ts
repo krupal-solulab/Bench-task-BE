@@ -14,6 +14,9 @@ const config: Config = {
   ],
   coverageDirectory: './coverage',
   testEnvironment: 'node',
+  // Integration specs boot a full Nest app against mongodb-memory-server; the default 5s
+  // timeout is too tight for that plus multiple HTTP round-trips per test.
+  testTimeout: 30000,
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',
   },
