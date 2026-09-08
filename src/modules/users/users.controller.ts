@@ -5,6 +5,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { requireOrgId } from '../../common/utils/auth-user.util';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -21,15 +22,15 @@ export class UsersController {
   @Get()
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'List users (Admin only)' })
-  async list(@Query() query: ListUsersDto) {
-    return this.usersService.paginate(query);
+  async list(@Query() query: ListUsersDto, @CurrentUser() actingUser: AuthenticatedUser) {
+    return this.usersService.paginate(query, requireOrgId(actingUser));
   }
 
   @Get('assignable')
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: 'List active developers for assignee pickers' })
-  async assignable() {
-    const data = await this.usersService.assignable();
+  async assignable(@CurrentUser() actingUser: AuthenticatedUser) {
+    const data = await this.usersService.assignable(requireOrgId(actingUser));
     return {
       data,
       meta: {
@@ -46,22 +47,29 @@ export class UsersController {
   @Get(':id')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Get a single user (Admin only)' })
-  async findOne(@Param('id', ParseObjectIdPipe) id: string) {
-    return this.usersService.findByIdOrThrow(id);
+  async findOne(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() actingUser: AuthenticatedUser,
+  ) {
+    return this.usersService.findByIdInOrgOrThrow(id, requireOrgId(actingUser));
   }
 
   @Post()
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Create a user with an explicit role (Admin only)' })
-  async create(@Body() dto: CreateUserDto) {
-    return this.usersService.create(dto);
+  async create(@Body() dto: CreateUserDto, @CurrentUser() actingUser: AuthenticatedUser) {
+    return this.usersService.create(dto, requireOrgId(actingUser));
   }
 
   @Patch(':id')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Update name/email (Admin only)' })
-  async update(@Param('id', ParseObjectIdPipe) id: string, @Body() dto: UpdateUserDto) {
-    return this.usersService.update(id, dto);
+  async update(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() actingUser: AuthenticatedUser,
+  ) {
+    return this.usersService.update(id, dto, requireOrgId(actingUser));
   }
 
   @Patch(':id/role')
@@ -72,7 +80,7 @@ export class UsersController {
     @Body() dto: UpdateRoleDto,
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
-    return this.usersService.updateRole(id, dto.role, currentUser.id);
+    return this.usersService.updateRole(id, dto.role, currentUser.id, requireOrgId(currentUser));
   }
 
   @Patch(':id/status')
@@ -83,13 +91,21 @@ export class UsersController {
     @Body() dto: UpdateStatusDto,
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
-    return this.usersService.updateStatus(id, dto.isActive, currentUser.id);
+    return this.usersService.updateStatus(
+      id,
+      dto.isActive,
+      currentUser.id,
+      requireOrgId(currentUser),
+    );
   }
 
   @Get(':id/workload')
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: 'Task counts by status for one user' })
-  async workload(@Param('id', ParseObjectIdPipe) id: string) {
-    return this.usersService.getWorkload(id);
+  async workload(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() actingUser: AuthenticatedUser,
+  ) {
+    return this.usersService.getWorkload(id, requireOrgId(actingUser));
   }
 }

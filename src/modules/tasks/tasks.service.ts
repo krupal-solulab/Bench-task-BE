@@ -10,6 +10,7 @@ import { CacheService } from '../../redis/cache.service';
 import { dashboardCachePattern } from '../../common/utils/cache-key.util';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { extractId } from '../../common/utils/mongo.util';
+import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { TaskStatus } from '../../common/enums/task-status.enum';
@@ -52,6 +53,9 @@ export class TasksService {
       priority: dto.priority,
       dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
       createdBy: new Types.ObjectId(actingUser.id),
+      // Copied from the parent project (not actingUser) so a task's org always matches its
+      // project's org, even in the platform-provisioned-admin edge case.
+      organizationId: project.organizationId,
     });
 
     await this.tasksRepository.logActivity(task.id, actingUser.id, TaskActivityAction.CREATED);
@@ -68,6 +72,7 @@ export class TasksService {
   async myTasks(query: ListTasksDto, actingUser: AuthenticatedUser) {
     const { data, total } = await this.tasksRepository.paginate(query, {
       assignee: new Types.ObjectId(actingUser.id),
+      organizationId: new Types.ObjectId(requireOrgId(actingUser)),
     });
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
   }
@@ -131,7 +136,8 @@ export class TasksService {
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
 
     const isManagerOrAdmin =
-      actingUser.role === Role.ADMIN ||
+      (actingUser.role === Role.ADMIN &&
+        extractId(project.organizationId) === requireOrgId(actingUser)) ||
       (actingUser.role === Role.MANAGER && this.isOwner(project, actingUser.id));
     const isAssignedDeveloper =
       actingUser.role === Role.DEVELOPER &&
@@ -220,16 +226,23 @@ export class TasksService {
   }
 
   private async assertCanView(task: TaskDocument, actingUser: AuthenticatedUser): Promise<void> {
-    if (actingUser.role === Role.ADMIN) return;
+    if (
+      actingUser.role === Role.ADMIN &&
+      extractId(task.organizationId) === requireOrgId(actingUser)
+    ) {
+      return;
+    }
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     if (this.projectsService.isProjectMember(project, actingUser.id)) return;
     throw new ForbiddenException('You do not have access to this task');
   }
 
   private async buildScope(actingUser: AuthenticatedUser) {
-    if (actingUser.role === Role.ADMIN) return {};
     const projectIds = await this.projectsService.getAccessibleProjectIds(actingUser);
-    return { project: { $in: (projectIds ?? []).map((p) => new Types.ObjectId(p)) } };
+    return {
+      project: { $in: projectIds.map((p) => new Types.ObjectId(p)) },
+      organizationId: new Types.ObjectId(requireOrgId(actingUser)),
+    };
   }
 
   private async getActiveOrThrow(id: string): Promise<TaskDocument> {

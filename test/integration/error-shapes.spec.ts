@@ -7,6 +7,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
@@ -39,10 +40,12 @@ describe('error response shapes (integration)', () => {
   });
 
   it('400: a missing required field fails validation', async () => {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'err-manager@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const res = await api(app)
       .post(`/${API_PREFIX}/projects`)
@@ -54,10 +57,12 @@ describe('error response shapes (integration)', () => {
   });
 
   it('400: an extra, non-whitelisted field is rejected (forbidNonWhitelisted)', async () => {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'err-manager-2@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const res = await api(app)
       .post(`/${API_PREFIX}/projects`)
@@ -68,10 +73,12 @@ describe('error response shapes (integration)', () => {
   });
 
   it('400: a malformed ObjectId in a route param is a 400, not a 500', async () => {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'err-manager-3@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const res = await api(app)
       .get(`/${API_PREFIX}/projects/not-an-object-id`)
@@ -95,10 +102,12 @@ describe('error response shapes (integration)', () => {
   });
 
   it('403: wrong role on a role-gated route', async () => {
+    const org = await seedOrganization(app);
     const developer = await seedUserAndLogin(app, {
       email: 'err-developer@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const res = await api(app)
       .post(`/${API_PREFIX}/projects`)
@@ -109,10 +118,12 @@ describe('error response shapes (integration)', () => {
   });
 
   it('404: a well-formed but nonexistent ObjectId', async () => {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'err-manager-4@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const res = await api(app)
       .get(`/${API_PREFIX}/projects/507f1f77bcf86cd799439011`)
@@ -122,10 +133,12 @@ describe('error response shapes (integration)', () => {
   });
 
   it('409: an illegal project status transition', async () => {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'err-manager-5@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const project = await createProject(app, manager.accessToken, { name: 'Conflict Project' });
     const res = await api(app)
@@ -136,22 +149,32 @@ describe('error response shapes (integration)', () => {
     expectStandardErrorShape(res.body, 409);
   });
 
-  it('409: duplicate email on register', async () => {
-    await api(app)
-      .post(`/${API_PREFIX}/auth/register`)
-      .send({ name: 'First', email: 'dupe-error@example.com', password: 'Password123' });
-    const res = await api(app)
-      .post(`/${API_PREFIX}/auth/register`)
-      .send({ name: 'Second', email: 'dupe-error@example.com', password: 'Password123' });
+  it('409: duplicate email on register-organization', async () => {
+    // Email uniqueness is global across organizations, so a second org registering with the
+    // same adminEmail must still 409.
+    await api(app).post(`/${API_PREFIX}/auth/register-organization`).send({
+      organizationName: 'Dupe Error Org One',
+      adminName: 'First',
+      adminEmail: 'dupe-error@example.com',
+      adminPassword: 'Password123',
+    });
+    const res = await api(app).post(`/${API_PREFIX}/auth/register-organization`).send({
+      organizationName: 'Dupe Error Org Two',
+      adminName: 'Second',
+      adminEmail: 'dupe-error@example.com',
+      adminPassword: 'Password123',
+    });
     expect(res.status).toBe(409);
     expectStandardErrorShape(res.body, 409);
   });
 
   it('reference: a valid task create still succeeds (sanity check that the DTO used above is otherwise correct)', async () => {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'err-manager-6@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const project = await createProject(app, manager.accessToken, { name: 'Sanity Project' });
     const res = await api(app)

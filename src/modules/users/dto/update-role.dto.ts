@@ -1,9 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum } from 'class-validator';
-import { Role } from '../../../common/enums/role.enum';
+import { IsIn } from 'class-validator';
+import { ORG_ROLES, OrgRole } from '../../../common/enums/role.enum';
 
 export class UpdateRoleDto {
-  @ApiProperty({ enum: Role })
-  @IsEnum(Role)
-  role!: Role;
+  @ApiProperty({ enum: ORG_ROLES })
+  @IsIn(ORG_ROLES)
+  role!: OrgRole;
 }

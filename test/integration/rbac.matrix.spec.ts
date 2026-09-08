@@ -6,6 +6,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
@@ -32,22 +33,26 @@ describe('RBAC matrix (integration)', () => {
   });
 
   async function seedRoleUsers() {
+    const org = await seedOrganization(app);
     const admin = await seedUserAndLogin(app, {
       email: 'rbac-admin@example.com',
       password: 'Password123',
       role: Role.ADMIN,
+      organizationId: org.id,
     });
     const manager = await seedUserAndLogin(app, {
       email: 'rbac-manager@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const developer = await seedUserAndLogin(app, {
       email: 'rbac-developer@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
-    return { admin, manager, developer };
+    return { org, admin, manager, developer };
   }
 
   it('POST /projects: Admin and Manager 201, Developer 403', async () => {
@@ -91,11 +96,12 @@ describe('RBAC matrix (integration)', () => {
   });
 
   it('PATCH /tasks/:id/status: assigned Developer 200, unassigned Developer 403', async () => {
-    const { admin, developer } = await seedRoleUsers();
+    const { org, admin, developer } = await seedRoleUsers();
     const otherDeveloper = await seedUserAndLogin(app, {
       email: 'rbac-developer-2@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const project = await createProject(app, admin.accessToken, {
       name: 'Status RBAC Project',

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 import { Role } from '../../../common/enums/role.enum';
 
 export type UserDocument = HydratedDocument<User>;
@@ -36,6 +36,18 @@ export class User {
   @Prop({ default: true })
   isActive!: boolean;
 
+  // null only for PlatformAdmin, who isn't scoped to any organization; required for every
+  // other role.
+  @Prop({
+    type: Types.ObjectId,
+    ref: 'Organization',
+    default: null,
+    required: function (this: User) {
+      return this.role !== Role.PLATFORM_ADMIN;
+    },
+  })
+  organizationId!: Types.ObjectId | null;
+
   createdAt!: Date;
   updatedAt!: Date;
 }
@@ -44,3 +56,4 @@ export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.index({ role: 1 });
 UserSchema.index({ isActive: 1 });
+UserSchema.index({ organizationId: 1 });

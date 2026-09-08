@@ -7,6 +7,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
@@ -28,17 +29,20 @@ describe('projects CRUD (integration)', () => {
   });
 
   async function seedManagerAndDeveloper() {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'proj-manager@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const developer = await seedUserAndLogin(app, {
       email: 'proj-developer@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
-    return { manager, developer };
+    return { org, manager, developer };
   }
 
   it('creates, reads, updates and soft-deletes a project as Manager', async () => {
@@ -117,11 +121,12 @@ describe('projects CRUD (integration)', () => {
   });
 
   it('adds and removes members; removing a member with open tasks and no reassignTo is a 409', async () => {
-    const { manager, developer } = await seedManagerAndDeveloper();
+    const { org, manager, developer } = await seedManagerAndDeveloper();
     const secondDeveloper = await seedUserAndLogin(app, {
       email: 'proj-developer-2@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const project = await createProject(app, manager.accessToken, { name: 'Membership Project' });
 

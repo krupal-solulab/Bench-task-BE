@@ -5,6 +5,7 @@ import { Model, Types } from 'mongoose';
 import { AppConfig } from '../../config/configuration';
 import { CacheService } from '../../redis/cache.service';
 import { buildDashboardCacheKey } from '../../common/utils/cache-key.util';
+import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { TaskStatus } from '../../common/enums/task-status.enum';
@@ -272,20 +273,26 @@ export class DashboardService {
   private async resolveScope(actingUser: AuthenticatedUser, projectId?: string) {
     const accessibleIds = await this.projectsService.getAccessibleProjectIds(actingUser);
 
-    if (projectId && accessibleIds && !accessibleIds.includes(projectId)) {
+    if (projectId && !accessibleIds.includes(projectId)) {
       throw new ForbiddenException('You do not have access to this project');
     }
 
     const scopedIds = projectId ? [projectId] : accessibleIds;
+    const objectIds = scopedIds.map((id) => new Types.ObjectId(id));
+    const organizationId = new Types.ObjectId(requireOrgId(actingUser));
 
-    const projectFilter: Record<string, unknown> = { deletedAt: null };
-    const taskFilter: Record<string, unknown> = { deletedAt: null };
-
-    if (scopedIds) {
-      const objectIds = scopedIds.map((id) => new Types.ObjectId(id));
-      projectFilter._id = { $in: objectIds };
-      taskFilter.project = { $in: objectIds };
-    }
+    const projectFilter: Record<string, unknown> = {
+      deletedAt: null,
+      organizationId,
+      _id: { $in: objectIds },
+    };
+    // organizationId is redundant with the project-id scoping above (accessibleIds is already
+    // org-scoped) but kept as a cheap, direct defense-in-depth clause on the Task collection.
+    const taskFilter: Record<string, unknown> = {
+      deletedAt: null,
+      organizationId,
+      project: { $in: objectIds },
+    };
 
     if (actingUser.role === Role.DEVELOPER) {
       taskFilter.assignee = new Types.ObjectId(actingUser.id);

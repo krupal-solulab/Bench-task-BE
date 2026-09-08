@@ -37,13 +37,23 @@ describe('RolesGuard', () => {
 
   it('allows any authenticated user when the route has no @Roles() decorator', () => {
     mockMetadata(false, undefined);
-    const user: AuthenticatedUser = { id: 'u1', email: 'a@a.com', role: Role.DEVELOPER };
+    const user: AuthenticatedUser = {
+      id: 'u1',
+      email: 'a@a.com',
+      role: Role.DEVELOPER,
+      organizationId: 'org-1',
+    };
     expect(guard.canActivate(makeContext(user))).toBe(true);
   });
 
   it('allows any authenticated user when @Roles() is an empty array', () => {
     mockMetadata(false, []);
-    const user: AuthenticatedUser = { id: 'u1', email: 'a@a.com', role: Role.DEVELOPER };
+    const user: AuthenticatedUser = {
+      id: 'u1',
+      email: 'a@a.com',
+      role: Role.DEVELOPER,
+      organizationId: 'org-1',
+    };
     expect(guard.canActivate(makeContext(user))).toBe(true);
   });
 
@@ -60,13 +70,23 @@ describe('RolesGuard', () => {
     [Role.DEVELOPER, [Role.DEVELOPER], true],
   ])('user role %s against @Roles(%p) -> allowed=%p', (userRole, requiredRoles, allowed) => {
     mockMetadata(false, requiredRoles as Role[]);
-    const user: AuthenticatedUser = { id: 'u1', email: 'a@a.com', role: userRole as Role };
+    const user: AuthenticatedUser = {
+      id: 'u1',
+      email: 'a@a.com',
+      role: userRole as Role,
+      organizationId: 'org-1',
+    };
     expect(guard.canActivate(makeContext(user))).toBe(allowed);
   });
 
   it('denies a role that is not one of the known enum values gracefully (no match, no throw)', () => {
     mockMetadata(false, [Role.ADMIN]);
-    const user = { id: 'u1', email: 'a@a.com', role: 'SuperAdmin' as Role };
+    const user = {
+      id: 'u1',
+      email: 'a@a.com',
+      role: 'SuperAdmin' as Role,
+      organizationId: 'org-1',
+    };
     let result: boolean | undefined;
     expect(() => (result = guard.canActivate(makeContext(user)))).not.toThrow();
     expect(result).toBe(false);

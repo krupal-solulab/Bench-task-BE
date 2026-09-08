@@ -7,6 +7,7 @@ import { AppConfig } from '../../config/configuration';
 import { Role } from '../../common/enums/role.enum';
 import { TaskStatus } from '../../common/enums/task-status.enum';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
+import { extractId } from '../../common/utils/mongo.util';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
 import { UsersRepository } from './users.repository';
@@ -35,7 +36,7 @@ export class UsersService {
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
   ) {}
 
-  async create(dto: CreateUserDto): Promise<UserDocument> {
+  async create(dto: CreateUserDto, organizationId: string): Promise<UserDocument> {
     await this.assertEmailAvailable(dto.email);
     const passwordHash = await this.hashPassword(dto.password);
     return this.usersRepository.create({
@@ -43,17 +44,7 @@ export class UsersService {
       email: dto.email.toLowerCase(),
       passwordHash,
       role: dto.role,
-    });
-  }
-
-  async registerSelf(name: string, email: string, password: string): Promise<UserDocument> {
-    await this.assertEmailAvailable(email);
-    const passwordHash = await this.hashPassword(password);
-    return this.usersRepository.create({
-      name,
-      email: email.toLowerCase(),
-      passwordHash,
-      role: Role.DEVELOPER,
+      organizationId: new Types.ObjectId(organizationId),
     });
   }
 
@@ -67,16 +58,33 @@ export class UsersService {
     return user;
   }
 
-  async paginate(query: ListUsersDto): Promise<PaginatedResponseDto<UserDocument>> {
-    const { data, total } = await this.usersRepository.paginate(query);
+  /**
+   * Same as findByIdOrThrow, but for admin-facing lookups of *another* user: throws
+   * NotFoundException (not Forbidden) on a cross-org id, so a cross-org guess is
+   * indistinguishable from "no such user at all" rather than confirming the id exists elsewhere.
+   */
+  async findByIdInOrgOrThrow(id: string, organizationId: string): Promise<UserDocument> {
+    const user = await this.findByIdOrThrow(id);
+    if (extractId(user.organizationId) !== organizationId) {
+      throw new NotFoundException('User not found');
+    }
+    return user;
+  }
+
+  async paginate(
+    query: ListUsersDto,
+    organizationId: string,
+  ): Promise<PaginatedResponseDto<UserDocument>> {
+    const { data, total } = await this.usersRepository.paginate(query, organizationId);
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
   }
 
-  async assignable(): Promise<UserDocument[]> {
-    return this.usersRepository.findAssignable();
+  async assignable(organizationId: string): Promise<UserDocument[]> {
+    return this.usersRepository.findAssignable(organizationId);
   }
 
-  async update(id: string, dto: UpdateUserDto): Promise<UserDocument> {
+  async update(id: string, dto: UpdateUserDto, organizationId: string): Promise<UserDocument> {
+    await this.findByIdInOrgOrThrow(id, organizationId);
     if (dto.email) await this.assertEmailAvailable(dto.email, id);
     const updated = await this.usersRepository.updateById(id, {
       ...(dto.name ? { name: dto.name } : {}),
@@ -86,19 +94,31 @@ export class UsersService {
     return updated;
   }
 
-  async updateRole(id: string, role: Role, actingUserId: string): Promise<UserDocument> {
+  async updateRole(
+    id: string,
+    role: Role,
+    actingUserId: string,
+    organizationId: string,
+  ): Promise<UserDocument> {
     if (id === actingUserId) {
       throw new ConflictException('Admins cannot change their own role');
     }
+    await this.findByIdInOrgOrThrow(id, organizationId);
     const updated = await this.usersRepository.updateById(id, { role });
     if (!updated) throw new NotFoundException('User not found');
     return updated;
   }
 
-  async updateStatus(id: string, isActive: boolean, actingUserId: string): Promise<UserDocument> {
+  async updateStatus(
+    id: string,
+    isActive: boolean,
+    actingUserId: string,
+    organizationId: string,
+  ): Promise<UserDocument> {
     if (id === actingUserId && !isActive) {
       throw new ConflictException('Admins cannot deactivate themselves');
     }
+    await this.findByIdInOrgOrThrow(id, organizationId);
     const updated = await this.usersRepository.updateById(id, { isActive });
     if (!updated) throw new NotFoundException('User not found');
     return updated;
@@ -113,8 +133,8 @@ export class UsersService {
     await this.usersRepository.updateById(id, { passwordHash });
   }
 
-  async getWorkload(userId: string): Promise<UserWorkload> {
-    const user = await this.findByIdOrThrow(userId);
+  async getWorkload(userId: string, organizationId: string): Promise<UserWorkload> {
+    const user = await this.findByIdInOrgOrThrow(userId, organizationId);
     const [facetResult] = await this.taskModel.aggregate([
       { $match: { assignee: new Types.ObjectId(userId), deletedAt: null } },
       {

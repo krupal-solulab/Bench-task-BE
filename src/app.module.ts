@@ -12,9 +12,11 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { OrganizationScopeGuard } from './common/guards/organization-scope.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
+import { OrganizationsModule } from './modules/organizations/organizations.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { TasksModule } from './modules/tasks/tasks.module';
@@ -75,6 +77,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     RedisModule,
     HealthModule,
     UsersModule,
+    OrganizationsModule,
     AuthModule,
     ProjectsModule,
     TasksModule,
@@ -87,6 +90,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: OrganizationScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })

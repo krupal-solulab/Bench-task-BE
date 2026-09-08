@@ -72,6 +72,7 @@
             "in": "query",
             "schema": {
               "enum": [
+                "PlatformAdmin",
                 "Admin",
                 "Manager",
                 "Developer"
@@ -339,17 +340,298 @@
         ]
       }
     },
-    "/api/v1/auth/register": {
+    "/api/v1/platform/organizations": {
       "post": {
-        "operationId": "AuthController_register",
-        "summary": "Self-register (always created as Developer)",
+        "operationId": "PlatformOrganizationsController_create",
+        "summary": "Create an organization and its first Admin (PlatformAdmin only)",
         "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RegisterDto"
+                "$ref": "#/components/schemas/CreateOrganizationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "PlatformOrganizationsController_list",
+        "summary": "List organizations with user counts (PlatformAdmin only)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "Active",
+                "Suspended"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "name",
+                "status",
+                "createdAt"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/platform/organizations/{id}": {
+      "get": {
+        "operationId": "PlatformOrganizationsController_detail",
+        "summary": "Organization detail including its admins (PlatformAdmin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "PlatformOrganizationsController_rename",
+        "summary": "Rename an organization (PlatformAdmin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/platform/organizations/{id}/status": {
+      "patch": {
+        "operationId": "PlatformOrganizationsController_setStatus",
+        "summary": "Suspend or reactivate an organization (PlatformAdmin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/platform/organizations/{id}/admins": {
+      "post": {
+        "operationId": "PlatformOrganizationsController_addAdmin",
+        "summary": "Add another Admin to an organization (PlatformAdmin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddOrganizationAdminDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/platform/stats": {
+      "get": {
+        "operationId": "PlatformStatsController_stats",
+        "summary": "Platform-wide organization/user counts (PlatformAdmin only)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/register-organization": {
+      "post": {
+        "operationId": "AuthController_registerOrganization",
+        "summary": "Create a new organization and its first Admin (self-service)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationDto"
               }
             }
           }
@@ -2331,7 +2613,61 @@
           "isActive"
         ]
       },
-      "RegisterDto": {
+      "CreateOrganizationDto": {
+        "type": "object",
+        "properties": {
+          "organizationName": {
+            "type": "string",
+            "example": "Acme Inc"
+          },
+          "adminName": {
+            "type": "string",
+            "example": "Jane Doe"
+          },
+          "adminEmail": {
+            "type": "string",
+            "example": "jane@example.com"
+          },
+          "adminPassword": {
+            "type": "string",
+            "example": "Password123"
+          }
+        },
+        "required": [
+          "organizationName",
+          "adminName",
+          "adminEmail",
+          "adminPassword"
+        ]
+      },
+      "UpdateOrganizationDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Acme Inc"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateOrganizationStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "Active",
+              "Suspended"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "AddOrganizationAdminDto": {
         "type": "object",
         "properties": {
           "name": {
@@ -2345,15 +2681,6 @@
           "password": {
             "type": "string",
             "example": "Password123"
-          },
-          "role": {
-            "type": "string",
-            "enum": [
-              "Admin",
-              "Manager",
-              "Developer"
-            ],
-            "description": "Ignored — self-registration always creates a Developer."
           }
         },
         "required": [

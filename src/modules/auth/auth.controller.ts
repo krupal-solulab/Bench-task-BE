@@ -2,11 +2,12 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post } from '@nestj
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
+import { SharedRoute } from '../../common/decorators/shared-route.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { UsersService } from '../users/users.service';
+import { CreateOrganizationDto } from '../organizations/dto/create-organization.dto';
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -20,11 +21,11 @@ export class AuthController {
   ) {}
 
   @Public()
-  @Post('register')
+  @Post('register-organization')
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @ApiOperation({ summary: 'Self-register (always created as Developer)' })
-  async register(@Body() dto: RegisterDto) {
-    return this.authService.register(dto.name, dto.email, dto.password);
+  @ApiOperation({ summary: 'Create a new organization and its first Admin (self-service)' })
+  async registerOrganization(@Body() dto: CreateOrganizationDto) {
+    return this.authService.registerOrganization(dto);
   }
 
   @Public()
@@ -45,6 +46,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @SharedRoute()
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({ summary: "Revoke the current user's refresh tokens" })
@@ -53,6 +55,7 @@ export class AuthController {
   }
 
   @Post('logout-all')
+  @SharedRoute()
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Revoke every refresh token for the current user' })
@@ -61,6 +64,7 @@ export class AuthController {
   }
 
   @Get('me')
+  @SharedRoute()
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get the current authenticated user' })
   async me(@CurrentUser() user: AuthenticatedUser) {
@@ -68,6 +72,7 @@ export class AuthController {
   }
 
   @Patch('me/password')
+  @SharedRoute()
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Change own password (revokes all sessions on success)' })
   async changePassword(

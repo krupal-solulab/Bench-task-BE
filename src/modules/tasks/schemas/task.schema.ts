@@ -51,6 +51,11 @@ export class Task {
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
+  // Denormalized from the parent project (not the acting user) at creation time so it's
+  // always in sync, and so org-scoped queries against Task don't need to join through Project.
+  @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
+  organizationId!: Types.ObjectId;
+
   createdAt!: Date;
   updatedAt!: Date;
 }
@@ -64,3 +69,5 @@ TaskSchema.index({ dueDate: 1 });
 TaskSchema.index({ project: 1, status: 1 });
 TaskSchema.index({ assignee: 1, status: 1 });
 TaskSchema.index({ title: 'text', description: 'text' });
+TaskSchema.index({ organizationId: 1 });
+TaskSchema.index({ organizationId: 1, assignee: 1 });

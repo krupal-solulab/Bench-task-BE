@@ -7,6 +7,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
@@ -28,10 +29,12 @@ describe('pagination and filters (integration)', () => {
   });
 
   async function seedManager() {
+    const org = await seedOrganization(app);
     return seedUserAndLogin(app, {
       email: 'pag-manager@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
   }
 

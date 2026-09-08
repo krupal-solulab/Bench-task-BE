@@ -7,6 +7,7 @@ import { Role } from 'src/common/enums/role.enum';
 import { AuthService } from 'src/modules/auth/auth.service';
 import { AuthRepository } from 'src/modules/auth/auth.repository';
 import { UsersService } from 'src/modules/users/users.service';
+import { OrganizationsService } from 'src/modules/organizations/organizations.service';
 
 function makeUser(overrides: Record<string, unknown> = {}) {
   return {
@@ -15,6 +16,7 @@ function makeUser(overrides: Record<string, unknown> = {}) {
     role: Role.DEVELOPER,
     isActive: true,
     passwordHash: 'hashed',
+    organizationId: 'org-1',
     ...overrides,
   };
 }
@@ -23,12 +25,11 @@ describe('AuthService', () => {
   let usersService: jest.Mocked<
     Pick<
       UsersService,
-      | 'registerSelf'
-      | 'findByEmailWithPassword'
-      | 'validatePassword'
-      | 'findByIdOrThrow'
-      | 'setPassword'
+      'findByEmailWithPassword' | 'validatePassword' | 'findByIdOrThrow' | 'setPassword'
     >
+  >;
+  let organizationsService: jest.Mocked<
+    Pick<OrganizationsService, 'createWithAdmin' | 'assertActive'>
   >;
   let authRepository: jest.Mocked<
     Pick<
@@ -48,12 +49,16 @@ describe('AuthService', () => {
 
   beforeEach(() => {
     usersService = {
-      registerSelf: jest.fn(),
       findByEmailWithPassword: jest.fn(),
       validatePassword: jest.fn(),
       findByIdOrThrow: jest.fn(),
       setPassword: jest.fn(),
     } as unknown as typeof usersService;
+
+    organizationsService = {
+      createWithAdmin: jest.fn(),
+      assertActive: jest.fn().mockResolvedValue(undefined),
+    } as unknown as typeof organizationsService;
 
     authRepository = {
       create: jest.fn(),
@@ -73,25 +78,31 @@ describe('AuthService', () => {
 
     service = new AuthService(
       usersService as unknown as UsersService,
+      organizationsService as unknown as OrganizationsService,
       authRepository as unknown as AuthRepository,
       jwtService as unknown as JwtService,
       configService,
     );
   });
 
-  describe('register', () => {
-    it('registers the user and issues a fresh access/refresh token pair, never exposing the password hash', async () => {
-      const user = makeUser();
-      usersService.registerSelf.mockResolvedValue(user as never);
+  describe('registerOrganization', () => {
+    it('creates the organization and its admin, then issues a fresh token pair', async () => {
+      const admin = makeUser({ role: Role.ADMIN });
+      organizationsService.createWithAdmin.mockResolvedValue({
+        organization: { id: 'org-1' } as never,
+        admin: admin as never,
+      });
       authRepository.create.mockResolvedValue({} as never);
 
-      const result = await service.register('Dev One', 'dev@example.com', 'plain-password');
+      const dto = {
+        organizationName: 'Acme',
+        adminName: 'Dev One',
+        adminEmail: 'dev@example.com',
+        adminPassword: 'plain-password',
+      };
+      const result = await service.registerOrganization(dto);
 
-      expect(usersService.registerSelf).toHaveBeenCalledWith(
-        'Dev One',
-        'dev@example.com',
-        'plain-password',
-      );
+      expect(organizationsService.createWithAdmin).toHaveBeenCalledWith(dto, null);
       expect(result.accessToken).toBe('signed.jwt.token');
       expect(result.refreshToken).toEqual(expect.any(String));
       expect(result.refreshToken).not.toBe('plain-password');
@@ -121,6 +132,16 @@ describe('AuthService', () => {
       usersService.findByEmailWithPassword.mockResolvedValue(makeUser() as never);
       usersService.validatePassword.mockResolvedValue(false);
       await expect(service.login('dev@example.com', 'wrong')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects a correct password when the account organization is suspended', async () => {
+      usersService.findByEmailWithPassword.mockResolvedValue(makeUser() as never);
+      usersService.validatePassword.mockResolvedValue(true);
+      organizationsService.assertActive.mockRejectedValue(new Error('suspended'));
+
+      await expect(service.login('dev@example.com', 'correct')).rejects.toThrow(
         UnauthorizedException,
       );
     });
@@ -177,6 +198,16 @@ describe('AuthService', () => {
       usersService.findByIdOrThrow.mockResolvedValue(makeUser({ isActive: false }) as never);
 
       await expect(service.refresh('raw-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('rejects when the owning account organization has since been suspended', async () => {
+      const stored = makeStoredToken();
+      authRepository.findByHash.mockResolvedValue(stored as never);
+      usersService.findByIdOrThrow.mockResolvedValue(makeUser() as never);
+      organizationsService.assertActive.mockRejectedValue(new Error('suspended'));
+
+      await expect(service.refresh('raw-token')).rejects.toThrow(UnauthorizedException);
+      expect(authRepository.revokeById).not.toHaveBeenCalled();
     });
 
     it('rotates the token: revokes the old one and issues a new pair under the same family', async () => {

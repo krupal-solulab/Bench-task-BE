@@ -6,6 +6,8 @@ import { AppConfig } from '../../config/configuration';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 import { UsersService } from '../users/users.service';
 import { UserDocument } from '../users/schemas/user.schema';
+import { OrganizationsService } from '../organizations/organizations.service';
+import { CreateOrganizationDto } from '../organizations/dto/create-organization.dto';
 import { AuthRepository } from './auth.repository';
 import { parseDurationMs } from './utils/parse-duration.util';
 
@@ -18,19 +20,18 @@ export interface AuthTokens {
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
+    private readonly organizationsService: OrganizationsService,
     private readonly authRepository: AuthRepository,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AppConfig, true>,
   ) {}
 
-  async register(
-    name: string,
-    email: string,
-    password: string,
+  async registerOrganization(
+    dto: CreateOrganizationDto,
   ): Promise<AuthTokens & { user: UserDocument }> {
-    const user = await this.usersService.registerSelf(name, email, password);
-    const tokens = await this.issueTokens(user);
-    return { ...tokens, user };
+    const { admin } = await this.organizationsService.createWithAdmin(dto, null);
+    const tokens = await this.issueTokens(admin);
+    return { ...tokens, user: admin };
   }
 
   async login(email: string, password: string): Promise<AuthTokens & { user: UserDocument }> {
@@ -42,6 +43,9 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException('Invalid email or password');
     }
+    // Checked after credentials so a suspended org's user gets the same generic response as a
+    // wrong password would - not a distinct error that would confirm the org exists/is suspended.
+    await this.assertOrgActiveOrThrow(user);
     const tokens = await this.issueTokens(user, randomUUID());
     return { ...tokens, user };
   }
@@ -65,6 +69,7 @@ export class AuthService {
     if (!user.isActive) {
       throw new UnauthorizedException('Account is deactivated');
     }
+    await this.assertOrgActiveOrThrow(user);
 
     await this.authRepository.revokeById(stored._id);
     return this.issueTokens(user, stored.familyId);
@@ -92,7 +97,12 @@ export class AuthService {
     user: UserDocument,
     familyId: string = randomUUID(),
   ): Promise<AuthTokens> {
-    const payload: JwtPayload = { sub: user.id, email: user.email, role: user.role };
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId ? user.organizationId.toString() : null,
+    };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get('jwt.accessSecret', { infer: true }),
       expiresIn: this.configService.get('jwt.accessExpiresIn', { infer: true }),
@@ -112,5 +122,17 @@ export class AuthService {
 
   private hashToken(raw: string): string {
     return createHash('sha256').update(raw).digest('hex');
+  }
+
+  /** Login/refresh both fail closed with 401 (not 403) so a suspended org isn't distinguishable
+   * from any other authentication failure. */
+  private async assertOrgActiveOrThrow(user: UserDocument): Promise<void> {
+    try {
+      await this.organizationsService.assertActive(
+        user.organizationId ? user.organizationId.toString() : null,
+      );
+    } catch {
+      throw new UnauthorizedException('Organization is suspended');
+    }
   }
 }

@@ -36,6 +36,11 @@ export const envValidationSchema = Joi.object({
 
   SEED_ADMIN_EMAIL: Joi.string().email().required(),
   SEED_ADMIN_PASSWORD: Joi.string().min(8).required(),
+
+  // Bootstraps the first PlatformAdmin account (multi-tenancy retrofit) via the migration/seed
+  // scripts. Required in every environment, mirroring SEED_ADMIN_* above.
+  PLATFORM_ADMIN_EMAIL: Joi.string().email().required(),
+  PLATFORM_ADMIN_PASSWORD: Joi.string().min(8).required(),
 })
   .or('REDIS_URL', 'REDIS_HOST')
   .messages({

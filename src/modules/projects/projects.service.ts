@@ -11,6 +11,7 @@ import { CacheService } from '../../redis/cache.service';
 import { dashboardCachePattern } from '../../common/utils/cache-key.util';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { extractId } from '../../common/utils/mongo.util';
+import { requireOrgId } from '../../common/utils/auth-user.util';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { Role } from '../../common/enums/role.enum';
@@ -61,18 +62,25 @@ export class ProjectsService {
   ) {}
 
   async create(dto: CreateProjectDto, actingUser: AuthenticatedUser): Promise<ProjectResponse> {
+    const organizationId = requireOrgId(actingUser);
     let ownerId = actingUser.id;
 
     if (actingUser.role === Role.ADMIN && dto.owner) {
       const owner = await this.usersRepository.findById(dto.owner);
-      if (!owner || ![Role.ADMIN, Role.MANAGER].includes(owner.role)) {
-        throw new BadRequestException('owner must be an existing Admin or Manager');
+      if (
+        !owner ||
+        ![Role.ADMIN, Role.MANAGER].includes(owner.role) ||
+        extractId(owner.organizationId) !== organizationId
+      ) {
+        throw new BadRequestException(
+          'owner must be an existing Admin or Manager in your organization',
+        );
       }
       ownerId = owner.id;
     }
 
     if (dto.memberIds?.length) {
-      await this.assertActiveDevelopers(dto.memberIds);
+      await this.assertActiveDevelopers(dto.memberIds, organizationId);
     }
 
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
@@ -85,6 +93,7 @@ export class ProjectsService {
       owner: new Types.ObjectId(ownerId) as unknown as Types.ObjectId,
       startDate,
       dueDate,
+      organizationId: new Types.ObjectId(organizationId),
       members: (dto.memberIds ?? []).map((id) => ({
         user: new Types.ObjectId(id),
         joinedAt: new Date(),
@@ -209,7 +218,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
-    await this.assertActiveDevelopers(userIds);
+    await this.assertActiveDevelopers(userIds, requireOrgId(actingUser));
     await this.projectsRepository.addMembers(id, userIds);
     const updated = await this.projectsRepository.findByIdActive(id);
     return this.toResponse(updated!);
@@ -327,8 +336,7 @@ export class ProjectsService {
   }
 
   /** Public wrapper for cross-module use (Tasks/Comments scoping tasks by accessible projects). */
-  async getAccessibleProjectIds(actingUser: AuthenticatedUser): Promise<string[] | null> {
-    if (actingUser.role === Role.ADMIN) return null;
+  async getAccessibleProjectIds(actingUser: AuthenticatedUser): Promise<string[]> {
     const scope = this.buildScopeFilter(actingUser);
     const projects = await this.projectsRepository.paginate(
       { page: 1, limit: 10_000, sortBy: 'createdAt', sortOrder: 'desc' } as ListProjectsDto,
@@ -354,33 +362,43 @@ export class ProjectsService {
   }
 
   private buildScopeFilter(actingUser: AuthenticatedUser) {
-    if (actingUser.role === Role.ADMIN) return {};
+    const organizationId = new Types.ObjectId(requireOrgId(actingUser));
+    if (actingUser.role === Role.ADMIN) return { organizationId };
     if (actingUser.role === Role.MANAGER) {
       return {
+        organizationId,
         $or: [
           { owner: new Types.ObjectId(actingUser.id) },
           { 'members.user': new Types.ObjectId(actingUser.id) },
         ],
       };
     }
-    return { 'members.user': new Types.ObjectId(actingUser.id) };
+    return { organizationId, 'members.user': new Types.ObjectId(actingUser.id) };
   }
 
   private assertCanView(project: ProjectDocument, actingUser: AuthenticatedUser): void {
-    if (actingUser.role === Role.ADMIN) return;
+    if (this.isSameOrgAdmin(project, actingUser)) return;
     if (this.projectsRepository.isMember(project, actingUser.id)) return;
     throw new ForbiddenException('You do not have access to this project');
   }
 
   private assertCanManage(project: ProjectDocument, actingUser: AuthenticatedUser): void {
-    if (actingUser.role === Role.ADMIN) return;
+    if (this.isSameOrgAdmin(project, actingUser)) return;
     const ownerId = extractId(project.owner);
     if (actingUser.role === Role.MANAGER && ownerId === actingUser.id) return;
     throw new ForbiddenException('You do not have permission to manage this project');
   }
 
-  private async assertActiveDevelopers(userIds: string[]): Promise<void> {
-    const users = await this.usersRepository.findByIds(userIds);
+  /** An Admin bypasses ownership/membership checks, but only within their own organization. */
+  private isSameOrgAdmin(project: ProjectDocument, actingUser: AuthenticatedUser): boolean {
+    return (
+      actingUser.role === Role.ADMIN &&
+      extractId(project.organizationId) === requireOrgId(actingUser)
+    );
+  }
+
+  private async assertActiveDevelopers(userIds: string[], organizationId: string): Promise<void> {
+    const users = await this.usersRepository.findByIds(userIds, organizationId);
     if (users.length !== userIds.length) {
       throw new BadRequestException('One or more member ids do not exist');
     }

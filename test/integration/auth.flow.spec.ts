@@ -5,6 +5,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUser,
   seedUserAndLogin,
   authHeader,
@@ -26,15 +27,22 @@ describe('auth flow (integration)', () => {
     await clearInMemoryMongo();
   });
 
-  it('register -> login -> access protected route -> refresh rotates the token -> old refresh token is rejected -> logout revokes the rest', async () => {
+  it('register-organization -> login -> access protected route -> refresh rotates the token -> old refresh token is rejected -> logout revokes the rest', async () => {
+    const organizationName = 'Flow Org';
     const email = 'flow@example.com';
     const password = 'Password123';
 
-    const registerRes = await api(app)
-      .post(`/${API_PREFIX}/auth/register`)
-      .send({ name: 'Flow User', email, password });
+    const registerRes = await api(app).post(`/${API_PREFIX}/auth/register-organization`).send({
+      organizationName,
+      adminName: 'Flow User',
+      adminEmail: email,
+      adminPassword: password,
+    });
     expect(registerRes.status).toBe(201);
-    expect(registerRes.body.data.user.role).toBe(Role.DEVELOPER);
+    // POST /auth/register (self-register as a plain Developer) is gone; the only public
+    // registration entry point now creates a brand-new organization and its first Admin.
+    expect(registerRes.body.data.user.role).toBe(Role.ADMIN);
+    expect(registerRes.body.data.user.organizationId).toEqual(expect.any(String));
 
     const loginRes = await api(app).post(`/${API_PREFIX}/auth/login`).send({ email, password });
     expect(loginRes.status).toBe(200);
@@ -75,10 +83,12 @@ describe('auth flow (integration)', () => {
   });
 
   it('rejects a wrong password on login', async () => {
+    const org = await seedOrganization(app);
     await seedUser(app, {
       email: 'wrongpass@example.com',
       password: 'Correct123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const res = await api(app)
       .post(`/${API_PREFIX}/auth/login`)
@@ -87,10 +97,12 @@ describe('auth flow (integration)', () => {
   });
 
   it('rejects login for a deactivated user', async () => {
+    const org = await seedOrganization(app);
     await seedUser(app, {
       email: 'deactivated@example.com',
       password: 'Correct123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
       isActive: false,
     });
     const res = await api(app)
@@ -100,21 +112,31 @@ describe('auth flow (integration)', () => {
   });
 
   it('rejects registration with a duplicate email', async () => {
-    await api(app)
-      .post(`/${API_PREFIX}/auth/register`)
-      .send({ name: 'First', email: 'dupe@example.com', password: 'Password123' });
-    const res = await api(app)
-      .post(`/${API_PREFIX}/auth/register`)
-      .send({ name: 'Second', email: 'dupe@example.com', password: 'Password123' });
+    // Email uniqueness is global, not per-organization, so registering a second, entirely
+    // separate organization with the same adminEmail must still 409.
+    await api(app).post(`/${API_PREFIX}/auth/register-organization`).send({
+      organizationName: 'Dupe Org One',
+      adminName: 'First',
+      adminEmail: 'dupe@example.com',
+      adminPassword: 'Password123',
+    });
+    const res = await api(app).post(`/${API_PREFIX}/auth/register-organization`).send({
+      organizationName: 'Dupe Org Two',
+      adminName: 'Second',
+      adminEmail: 'dupe@example.com',
+      adminPassword: 'Password123',
+    });
     expect(res.status).toBe(409);
   });
 
   it('GET /auth/me returns the expected shape', async () => {
+    const org = await seedOrganization(app);
     const { accessToken, userDoc } = await seedUserAndLogin(app, {
       name: 'Shape Check',
       email: 'shape@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const res = await api(app)
       .get(`/${API_PREFIX}/auth/me`)
@@ -132,10 +154,12 @@ describe('auth flow (integration)', () => {
 
   describe('PATCH /auth/me/password', () => {
     it('rejects with 409 when the current password is wrong', async () => {
+      const org = await seedOrganization(app);
       const { accessToken } = await seedUserAndLogin(app, {
         email: 'changepass1@example.com',
         password: 'OldPass123',
         role: Role.DEVELOPER,
+        organizationId: org.id,
       });
       const res = await api(app)
         .patch(`/${API_PREFIX}/auth/me/password`)
@@ -145,10 +169,12 @@ describe('auth flow (integration)', () => {
     });
 
     it('changes the password and revokes all sessions on success', async () => {
+      const org = await seedOrganization(app);
       const { accessToken, refreshToken } = await seedUserAndLogin(app, {
         email: 'changepass2@example.com',
         password: 'OldPass123',
         role: Role.DEVELOPER,
+        organizationId: org.id,
       });
 
       const res = await api(app)

@@ -7,6 +7,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
@@ -36,15 +37,18 @@ describe('dashboard (integration)', () => {
    * So: totalTasks=4, completedTasks=1, openTasks=3, completionRate=25.
    */
   async function seedDashboardFixture() {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'dash-manager@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const developer = await seedUserAndLogin(app, {
       email: 'dash-developer@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const project = await createProject(app, manager.accessToken, {
       name: 'Dashboard Fixture Project',

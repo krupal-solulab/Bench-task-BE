@@ -55,6 +55,9 @@ export class Project {
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
+  @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
+  organizationId!: Types.ObjectId;
+
   createdAt!: Date;
   updatedAt!: Date;
 }
@@ -66,3 +69,5 @@ ProjectSchema.index({ status: 1 });
 ProjectSchema.index({ 'members.user': 1 });
 ProjectSchema.index({ deletedAt: 1 });
 ProjectSchema.index({ name: 'text' });
+ProjectSchema.index({ organizationId: 1 });
+ProjectSchema.index({ organizationId: 1, status: 1 });

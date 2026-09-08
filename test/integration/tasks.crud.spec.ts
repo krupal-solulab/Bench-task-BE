@@ -7,6 +7,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
@@ -28,26 +29,30 @@ describe('tasks CRUD (integration)', () => {
   });
 
   async function seedFixtures() {
+    const org = await seedOrganization(app);
     const manager = await seedUserAndLogin(app, {
       email: 'task-manager@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const developer = await seedUserAndLogin(app, {
       email: 'task-developer@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const otherDeveloper = await seedUserAndLogin(app, {
       email: 'task-developer-2@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const project = await createProject(app, manager.accessToken, {
       name: 'Task CRUD Project',
       memberIds: [developer.userDoc.id, otherDeveloper.userDoc.id],
     });
-    return { manager, developer, otherDeveloper, project };
+    return { org, manager, developer, otherDeveloper, project };
   }
 
   it('creates, updates and soft-deletes a task as Manager', async () => {
@@ -155,11 +160,12 @@ describe('tasks CRUD (integration)', () => {
   });
 
   it('reassigning a task requires the new assignee to be a project member', async () => {
-    const { manager, developer, project } = await seedFixtures();
+    const { org, manager, developer, project } = await seedFixtures();
     const outsider = await seedUserAndLogin(app, {
       email: 'task-outsider@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const task = await createTask(app, manager.accessToken, {
       title: 'Reassignment task',

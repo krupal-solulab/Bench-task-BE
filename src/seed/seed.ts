@@ -7,9 +7,15 @@ import configuration from '../config/configuration';
 loadEnv();
 import { Role } from '../common/enums/role.enum';
 import { TaskPriority } from '../common/enums/task-priority.enum';
+import { OrganizationStatus } from '../common/enums/organization-status.enum';
 import { User, UserSchema } from '../modules/users/schemas/user.schema';
 import { Project, ProjectSchema } from '../modules/projects/schemas/project.schema';
 import { Task, TaskSchema } from '../modules/tasks/schemas/task.schema';
+import {
+  Organization,
+  OrganizationDocument,
+  OrganizationSchema,
+} from '../modules/organizations/schemas/organization.schema';
 
 const config = configuration();
 
@@ -19,6 +25,7 @@ async function upsertUser(
   email: string,
   password: string,
   role: Role,
+  organizationId: mongoose.Types.ObjectId | null,
 ) {
   const existing = await model.findOne({ email });
   if (existing) {
@@ -26,7 +33,14 @@ async function upsertUser(
     return existing;
   }
   const passwordHash = await bcrypt.hash(password, config.bcryptSaltRounds);
-  const user = await model.create({ name, email, passwordHash, role, isActive: true });
+  const user = await model.create({
+    name,
+    email,
+    passwordHash,
+    role,
+    organizationId,
+    isActive: true,
+  });
   console.log(`created: ${email} (${role})`);
   return user;
 }
@@ -35,16 +49,41 @@ async function main() {
   await mongoose.connect(config.mongo.uri, { dbName: config.mongo.dbName });
   console.log(`connected to ${config.mongo.uri}/${config.mongo.dbName}`);
 
+  const OrganizationModel = mongoose.model(Organization.name, OrganizationSchema);
   const UserModel = mongoose.model(User.name, UserSchema);
   const ProjectModel = mongoose.model(Project.name, ProjectSchema);
   const TaskModel = mongoose.model(Task.name, TaskSchema);
 
+  // Distinct name/slug from migrate-to-multi-tenant.ts's "Default Organization" - that script
+  // retrofits an existing single-tenant database, this one seeds a fresh dev database, and the
+  // two should never be confused for one another.
+  let demoOrg: OrganizationDocument | null = await OrganizationModel.findOne({ slug: 'demo' });
+  if (!demoOrg) {
+    demoOrg = await OrganizationModel.create({
+      name: 'Demo Organization',
+      slug: 'demo',
+      status: OrganizationStatus.ACTIVE,
+    });
+    console.log(`created: Demo Organization (${demoOrg.id})`);
+  } else {
+    console.log(`skip (exists): Demo Organization (${demoOrg.id})`);
+  }
+
+  await upsertUser(
+    UserModel,
+    'Platform Admin',
+    config.platformAdmin.email,
+    config.platformAdmin.password,
+    Role.PLATFORM_ADMIN,
+    null,
+  );
   await upsertUser(
     UserModel,
     'Admin User',
     config.seedAdmin.email,
     config.seedAdmin.password,
     Role.ADMIN,
+    demoOrg._id,
   );
   const manager = await upsertUser(
     UserModel,
@@ -52,6 +91,7 @@ async function main() {
     'manager@example.com',
     'Manager@12345',
     Role.MANAGER,
+    demoOrg._id,
   );
   const developer = await upsertUser(
     UserModel,
@@ -59,6 +99,7 @@ async function main() {
     'developer@example.com',
     'Developer@12345',
     Role.DEVELOPER,
+    demoOrg._id,
   );
 
   const existingProject = await ProjectModel.findOne({ name: 'Demo Project' });
@@ -73,6 +114,7 @@ async function main() {
       members: [{ user: developer._id, joinedAt: new Date() }],
       startDate: new Date(),
       dueDate,
+      organizationId: demoOrg._id,
     });
 
     await TaskModel.create([
@@ -83,6 +125,7 @@ async function main() {
         assignee: developer._id,
         priority: TaskPriority.P2,
         createdBy: manager._id,
+        organizationId: demoOrg._id,
       },
       {
         title: 'Design the database schema',
@@ -91,6 +134,7 @@ async function main() {
         assignee: developer._id,
         priority: TaskPriority.P1,
         createdBy: manager._id,
+        organizationId: demoOrg._id,
       },
     ]);
     console.log('created: Demo Project with 2 sample tasks');
@@ -99,9 +143,10 @@ async function main() {
   }
 
   console.log('\nDemo credentials:');
-  console.log(`  Admin:     ${config.seedAdmin.email} / ${config.seedAdmin.password}`);
-  console.log('  Manager:   manager@example.com / Manager@12345');
-  console.log('  Developer: developer@example.com / Developer@12345');
+  console.log(`  Platform Admin: ${config.platformAdmin.email} / ${config.platformAdmin.password}`);
+  console.log(`  Admin:          ${config.seedAdmin.email} / ${config.seedAdmin.password}`);
+  console.log('  Manager:        manager@example.com / Manager@12345');
+  console.log('  Developer:      developer@example.com / Developer@12345');
 
   await mongoose.disconnect();
 }

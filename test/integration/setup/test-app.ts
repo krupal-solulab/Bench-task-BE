@@ -5,12 +5,17 @@ import { getModelToken } from '@nestjs/mongoose';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import * as bcrypt from 'bcrypt';
 import request from 'supertest';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { AppModule } from 'src/app.module';
 import { AppConfig } from 'src/config/configuration';
 import { REDIS_CLIENT } from 'src/redis/redis.constants';
 import { Role } from 'src/common/enums/role.enum';
+import { OrganizationStatus } from 'src/common/enums/organization-status.enum';
 import { User, UserDocument } from 'src/modules/users/schemas/user.schema';
+import {
+  Organization,
+  OrganizationDocument,
+} from 'src/modules/organizations/schemas/organization.schema';
 import {
   startInMemoryMongo,
   stopInMemoryMongo,
@@ -60,6 +65,8 @@ export async function createTestApp(): Promise<TestAppContext> {
   process.env.SWAGGER_ENABLED = 'false';
   process.env.SEED_ADMIN_EMAIL = 'seed-admin@example.com';
   process.env.SEED_ADMIN_PASSWORD = 'SeedAdmin123';
+  process.env.PLATFORM_ADMIN_EMAIL = 'platform-admin@example.com';
+  process.env.PLATFORM_ADMIN_PASSWORD = 'PlatformAdmin123';
 
   const fakeRedis = new FakeRedis();
 
@@ -116,13 +123,16 @@ export interface SeedUserOptions {
   email: string;
   password: string;
   role: Role;
+  /** Required for every role except PlatformAdmin, who must pass null explicitly. */
+  organizationId: string | null;
   isActive?: boolean;
 }
 
 /**
  * Inserts a user directly via the Mongoose model with a pre-hashed password, bypassing the
- * "register always creates a Developer" rule so specs can cheaply get Admin/Manager fixtures.
- * The real login flow (POST /auth/login) is still used afterwards to obtain a genuine token.
+ * admin-provisioning API so specs can cheaply get Admin/Manager/Developer/PlatformAdmin fixtures
+ * in any organization. The real login flow (POST /auth/login) is still used afterwards to obtain
+ * a genuine token.
  */
 export async function seedUser(
   app: INestApplication,
@@ -135,7 +145,27 @@ export async function seedUser(
     email: options.email.toLowerCase(),
     passwordHash,
     role: options.role,
+    // Cast explicitly to an ObjectId rather than relying on Mongoose's implicit-cast-on-save:
+    // the real create paths (UsersService.create / OrganizationsService.createWithAdmin) always
+    // pass an already-constructed ObjectId, so this keeps directly-seeded fixtures identical to
+    // what production code writes (important for org-scoped queries that filter by an exact
+    // ObjectId value against this field).
+    organizationId: options.organizationId ? new Types.ObjectId(options.organizationId) : null,
     isActive: options.isActive ?? true,
+  });
+}
+
+/** Inserts an Organization directly via the Mongoose model. */
+export async function seedOrganization(
+  app: INestApplication,
+  options: { name?: string; slug?: string; status?: OrganizationStatus } = {},
+): Promise<OrganizationDocument> {
+  const model = app.get<Model<OrganizationDocument>>(getModelToken(Organization.name));
+  const unique = Math.random().toString(36).slice(2, 10);
+  return model.create({
+    name: options.name ?? `Test Org ${unique}`,
+    slug: options.slug ?? `test-org-${unique}`,
+    status: options.status ?? OrganizationStatus.ACTIVE,
   });
 }
 
@@ -169,15 +199,25 @@ export async function seedUserAndLogin(
   return { ...tokens, userDoc };
 }
 
-/** Registers a brand-new Developer through the public endpoint and logs them in via the token issued at registration. */
-export async function registerAndLogin(
+/**
+ * Registers a brand-new organization (and its first Admin) through the public endpoint and logs
+ * in via the token issued at registration.
+ */
+export async function registerOrganizationAndLogin(
   app: INestApplication,
-  options: { name: string; email: string; password: string },
+  options: {
+    organizationName: string;
+    adminName: string;
+    adminEmail: string;
+    adminPassword: string;
+  },
 ): Promise<AuthTokensAndUser> {
-  const res = await request(app.getHttpServer()).post(`/${API_PREFIX}/auth/register`).send(options);
+  const res = await request(app.getHttpServer())
+    .post(`/${API_PREFIX}/auth/register-organization`)
+    .send(options);
   if (res.status !== 201 && res.status !== 200) {
     throw new Error(
-      `register failed for ${options.email}: ${res.status} ${JSON.stringify(res.body)}`,
+      `register-organization failed for ${options.adminEmail}: ${res.status} ${JSON.stringify(res.body)}`,
     );
   }
   return res.body.data as AuthTokensAndUser;

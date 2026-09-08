@@ -32,6 +32,10 @@ export interface AppConfig {
     email: string;
     password: string;
   };
+  platformAdmin: {
+    email: string;
+    password: string;
+  };
 }
 
 export default (): AppConfig => ({
@@ -67,5 +71,9 @@ export default (): AppConfig => ({
   seedAdmin: {
     email: process.env.SEED_ADMIN_EMAIL ?? '',
     password: process.env.SEED_ADMIN_PASSWORD ?? '',
+  },
+  platformAdmin: {
+    email: process.env.PLATFORM_ADMIN_EMAIL ?? '',
+    password: process.env.PLATFORM_ADMIN_PASSWORD ?? '',
   },
 });

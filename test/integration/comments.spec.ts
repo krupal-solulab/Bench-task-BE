@@ -6,6 +6,7 @@ import {
   createTestApp,
   closeTestApp,
   clearInMemoryMongo,
+  seedOrganization,
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
@@ -27,25 +28,30 @@ describe('comments (integration)', () => {
   });
 
   async function seedFixtures() {
+    const org = await seedOrganization(app);
     const admin = await seedUserAndLogin(app, {
       email: 'comment-admin@example.com',
       password: 'Password123',
       role: Role.ADMIN,
+      organizationId: org.id,
     });
     const manager = await seedUserAndLogin(app, {
       email: 'comment-manager@example.com',
       password: 'Password123',
       role: Role.MANAGER,
+      organizationId: org.id,
     });
     const member = await seedUserAndLogin(app, {
       email: 'comment-member@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const nonMember = await seedUserAndLogin(app, {
       email: 'comment-nonmember@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     const project = await createProject(app, manager.accessToken, {
       name: 'Comments Project',
@@ -56,7 +62,7 @@ describe('comments (integration)', () => {
       project: project.id,
       priority: TaskPriority.P2,
     });
-    return { admin, manager, member, nonMember, project, task };
+    return { org, admin, manager, member, nonMember, project, task };
   }
 
   it('a project member can post and list comments on a task', async () => {
@@ -118,13 +124,14 @@ describe('comments (integration)', () => {
   });
 
   it("another non-admin project member gets 403 editing or deleting someone else's comment", async () => {
-    const { manager, member, project, task } = await seedFixtures();
+    const { org, manager, member, project, task } = await seedFixtures();
     // Add the manager as an explicit member too so they can view/comment, to isolate the
     // "not the author, not Admin" check rather than a membership check.
     const otherMember = await seedUserAndLogin(app, {
       email: 'comment-other-member@example.com',
       password: 'Password123',
       role: Role.DEVELOPER,
+      organizationId: org.id,
     });
     await api(app)
       .post(`/${API_PREFIX}/projects/${project.id}/members`)

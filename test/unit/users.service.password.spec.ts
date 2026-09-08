@@ -30,10 +30,19 @@ describe('UsersService password handling', () => {
     );
   });
 
+  const ORG_ID = '507f1f77bcf86cd799439011';
+  const OTHER_ORG_ID = '507f1f77bcf86cd799439022';
+  const dto = {
+    name: 'Dev One',
+    email: 'dev@example.com',
+    password: 'super-secret-plain',
+    role: Role.DEVELOPER as const,
+  };
+
   it('never persists the plaintext password: passwordHash is a bcrypt digest, not the raw value', async () => {
     usersRepository.create.mockResolvedValue({ id: 'user-1' } as never);
 
-    await service.registerSelf('Dev One', 'dev@example.com', 'super-secret-plain');
+    await service.create(dto, ORG_ID);
 
     const createArg = usersRepository.create.mock.calls[0][0] as { passwordHash: string };
     expect(createArg.passwordHash).not.toBe('super-secret-plain');
@@ -41,9 +50,9 @@ describe('UsersService password handling', () => {
     await expect(bcrypt.compare('super-secret-plain', createArg.passwordHash)).resolves.toBe(true);
   });
 
-  it('rejects registration when the email is already taken, without hashing anything', async () => {
+  it('rejects creation when the email is already taken, without hashing anything', async () => {
     usersRepository.findByEmail.mockResolvedValue({ id: 'existing' } as never);
-    await expect(service.registerSelf('Dev Two', 'taken@example.com', 'whatever')).rejects.toThrow(
+    await expect(service.create({ ...dto, email: 'taken@example.com' }, ORG_ID)).rejects.toThrow(
       ConflictException,
     );
     expect(usersRepository.create).not.toHaveBeenCalled();
@@ -66,10 +75,10 @@ describe('UsersService password handling', () => {
     });
   });
 
-  it('gives Developer role to self-registered users regardless of anything else', async () => {
+  it('stamps the given organizationId onto the created user, regardless of the acting org', async () => {
     usersRepository.create.mockResolvedValue({ id: 'user-1' } as never);
-    await service.registerSelf('Dev One', 'dev@example.com', 'password123');
-    const createArg = usersRepository.create.mock.calls[0][0] as { role: Role };
-    expect(createArg.role).toBe(Role.DEVELOPER);
+    await service.create(dto, OTHER_ORG_ID);
+    const createArg = usersRepository.create.mock.calls[0][0] as { organizationId: unknown };
+    expect(createArg.organizationId?.toString()).toBe(OTHER_ORG_ID);
   });
 });

@@ -23,6 +23,7 @@
     "test:cov": "jest --config jest.config.ts --coverage --passWithNoTests",
     "test:watch": "jest --config jest.config.ts --watch",
     "seed": "ts-node -r tsconfig-paths/register src/seed/seed.ts",
+    "migrate:multi-tenant": "ts-node -r tsconfig-paths/register src/seed/migrate-to-multi-tenant.ts",
     "prepare": "husky"
   },
   "dependencies": {
