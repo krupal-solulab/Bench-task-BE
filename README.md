@@ -122,7 +122,6 @@ npm run start:dev
 | `JWT_REFRESH_SECRET` | yes | — | Refresh token signing secret |
 | `JWT_REFRESH_EXPIRES_IN` | no | `7d` | Refresh token lifetime |
 | `BCRYPT_SALT_ROUNDS` | no | `12` | bcrypt cost factor |
-| `CORS_ORIGIN` | yes | — | Allowed CORS origin (frontend URL) |
 | `LOG_LEVEL` | no | `info` | Pino log level |
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | no | `60` / `100` | Global rate limit window (s) / requests |
 | `AUTH_THROTTLE_LIMIT` | no | `5` | Stricter limit on `/auth/login`, `/auth/register` |
@@ -454,6 +453,7 @@ Phase 1 ships the harness (`jest.config.ts`, `test/setup/mongo-memory.setup.ts`)
 - **`/health` bypasses the global success envelope** via a `@RawResponse()` decorator so its body shape matches the brief exactly (`{ status, uptime, ... }`), since Docker's healthcheck and CI smoke tests read it directly.
 - **CI coverage step is `continue-on-error` through Phase 5** — the brief's own build order fills coverage incrementally per module; gating on 80% before any tests exist would make every early-phase CI run red for no useful reason. It becomes a hard gate in Phase 6 per the acceptance criteria in §14 of the brief.
 - **Docker Compose network is project-local by default**, not `external`, so `docker compose up` works standalone with zero prerequisites; joining it with the frontend's compose file via a shared external network is documented as an opt-in step (§5).
+- **CORS is hardcoded wide-open (`origin: '*'`) in `main.ts`, not env-driven.** By explicit request, `CORS_ORIGIN` was removed from config/env validation entirely rather than kept as an unused variable. Safe here because auth is a Bearer token in the `Authorization` header (no cookies, so `credentials: true` was dropped too — it's invalid alongside a wildcard origin anyway). If the API later needs cookie-based auth or origin restriction, reintroduce a proper allowlist instead of a wildcard.
 
 ## 19. Frontend Repo
 

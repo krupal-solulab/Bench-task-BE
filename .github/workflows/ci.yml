@@ -43,7 +43,6 @@ jobs:
       JWT_REFRESH_SECRET: ci_refresh_secret_please_replace_me
       JWT_REFRESH_EXPIRES_IN: 7d
       BCRYPT_SALT_ROUNDS: 4
-      CORS_ORIGIN: http://localhost:5173
       LOG_LEVEL: silent
       THROTTLE_TTL: 60
       THROTTLE_LIMIT: 1000

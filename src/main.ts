@@ -19,12 +19,10 @@ async function bootstrap(): Promise<void> {
   app.setGlobalPrefix(apiPrefix);
 
   app.use(helmet());
-  app.enableCors({
-    origin: configService.get('corsOrigin', { infer: true }),
-    credentials: true,
-  });
-  // origin accepts a string[] here (CORS_ORIGIN is comma-separated), so Vite's
-  // auto-incremented dev port (5173 -> 5174 when the first is taken) doesn't break CORS.
+  // CORS is intentionally wide open (not env-driven): the API is a public JSON
+  // API authenticated via a Bearer token (no cookies), so there's no session to
+  // leak by allowing any origin, and it avoids CORS_ORIGIN drift across deploys.
+  app.enableCors({ origin: '*' });
 
   app.useGlobalPipes(
     new ValidationPipe({

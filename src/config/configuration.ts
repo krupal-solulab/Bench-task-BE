@@ -20,7 +20,6 @@ export interface AppConfig {
     refreshExpiresIn: string;
   };
   bcryptSaltRounds: number;
-  corsOrigin: string[];
   logLevel: string;
   throttle: {
     ttl: number;
@@ -56,10 +55,6 @@ export default (): AppConfig => ({
     refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
   },
   bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS ?? '12', 10),
-  corsOrigin: (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
   logLevel: process.env.LOG_LEVEL ?? 'info',
   throttle: {
     ttl: parseInt(process.env.THROTTLE_TTL ?? '60', 10),

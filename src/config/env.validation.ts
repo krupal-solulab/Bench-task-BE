@@ -21,8 +21,6 @@ export const envValidationSchema = Joi.object({
 
   BCRYPT_SALT_ROUNDS: Joi.number().min(4).max(15).default(12),
 
-  CORS_ORIGIN: Joi.string().required(),
-
   LOG_LEVEL: Joi.string()
     .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent')
     .default('info'),
