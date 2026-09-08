@@ -33,6 +33,11 @@ services:
     env_file:
       - .env
     environment:
+      # This container always runs the production image (pino-pretty and other
+      # devDependencies are pruned out of it - see Dockerfile), so NODE_ENV must
+      # stay "production" here regardless of what .env has for bare-metal `npm run
+      # start:dev`. Otherwise the logger tries to load pino-pretty and crashes.
+      NODE_ENV: production
       MONGO_URI: mongodb://mongo:27017/${MONGO_DB_NAME:-project_task_management}
       REDIS_HOST: redis
     depends_on:
