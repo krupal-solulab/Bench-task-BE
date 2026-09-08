@@ -443,6 +443,7 @@ Phase 1 ships the harness (`jest.config.ts`, `test/setup/mongo-memory.setup.ts`)
 - `docker-compose.dev.yml`: bind-mounts the repo into the `deps` stage and runs `start:dev` for live reload.
 - `.github/workflows/ci.yml`: checkout → setup-node → `npm ci` → lint → format:check → build → test:unit → test:integration → (coverage artifact, non-blocking until Phase 6) on every push/PR to `main`/`develop`.
 - Husky `pre-commit` (lint-staged) and `commit-msg` (commitlint) hooks enforce quality and conventional commits locally.
+- **Deploying this to a real, always-on URL (not just Docker Compose locally)?** See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for a beginner-friendly, click-through guide (MongoDB Atlas + Upstash Redis + Render, all free tiers).
 
 ## 18. Assumptions & Trade-offs
 
