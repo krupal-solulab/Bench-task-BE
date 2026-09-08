@@ -2,6 +2,9 @@
 
 FROM node:20-alpine AS deps
 WORKDIR /app
+# mongodb-memory-server is a test-only dependency; skip its ~600MB binary
+# download during the build (it's never needed outside `npm run test:integration`).
+ENV MONGOMS_DISABLE_POSTINSTALL=1
 COPY package.json package-lock.json* ./
 RUN npm ci
 

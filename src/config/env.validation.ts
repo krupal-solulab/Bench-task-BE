@@ -8,8 +8,12 @@ export const envValidationSchema = Joi.object({
   MONGO_URI: Joi.string().uri().required(),
   MONGO_DB_NAME: Joi.string().required(),
 
-  REDIS_HOST: Joi.string().required(),
-  REDIS_PORT: Joi.number().port().required(),
+  // Either REDIS_URL (a single connection string, as given by managed providers
+  // like Upstash/Render/Railway - supports rediss:// for TLS) or REDIS_HOST +
+  // REDIS_PORT (used for local/Docker Compose Redis) must be provided.
+  REDIS_URL: Joi.string().uri().optional(),
+  REDIS_HOST: Joi.string().optional(),
+  REDIS_PORT: Joi.number().port().optional(),
   REDIS_PASSWORD: Joi.string().allow('').optional(),
   REDIS_TTL_DASHBOARD: Joi.number().positive().default(60),
   REDIS_TTL_TREND: Joi.number().positive().default(300),
@@ -32,4 +36,8 @@ export const envValidationSchema = Joi.object({
 
   SEED_ADMIN_EMAIL: Joi.string().email().required(),
   SEED_ADMIN_PASSWORD: Joi.string().min(8).required(),
-});
+})
+  .or('REDIS_URL', 'REDIS_HOST')
+  .messages({
+    'object.missing': 'Set either REDIS_URL or REDIS_HOST (+ REDIS_PORT) to configure Redis',
+  });
