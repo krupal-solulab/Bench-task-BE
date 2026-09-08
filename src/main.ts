@@ -44,7 +44,15 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup('api/docs', app, document);
 
     if (configService.get('nodeEnv', { infer: true }) !== 'production') {
-      writeFileSync('./openapi.json', JSON.stringify(document, null, 2));
+      // Local-dev convenience only (keeps the committed openapi.json in sync while
+      // iterating). Never let this take the app down - the working directory may
+      // not be writable by the container's non-root user, and Swagger UI at
+      // /api/docs doesn't depend on this file existing.
+      try {
+        writeFileSync('./openapi.json', JSON.stringify(document, null, 2));
+      } catch (err) {
+        app.get(Logger).warn({ err }, 'could not write openapi.json, skipping');
+      }
     }
   }
 
