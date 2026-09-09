@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { AppModule } from 'src/app.module';
 import { AppConfig } from 'src/config/configuration';
 import { REDIS_CLIENT } from 'src/redis/redis.constants';
+import { STORAGE_SERVICE } from 'src/storage/storage.constants';
 import { Role } from 'src/common/enums/role.enum';
 import { OrganizationStatus } from 'src/common/enums/organization-status.enum';
 import { User, UserDocument } from 'src/modules/users/schemas/user.schema';
@@ -22,6 +23,7 @@ import {
   clearInMemoryMongo,
 } from '../../setup/mongo-memory.setup';
 import { FakeRedis } from './fake-redis';
+import { FakeStorageService } from './fake-storage';
 
 export const API_PREFIX = 'api/v1';
 
@@ -29,6 +31,7 @@ export interface TestAppContext {
   app: INestApplication;
   httpServer: ReturnType<INestApplication['getHttpServer']>;
   fakeRedis: FakeRedis;
+  fakeStorage: FakeStorageService;
 }
 
 /**
@@ -67,14 +70,24 @@ export async function createTestApp(): Promise<TestAppContext> {
   process.env.SEED_ADMIN_PASSWORD = 'SeedAdmin123';
   process.env.PLATFORM_ADMIN_EMAIL = 'platform-admin@example.com';
   process.env.PLATFORM_ADMIN_PASSWORD = 'PlatformAdmin123';
+  // Real values are irrelevant here - the STORAGE_SERVICE override below (FakeStorageService)
+  // means the S3 SDK is never actually constructed against these, but Joi requires them present.
+  process.env.S3_ENDPOINT = 'http://localhost:9000';
+  process.env.S3_ACCESS_KEY = 'test-access-key';
+  process.env.S3_SECRET_KEY = 'test-secret-key';
+  process.env.S3_BUCKET = 'test-attachments';
+  process.env.S3_REGION = 'us-east-1';
 
   const fakeRedis = new FakeRedis();
+  const fakeStorage = new FakeStorageService();
 
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
   })
     .overrideProvider(REDIS_CLIENT)
     .useValue(fakeRedis)
+    .overrideProvider(STORAGE_SERVICE)
+    .useValue(fakeStorage)
     // `ThrottlerGuard` is registered as `{ provide: APP_GUARD, useClass: ThrottlerGuard }` in
     // AppModule. Nest's enhancer-token indirection for APP_GUARD/APP_INTERCEPTOR/etc. means the
     // class is never registered under its own `ThrottlerGuard` token, so `.overrideGuard
@@ -108,7 +121,7 @@ export async function createTestApp(): Promise<TestAppContext> {
 
   await app.init();
 
-  return { app, httpServer: app.getHttpServer(), fakeRedis };
+  return { app, httpServer: app.getHttpServer(), fakeRedis, fakeStorage };
 }
 
 export async function closeTestApp(app: INestApplication): Promise<void> {

@@ -41,6 +41,14 @@ export const envValidationSchema = Joi.object({
   // scripts. Required in every environment, mirroring SEED_ADMIN_* above.
   PLATFORM_ADMIN_EMAIL: Joi.string().email().required(),
   PLATFORM_ADMIN_PASSWORD: Joi.string().min(8).required(),
+
+  // S3-compatible object storage for task attachments (points at a local MinIO container
+  // for dev - see docker-compose.yml - or a real S3-compatible bucket in production).
+  S3_ENDPOINT: Joi.string().uri().required(),
+  S3_ACCESS_KEY: Joi.string().required(),
+  S3_SECRET_KEY: Joi.string().required(),
+  S3_BUCKET: Joi.string().required(),
+  S3_REGION: Joi.string().default('us-east-1'),
 })
   .or('REDIS_URL', 'REDIS_HOST')
   .messages({

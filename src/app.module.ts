@@ -8,6 +8,7 @@ import configuration, { AppConfig } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './redis/redis.module';
+import { StorageModule } from './storage/storage.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -21,6 +22,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { CommentsModule } from './modules/comments/comments.module';
+import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
@@ -75,6 +77,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     }),
     DatabaseModule,
     RedisModule,
+    StorageModule,
     HealthModule,
     UsersModule,
     OrganizationsModule,
@@ -82,6 +85,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     ProjectsModule,
     TasksModule,
     CommentsModule,
+    AttachmentsModule,
     DashboardModule,
   ],
   providers: [
