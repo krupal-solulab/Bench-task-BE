@@ -2,18 +2,24 @@
 
 A production-shaped REST API for a Jira/Trello-style Project & Task Management System, built with NestJS 10, MongoDB/Mongoose and Redis.
 
-> **Status:** Auth, Users, Projects, Tasks, Comments and the Dashboard are all implemented and wired to
-> the frontend. Test coverage, Postman collection, and CI/Docker are still at their Phase 1 baseline —
-> see §16–17.
+> **Status:** Auth, Users, Projects, Tasks, Comments, the Dashboard, multi-tenancy (Organizations +
+> PlatformAdmin), unit/integration tests, Postman collection, Docker, and CI are all implemented and
+> wired to the frontend. **Demo:** see [`DEMO_SCRIPT.md`](./DEMO_SCRIPT.md) for a ready-to-record
+> walkthrough script (auth, role differences, task flow, dashboard, Platform Admin) — no recording
+> has been made yet; this is the checklist for producing one.
 
 ## 1. Overview & Feature List
 
-- JWT auth with rotating refresh tokens and reuse detection
-- Role-based access control for Admin / Manager / Developer, enforced by guards + service-level ownership checks
+- Multi-tenant: every Organization's data (users, projects, tasks, comments) is fully isolated from
+  every other Organization's, enforced at the API layer — see §9–10
+- A separate **PlatformAdmin** role manages Organizations themselves (create/suspend/rename, add org
+  admins) and is hard-blocked from ever seeing any organization's project/task/comment data
+- JWT auth with rotating refresh tokens and reuse detection; org suspension invalidates active sessions immediately
+- Role-based access control for PlatformAdmin / Admin / Manager / Developer, enforced by guards + service-level ownership checks
 - Projects with lifecycle transitions and membership management (add/remove with reassignment)
 - Tasks with a Todo → In Progress → Review → Done workflow, activity trail and comments
 - Role-scoped dashboard driven entirely by MongoDB aggregation pipelines, cached in Redis
-- Structured logging, centralized error handling, pagination, Docker, CI
+- Structured logging, centralized error handling, pagination, Docker, CI, unit + integration test suite
 
 ## 2. Tech Stack
 
@@ -46,6 +52,7 @@ sequenceDiagram
     participant Helmet/CORS
     participant Throttler as ThrottlerGuard
     participant JwtGuard as JwtAuthGuard
+    participant OrgGuard as OrganizationScopeGuard
     participant RolesGuard
     participant Pipe as ValidationPipe
     participant Controller
@@ -56,9 +63,10 @@ sequenceDiagram
 
     Client->>Helmet/CORS: HTTP request
     Helmet/CORS->>Throttler: rate-limit check
-    Throttler->>JwtGuard: verify JWT (honours @Public())
-    JwtGuard->>RolesGuard: attach req.user, check @Roles()
-    RolesGuard->>Pipe: validate + transform DTO
+    Throttler->>JwtGuard: verify JWT (honours @Public()); also re-checks org isn't suspended
+    JwtGuard->>OrgGuard: attach req.user (incl. organizationId)
+    OrgGuard->>RolesGuard: enforce platform/org split (@PlatformOnly() vs everything else)
+    RolesGuard->>Pipe: check @Roles(), then validate + transform DTO
     Pipe->>Controller: typed request
     Controller->>Service: delegate business logic
     Service->>Repository: ownership/membership checks + query
@@ -69,6 +77,14 @@ sequenceDiagram
 ```
 
 Cross-cutting concerns (`AllExceptionsFilter`, `TransformInterceptor`, `LoggingInterceptor`, global `ValidationPipe`) are registered once in `AppModule` / `main.ts` and apply to every route unless explicitly opted out (see `@RawResponse()` on `/health`).
+
+**`OrganizationScopeGuard`** (`src/common/guards/organization-scope.guard.ts`) is the multi-tenancy
+enforcement point: it's a fail-closed allowlist, not a blocklist. A route marked `@PlatformOnly()` is
+reachable *only* by a PlatformAdmin; every other non-public, non-`@SharedRoute()` route is reachable by
+everyone *except* a PlatformAdmin. This means a new org route that forgets to think about tenancy is
+still automatically blocked for platform admins by default, and a new platform route is unreachable by
+anyone until explicitly marked `@PlatformOnly()`. `RolesGuard` (unchanged) runs after it and still
+separately enforces the fine-grained Admin/Manager/Developer split within whichever side got through.
 
 ## 4. Prerequisites
 
@@ -124,9 +140,10 @@ npm run start:dev
 | `BCRYPT_SALT_ROUNDS` | no | `12` | bcrypt cost factor |
 | `LOG_LEVEL` | no | `info` | Pino log level |
 | `THROTTLE_TTL` / `THROTTLE_LIMIT` | no | `60` / `100` | Global rate limit window (s) / requests |
-| `AUTH_THROTTLE_LIMIT` | no | `5` | Stricter limit on `/auth/login`, `/auth/register` |
+| `AUTH_THROTTLE_LIMIT` | no | `5` | Stricter limit on `/auth/login`, `/auth/register-organization` |
 | `SWAGGER_ENABLED` | no | `true` | Toggle Swagger UI + `openapi.json` export |
-| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | yes | — | Seed script's Admin credentials |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | yes | — | Seed script's Organisation Admin credentials |
+| `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD` | yes | — | Seed/migration script's PlatformAdmin credentials (§7) |
 
 The app **refuses to boot** if a required variable is missing or malformed — enforced by the Joi schema in `src/config/env.validation.ts`.
 
@@ -137,10 +154,12 @@ npm run seed
 ```
 
 `src/seed/seed.ts` is idempotent (safe to re-run — it skips anything that already exists by email/name)
-and creates one account per role plus a small demo dataset:
+and creates a `"Demo Organization"`, one account per org role inside it, plus a small demo dataset,
+and one platform-wide PlatformAdmin account (which belongs to no organization):
 
 | Role | Email | Password |
 |---|---|---|
+| PlatformAdmin | value of `PLATFORM_ADMIN_EMAIL` (`.env`) | value of `PLATFORM_ADMIN_PASSWORD` (`.env`) |
 | Admin | value of `SEED_ADMIN_EMAIL` (`.env`) | value of `SEED_ADMIN_PASSWORD` (`.env`) |
 | Manager | `manager@example.com` | `Manager@12345` |
 | Developer | `developer@example.com` | `Developer@12345` |
@@ -149,14 +168,21 @@ It also creates **"Demo Project"** (owned by the seeded Manager, with the seeded
 with two sample tasks assigned to the Developer, so the dashboard and project screens have real
 numbers to show immediately after a fresh `docker compose up` / `npm run start:dev`.
 
-Note: an Admin/Manager account can only come from this seed script or from an existing Admin creating
-one via `POST /users` — `POST /auth/register` always creates a Developer (see §11).
+Note: an Admin/Manager account within an existing org can only come from this seed script or from that
+org's own Admin creating one via `POST /users` — self-registration now always creates a brand-new
+**organization** (`POST /auth/register-organization`, see §11), not a bare Developer.
+
+`src/seed/migrate-to-multi-tenant.ts` (`npm run migrate:multi-tenant`) is the one-time, safely-re-runnable
+migration for retrofitting an **existing** (pre-multi-tenancy) database: it backfills every existing
+user/project/task into a `"Default Organization"` and bootstraps the first PlatformAdmin from the same
+two env vars. It hard-fails rather than silently repurposing an existing user if `PLATFORM_ADMIN_EMAIL`
+collides with one.
 
 ## 8. API Summary
 
 Full interactive docs live at `/api/docs` (Swagger UI, bearer-auth enabled — paste a token and execute requests in-browser). OpenAPI JSON is exported to `openapi.json` on boot when `SWAGGER_ENABLED=true` outside production.
 
-All paths below are relative to `/api/v1`. "Own" in the Access column means the caller is the resource's owner or, for tasks, the assignee.
+All paths below are relative to `/api/v1`. "Own" in the Access column means the caller is the resource's owner or, for tasks, the assignee. **Every endpoint below except the `/platform/*` section is scoped to the caller's own organization** — an Admin/Manager/Developer can never see or act on another organization's data, regardless of role. The `/platform/*` section is the exact opposite: reachable only by a PlatformAdmin, and it never exposes any organization's project/task/comment data — see §10.
 
 ### Health
 
@@ -168,9 +194,9 @@ All paths below are relative to `/api/v1`. "Own" in the Access column means the 
 
 | Method | Path | Access | Notes |
 |---|---|---|---|
-| POST | `/auth/register` | Public | Always creates a Developer, regardless of any `role` sent. Rate-limited (5/min/IP). Returns `{ accessToken, refreshToken, user }`. |
-| POST | `/auth/login` | Public | Rate-limited (5/min/IP). Blocks deactivated users. Generic 401 message on failure. |
-| POST | `/auth/refresh` | Public + valid refresh token | Rotating — the presented token is revoked and a new pair issued. Reusing an already-rotated token revokes the whole token family and returns 401. |
+| POST | `/auth/register-organization` | Public | Creates a brand-new Organization **and** its first Admin in one call. Rate-limited (5/min/IP). Returns `{ accessToken, refreshToken, user }`. Self-registration as a bare Developer no longer exists — every user belongs to an org, either created this way or added by that org's own Admin via `POST /users`. |
+| POST | `/auth/login` | Public | Rate-limited (5/min/IP). Blocks deactivated users and users whose organization is suspended. Generic 401 message on failure either way. |
+| POST | `/auth/refresh` | Public + valid refresh token | Rotating — the presented token is revoked and a new pair issued. Reusing an already-rotated token revokes the whole token family and returns 401. Also 401s if the account's organization has since been suspended. |
 | POST | `/auth/logout` | Authenticated | Revokes the caller's refresh tokens (see §11 for why this is "all", not just one). |
 | POST | `/auth/logout-all` | Authenticated | Same as `/auth/logout` today; kept as an explicit, separately-documented endpoint. |
 | GET | `/auth/me` | Authenticated | Current user profile from the token. |
@@ -243,10 +269,25 @@ All paths below are relative to `/api/v1`. "Own" in the Access column means the 
 
 All seven accept an optional `?projectId=` to narrow scope (with an access check).
 
+### Platform (PlatformAdmin only — `@PlatformOnly()`, 403 for every other role)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | `/platform/organizations` | Body `{ organizationName, adminName, adminEmail, adminPassword }`. Creates the org and its first Admin in one call (no DB transaction — the target Mongo is standalone, not a replica set — so the org is deleted if creating its admin fails). |
+| GET | `/platform/organizations` | Paginated `{ id, name, slug, status, userCount, createdAt, updatedAt }[]`. `search`, `status` filters. |
+| GET | `/platform/organizations/:id` | Same shape + `admins: [{id,name,email,isActive}]`. Never includes project/task/comment data. |
+| PATCH | `/platform/organizations/:id` | Body `{ name }` — rename only. |
+| PATCH | `/platform/organizations/:id/status` | Body `{ status: 'Active' \| 'Suspended' }`. Suspending immediately blocks every member's next request and any new login (§11), not just future ones. |
+| POST | `/platform/organizations/:id/admins` | Body `{ name, email, password }`. 400 if the target org is currently suspended. |
+| GET | `/platform/stats` | `{ organizationCount, totalUserCount }` — the only cross-org aggregate a PlatformAdmin can see, deliberately excluding any project/task count. |
+
 ## 9. Data Model
 
 ```mermaid
 erDiagram
+    ORGANIZATION ||--o{ USER : "scopes (null for PlatformAdmin)"
+    ORGANIZATION ||--o{ PROJECT : scopes
+    ORGANIZATION ||--o{ TASK : scopes
     USER ||--o{ PROJECT : owns
     USER ||--o{ PROJECT_MEMBER : "is a member via"
     PROJECT ||--o{ PROJECT_MEMBER : has
@@ -259,13 +300,22 @@ erDiagram
     USER ||--o{ TASK_ACTIVITY : performs
     USER ||--o{ REFRESH_TOKEN : holds
 
+    ORGANIZATION {
+        ObjectId _id
+        string name
+        string slug "unique"
+        string status "Active|Suspended"
+        Date suspendedAt
+        ObjectId createdBy "nullable, ref User (a PlatformAdmin)"
+    }
     USER {
         ObjectId _id
         string name
         string email "unique"
         string passwordHash "select:false"
-        string role "Admin|Manager|Developer"
+        string role "PlatformAdmin|Admin|Manager|Developer"
         boolean isActive
+        ObjectId organizationId FK "null only for PlatformAdmin"
     }
     PROJECT {
         ObjectId _id
@@ -277,6 +327,7 @@ erDiagram
         Date startDate
         Date dueDate
         Date deletedAt "soft delete"
+        ObjectId organizationId FK
     }
     TASK {
         ObjectId _id
@@ -290,6 +341,7 @@ erDiagram
         ObjectId createdBy FK
         Date completedAt
         Date deletedAt "soft delete"
+        ObjectId organizationId FK "denormalized from the parent Project at creation time"
     }
     COMMENT {
         ObjectId _id
@@ -316,17 +368,27 @@ erDiagram
     }
 ```
 
+`Comment` and `TaskActivity` deliberately do **not** carry their own `organizationId` — both are always
+reached via a parent `Task`/`Project` whose org has already been checked by the caller, so denormalizing
+it there would add write-path complexity with no additional protection. `Project` and `Task` do carry it
+directly because they're the collections every list/aggregate query filters and scans.
+
 ### Indexes
 
 | Collection | Index | Purpose |
 |---|---|---|
-| `users` | `{ email: 1 }` unique | Login lookup, duplicate prevention |
+| `organizations` | `{ slug: 1 }` unique | Slug lookup, duplicate prevention |
+| `organizations` | `{ status: 1 }` | Platform Admin list filter |
+| `users` | `{ email: 1 }` unique | Login lookup, duplicate prevention (global — see §11) |
 | `users` | `{ role: 1 }`, `{ isActive: 1 }` | Admin list filters |
+| `users` | `{ organizationId: 1 }` | Org-scoped user queries |
 | `projects` | `{ owner: 1 }`, `{ status: 1 }`, `{ 'members.user': 1 }`, `{ deletedAt: 1 }` | Role-scoping and list filters |
 | `projects` | `{ name: 'text' }` | Search |
+| `projects` | `{ organizationId: 1 }`, `{ organizationId: 1, status: 1 }` | Org-scoped project queries |
 | `tasks` | `{ project: 1 }`, `{ assignee: 1 }`, `{ status: 1 }`, `{ dueDate: 1 }` | Required per the brief |
 | `tasks` | `{ project: 1, status: 1 }`, `{ assignee: 1, status: 1 }` | Compound — board/list filtering |
 | `tasks` | `{ title: 'text', description: 'text' }` | Search |
+| `tasks` | `{ organizationId: 1 }`, `{ organizationId: 1, assignee: 1 }` | Org-scoped task queries (e.g. `/tasks/my-tasks`) |
 | `comments` | `{ task: 1, createdAt: -1 }` | Paginated, ordered thread per task |
 | `task_activities` | `{ task: 1, createdAt: -1 }` | Paginated audit trail per task |
 | `refresh_tokens` | `{ expiresAt: 1 }` TTL (`expireAfterSeconds: 0`) | Mongo auto-deletes expired tokens |
@@ -338,39 +400,59 @@ and always needed alongside the project.
 
 ## 10. Role & Permission Matrix
 
+Two independent, non-overlapping tiers. A **PlatformAdmin** belongs to no organization and cannot reach
+any of the org-scoped capabilities below (403, enforced by `OrganizationScopeGuard` — see §3); an
+**Admin/Manager/Developer** belongs to exactly one organization and cannot reach any `/platform/*` route
+(403, same guard, opposite direction). Every "org-wide"/"all" cell below means *within the caller's own
+organization*, never across organizations.
+
 | Capability | Admin | Manager | Developer |
 |---|---|---|---|
-| Register / login | ✓ | ✓ | ✓ |
-| List/view all users | ✓ | ✗ | ✗ |
-| Create user, change role, activate/deactivate | ✓ | ✗ | ✗ |
-| List assignable developers | ✓ | ✓ | ✗ |
+| Log in / create own organization (self-service) | ✓ | ✓ | ✓ |
+| List/view all users (in own org) | ✓ | ✗ | ✗ |
+| Create user, change role, activate/deactivate (in own org) | ✓ | ✗ | ✗ |
+| List assignable developers (in own org) | ✓ | ✓ | ✗ |
 | Create project | ✓ | ✓ | ✗ |
-| Update/delete project | ✓ any | ✓ own only | ✗ |
-| Add/remove project members | ✓ any | ✓ own only | ✗ |
-| View project | ✓ all | ✓ owned + member of | ✓ member of only |
-| Create task | ✓ any project | ✓ own projects | ✗ |
+| Update/delete project | ✓ any (in org) | ✓ own only | ✗ |
+| Add/remove project members | ✓ any (in org) | ✓ own only | ✗ |
+| View project | ✓ all (in org) | ✓ owned + member of | ✓ member of only |
+| Create task | ✓ any project (in org) | ✓ own projects | ✗ |
 | Update task title/description/priority/dueDate/assignee | ✓ | ✓ own projects | ✗ |
 | Change task status | ✓ | ✓ own projects | ✓ own assigned tasks only |
 | Delete task | ✓ | ✓ own projects | ✗ |
 | Comment on task | ✓ | ✓ | ✓ if project member |
-| Edit/delete own comment | ✓ any | ✓ own | ✓ own |
+| Edit/delete own comment | ✓ any (in org) | ✓ own | ✓ own |
 | Dashboard | org-wide | scoped to owned/member projects | scoped to own assigned tasks |
 
-Enforced in two layers, always: `@Roles(...)` + `RolesGuard` for coarse role gating (`src/common/guards/roles.guard.ts`),
-plus an ownership/membership check inside the relevant service (`ProjectsService.assertUserCanManage`,
-`TasksService`'s per-action checks) for the "own only" / "member of" cells above. A curl/Postman call
-that skips the UI still gets the same 403 — role gating never lives only in the frontend
-(see `Bench-FE`'s `lib/permissions.ts` comment: *"Never trust this alone; the API is the real gate"*).
+**PlatformAdmin** capabilities (disjoint from the table above — org management only, §8's Platform section):
+
+| Capability | PlatformAdmin |
+|---|---|
+| Create / rename / suspend / reactivate an organization | ✓ |
+| Add an Admin to any organization | ✓ |
+| View org/user counts across the platform | ✓ |
+| View any organization's projects, tasks, or comments | ✗ — never, by design |
+
+Enforced in three layers, always: `OrganizationScopeGuard` (`src/common/guards/organization-scope.guard.ts`)
+for the coarse platform-vs-org split, `@Roles(...)` + `RolesGuard` for the fine-grained role split within
+whichever side that let through (`src/common/guards/roles.guard.ts`), plus an ownership/membership check
+inside the relevant service (`ProjectsService.assertUserCanManage`, `TasksService`'s per-action checks,
+and an implicit `organizationId` filter on every query) for the "own only" / "member of" / "in org" cells
+above. A curl/Postman call that skips the UI still gets the same 403/404 — role and tenancy gating never
+live only in the frontend (see `Bench-FE`'s `lib/permissions.ts` comment: *"Never trust this alone; the
+API is the real gate"*).
 
 ## 11. Auth & Token Invalidation Strategy
 
 **Access token:** short-lived (15m, `JWT_ACCESS_EXPIRES_IN`), stateless, signed HS256 with `JWT_ACCESS_SECRET`.
-Payload is `{ sub: userId, email, role, iat, exp }` (`src/common/interfaces/jwt-payload.interface.ts`).
-Verified on every request by `JwtStrategy` (`src/modules/auth/strategies/jwt.strategy.ts`), which also
-re-reads the user from the database and rejects with 401 if `isActive` is now `false` — so deactivating
-a user invalidates their *already-issued, unexpired* access tokens immediately, not just future logins.
-This is the one place the access token isn't purely stateless; it's a deliberate one-query cost per
-request in exchange for that guarantee.
+Payload is `{ sub: userId, email, role, organizationId, iat, exp }` (`src/common/interfaces/jwt-payload.interface.ts`;
+`organizationId` is `null` only for a PlatformAdmin). Verified on every request by `JwtStrategy`
+(`src/modules/auth/strategies/jwt.strategy.ts`), which also re-reads the user from the database and
+rejects with 401 if `isActive` is now `false`, **or if the user's organization has since been suspended**
+— so deactivating a user, or a PlatformAdmin suspending their whole organization, invalidates
+*already-issued, unexpired* access tokens immediately, not just future logins. This is the one place the
+access token isn't purely stateless; it's a deliberate one-query-plus-one-org-check cost per request in
+exchange for that guarantee.
 
 **Refresh token:** a long-lived (7d, `JWT_REFRESH_EXPIRES_IN`), high-entropy random value — not a JWT.
 Only its SHA-256 hash is persisted (`RefreshToken.tokenHash`, `src/modules/auth/schemas/refresh-token.schema.ts`),
@@ -398,6 +480,18 @@ discarding the token from memory immediately on logout.
 
 **Password change:** `PATCH /auth/me/password` revokes all of the user's refresh tokens on success, so
 changing your password signs out every other session (documented to the user in the Profile screen).
+
+**Organization suspension:** `AuthService.login()` and `.refresh()` both call `OrganizationsService.assertActive()`
+and fail with a generic 401 (not 403 — a suspended org isn't distinguishable from any other auth failure)
+if the account's organization is suspended. Combined with the `JwtStrategy` check above, suspending an
+organization takes effect everywhere at once: no new logins, no refreshes, and every already-issued
+access token 401s on its very next request.
+
+**Email uniqueness is global, not per-organization** — a deliberate trade-off, not an oversight. Product
+decision #3 for multi-tenancy was "one org per user, no org-switcher," which means there's no login-time
+org selector; keeping `User.email` globally unique (unchanged from before multi-tenancy) is what makes a
+plain email+password login unambiguous. The accepted limitation: the same email address can never be
+reused by two different people in two different organizations.
 
 ## 12. Caching Strategy
 
@@ -434,14 +528,21 @@ npm run test:cov       # with coverage, threshold enforced at 80%
 npm run test:watch
 ```
 
-Phase 1 ships the harness (`jest.config.ts`, `test/setup/mongo-memory.setup.ts`) with an empty suite so CI is green from the first commit; coverage is filled in phase by phase and the CI coverage step is enforced (no longer `continue-on-error`) once Phase 6 lands.
+**167 tests, all passing** — 103 unit specs (`test/unit/`: guards, `AuthService`, `JwtStrategy`,
+`CacheService`, status-transition rules, pagination/cache-key utils, password hashing) and 64
+integration specs (`test/integration/`: full auth lifecycle, the RBAC matrix, Project/Task CRUD +
+status transitions, comments, pagination/filters, dashboard caching, error-shape consistency, and a
+dedicated cross-tenant isolation suite proving one organization can never read/write another's data
+via any endpoint, plus the Platform Admin boundary in both directions). Integration tests boot the real
+`AppModule` against `mongodb-memory-server` and a fake in-process Redis (`test/integration/setup/`), so
+they exercise actual guards/services/Mongoose validation, not mocks.
 
 ## 17. Docker & CI/CD
 
 - `Dockerfile`: multi-stage (`deps` → `builder` → `runner`), non-root `node` user, `dumb-init`, `HEALTHCHECK` against `/api/v1/health`.
 - `docker-compose.yml`: `api` + `mongo` + `redis`, health-checked startup ordering, named volumes.
 - `docker-compose.dev.yml`: bind-mounts the repo into the `deps` stage and runs `start:dev` for live reload.
-- `.github/workflows/ci.yml`: checkout → setup-node → `npm ci` → lint → format:check → build → test:unit → test:integration → (coverage artifact, non-blocking until Phase 6) on every push/PR to `main`/`develop`.
+- `.github/workflows/ci.yml`: checkout → setup-node → `npm ci` → lint → format:check → build → test:unit → test:integration → coverage artifact (currently `continue-on-error: true` — the suite is filled in and green, but the 80% threshold in `jest.config.ts` hasn't been separately confirmed as a hard CI gate yet) on every push/PR to `main`/`develop`. Requires `PLATFORM_ADMIN_EMAIL`/`PLATFORM_ADMIN_PASSWORD` alongside the other env vars in the job's `env:` block (§6).
 - Husky `pre-commit` (lint-staged) and `commit-msg` (commitlint) hooks enforce quality and conventional commits locally.
 - **Deploying this to a real, always-on URL (not just Docker Compose locally)?** See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for a beginner-friendly, click-through guide (MongoDB Atlas + Upstash Redis + Render, all free tiers).
 
@@ -449,10 +550,11 @@ Phase 1 ships the harness (`jest.config.ts`, `test/setup/mongo-memory.setup.ts`)
 
 - **Node 20 target, developed on Node 24 locally** — `engines.node >= 20` in `package.json`; no Node-20-only APIs used.
 - **Dependency versions** — exact `^` ranges were chosen to satisfy "NestJS 10 / current majors" since the brief doesn't pin versions; see `package.json`.
-- **Local git only for now** — no remote configured; push destinations are the user's call.
+- **Multi-tenancy was retrofitted, not designed in from day one** — the brief's own data model (§8) predates organizations; `Organization`/`organizationId`/`PlatformAdmin` were added afterward via `src/seed/migrate-to-multi-tenant.ts`, which safely backfills any pre-existing single-tenant data into one `"Default Organization"` rather than requiring a fresh database.
+- **Postman collection** (`postman/`) — 69 requests including a dedicated "Platform Admin" folder; kept in sync with the API by hand rather than auto-exported from Swagger, so it can carry the request chaining (login → save token → reuse) and negative-test scenarios Swagger docs alone can't express.
 - **`openapi.json` regenerated on every non-production boot** (when Swagger is enabled) rather than only via a manual export script, so it never drifts from the live decorators; still committed as a deliverable.
 - **`/health` bypasses the global success envelope** via a `@RawResponse()` decorator so its body shape matches the brief exactly (`{ status, uptime, ... }`), since Docker's healthcheck and CI smoke tests read it directly.
-- **CI coverage step is `continue-on-error` through Phase 5** — the brief's own build order fills coverage incrementally per module; gating on 80% before any tests exist would make every early-phase CI run red for no useful reason. It becomes a hard gate in Phase 6 per the acceptance criteria in §14 of the brief.
+- **CI coverage step is still `continue-on-error`** — the full unit + integration suite (§16) is written and green, but the 80% threshold configured in `jest.config.ts` hasn't been separately verified/enforced as a hard CI gate; flipping that off is a small follow-up, not a missing feature.
 - **Docker Compose network is project-local by default**, not `external`, so `docker compose up` works standalone with zero prerequisites; joining it with the frontend's compose file via a shared external network is documented as an opt-in step (§5).
 - **CORS is hardcoded wide-open (`origin: '*'`) in `main.ts`, not env-driven.** By explicit request, `CORS_ORIGIN` was removed from config/env validation entirely rather than kept as an unused variable. Safe here because auth is a Bearer token in the `Authorization` header (no cookies, so `credentials: true` was dropped too — it's invalid alongside a wildcard origin anyway). If the API later needs cookie-based auth or origin restriction, reintroduce a proper allowlist instead of a wildcard.
 
@@ -473,14 +575,15 @@ project-task-management-api/
 │   ├── database/           # Mongoose connection module
 │   ├── redis/              # Redis client + CacheService
 │   ├── modules/
-│   │   ├── health/          ✅ Phase 1
-│   │   ├── auth/            Phase 2
-│   │   ├── users/           Phase 2
-│   │   ├── projects/        Phase 3
-│   │   ├── tasks/           Phase 4
-│   │   ├── comments/        Phase 4
-│   │   └── dashboard/       Phase 5
-│   └── seed/                Phase 2
+│   │   ├── health/
+│   │   ├── auth/
+│   │   ├── users/
+│   │   ├── organizations/   # Organization schema/service + the /platform/* controllers
+│   │   ├── projects/
+│   │   ├── tasks/
+│   │   ├── comments/
+│   │   └── dashboard/
+│   └── seed/                # seed.ts (fresh DB) + migrate-to-multi-tenant.ts (retrofit existing DB)
 ├── test/{unit,integration,setup}/
 ├── postman/
 ├── Dockerfile, docker-compose.yml, docker-compose.dev.yml
