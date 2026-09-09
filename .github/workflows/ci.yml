@@ -50,6 +50,8 @@ jobs:
       SWAGGER_ENABLED: "true"
       SEED_ADMIN_EMAIL: admin@example.com
       SEED_ADMIN_PASSWORD: Admin@12345
+      PLATFORM_ADMIN_EMAIL: platform-admin@example.com
+      PLATFORM_ADMIN_PASSWORD: PlatformAdmin@12345
 
     steps:
       - uses: actions/checkout@v4

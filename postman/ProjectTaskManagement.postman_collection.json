@@ -105,7 +105,7 @@
       "name": "Auth",
       "item": [
         {
-          "name": "Register",
+          "name": "Register Organization",
           "request": {
             "auth": {
               "type": "noauth"
@@ -119,19 +119,19 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"New Developer\",\n  \"email\": \"newdev-{{$timestamp}}@example.com\",\n  \"password\": \"Password123\"\n}"
+              "raw": "{\n  \"organizationName\": \"Acme {{$timestamp}}\",\n  \"adminName\": \"New Org Admin\",\n  \"adminEmail\": \"neworgadmin-{{$timestamp}}@example.com\",\n  \"adminPassword\": \"Password123\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/auth/register",
+              "raw": "{{baseUrl}}/auth/register-organization",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "auth",
-                "register"
+                "register-organization"
               ]
             },
-            "description": "Self-registration always creates a Developer, regardless of any role field sent."
+            "description": "Self-service org creation: creates a brand-new Organization and its first Admin in one call. Self-registration as a plain Developer no longer exists - every user now belongs to an org, created either this way or by an existing org Admin via POST /users."
           },
           "event": [
             {
@@ -289,6 +289,58 @@
                   "  pm.environment.set('refreshToken', json.data.refreshToken);",
                   "  pm.collectionVariables.set('userId', json.data.user.id);",
                   "  pm.environment.set('userId', json.data.user.id);",
+                  "  // Preserved separately so Error Scenarios can restore this exact session later",
+                  "  // without spending another call against the shared, throttled /auth/login",
+                  "  // handler (5/60s) - see \"Restore Admin session\" below.",
+                  "  pm.collectionVariables.set('adminAccessToken', json.data.accessToken);",
+                  "  pm.environment.set('adminAccessToken', json.data.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login as Platform Admin",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{platformAdminEmail}}\",\n  \"password\": \"{{platformAdminPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Logs in the seeded PlatformAdmin. Saved to a separate platformAccessToken variable (not accessToken) so it never interferes with the org-scoped requests elsewhere in this collection - see the \"Platform Admin\" folder, which overrides its auth to use this token specifically."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.accessToken) {",
+                  "  pm.collectionVariables.set('platformAccessToken', json.data.accessToken);",
+                  "  pm.environment.set('platformAccessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('platformRefreshToken', json.data.refreshToken);",
+                  "  pm.environment.set('platformRefreshToken', json.data.refreshToken);",
                   "}"
                 ]
               }
@@ -1488,6 +1540,303 @@
       ]
     },
     {
+      "name": "Platform Admin",
+      "description": "Org-management-only endpoints, reachable only by a PlatformAdmin token (403 for every other role, and this role gets 403 on every ordinary org route in turn). Auth override below points every request in this folder at {{platformAccessToken}} regardless of the collection-level {{accessToken}}.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{platformAccessToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Create organization",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/organizations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "organizations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organizationName\": \"Platform-Created Org {{$timestamp}}\",\n  \"adminName\": \"Org Admin\",\n  \"adminEmail\": \"platform-created-admin-{{$timestamp}}@example.com\",\n  \"adminPassword\": \"Password123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "const json = pm.response.json();",
+                  "if (json?.data?.organization?.id) {",
+                  "  pm.collectionVariables.set('organizationId', json.data.organization.id);",
+                  "  pm.environment.set('organizationId', json.data.organization.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List organizations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/platform/organizations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "organizations"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get organization by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/platform/organizations/{{organizationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "organizations",
+                "{{organizationId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rename organization",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/organizations/{{organizationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "organizations",
+                "{{organizationId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Renamed Org {{$timestamp}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Suspend organization",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/organizations/{{organizationId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "organizations",
+                "{{organizationId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Suspended\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status field is Suspended', () => pm.expect(pm.response.json().data.status).to.eql('Suspended'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reactivate organization",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/organizations/{{organizationId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "organizations",
+                "{{organizationId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"Active\"\n}"
+            },
+            "description": "Reactivates before \"Add organization admin\" below - adding an admin to a currently-suspended org is correctly rejected with a 400 by the API, so this step is required for the next one to succeed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add organization admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/platform/organizations/{{organizationId}}/admins",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "organizations",
+                "{{organizationId}}",
+                "admins"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Second Admin\",\n  \"email\": \"second-admin-{{$timestamp}}@example.com\",\n  \"password\": \"Password123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Platform stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/platform/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "platform",
+                "stats"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('has organizationCount and totalUserCount', () => {",
+                  "  pm.expect(json.data).to.have.property('organizationCount');",
+                  "  pm.expect(json.data).to.have.property('totalUserCount');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Error Scenarios",
       "description": "Representative failure cases for the four error statuses the API documents (400/401/403/404/409). Run 'Auth > Login as Developer' before the 403 examples.",
       "item": [
@@ -1704,48 +2053,41 @@
           ]
         },
         {
-          "name": "Login as Admin",
+          "name": "Restore Admin session",
           "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}"
-            },
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{baseUrl}}/auth/login",
+              "raw": "{{baseUrl}}/auth/me",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "auth",
-                "login"
+                "me"
               ]
-            }
+            },
+            "description": "Switches back to the Admin session captured earlier in the Auth folder, without a fresh POST /auth/login call. POST /auth/login is shared by every \"Login as ...\" request in this collection and is throttled to 5 calls/60s - the Auth folder (Manager/Developer/Admin/Platform Admin) plus this folder's own \"Login as Developer\" already use all 5 of that shared budget in one full collection run, so re-authenticating as Admin a second time here would reliably 429. The access token is still fresh at this point in the run (15m TTL), so restoring it from the adminAccessToken variable and hitting GET /auth/me (not throttled) both frees up the budget and still verifies the session is genuinely valid before the 404/409 checks below run as Admin."
           },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const adminToken = pm.collectionVariables.get('adminAccessToken');",
+                  "if (adminToken) {",
+                  "  pm.collectionVariables.set('accessToken', adminToken);",
+                  "  pm.environment.set('accessToken', adminToken);",
+                  "}"
+                ]
+              }
+            },
             {
               "listen": "test",
               "script": {
                 "exec": [
                   "pm.test('Status is 200', () => pm.response.to.have.status(200));",
-                  "const json = pm.response.json();",
-                  "if (json?.data?.accessToken) {",
-                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
-                  "  pm.environment.set('accessToken', json.data.accessToken);",
-                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
-                  "  pm.environment.set('refreshToken', json.data.refreshToken);",
-                  "  pm.collectionVariables.set('userId', json.data.user.id);",
-                  "  pm.environment.set('userId', json.data.user.id);",
-                  "}"
+                  "pm.test('Restored session is Admin', () => pm.expect(pm.response.json().data.role).to.eql('Admin'));"
                 ]
               }
             }
