@@ -108,6 +108,40 @@ describe('multi-tenancy (integration)', () => {
       expect(deleteTask.status).toBe(403);
     });
 
+    it("Org A's Admin gets 403 reading, posting, editing, or deleting comments on Org B's task (regression: assertTaskMember/assertCanModify previously bypassed org checks for any Admin)", async () => {
+      const a = await seedOrgTeam('commentIsoA');
+      const b = await seedOrgTeam('commentIsoB');
+
+      const bComment = await api(app)
+        .post(`/${API_PREFIX}/tasks/${b.task.id}/comments`)
+        .set(...authHeader(b.developer.accessToken))
+        .send({ body: "Org B developer's own comment" });
+      expect(bComment.status).toBe(201);
+      const bCommentId = bComment.body.data.id;
+
+      const listRes = await api(app)
+        .get(`/${API_PREFIX}/tasks/${b.task.id}/comments`)
+        .set(...authHeader(a.admin.accessToken));
+      expect(listRes.status).toBe(403);
+
+      const createRes = await api(app)
+        .post(`/${API_PREFIX}/tasks/${b.task.id}/comments`)
+        .set(...authHeader(a.admin.accessToken))
+        .send({ body: 'should not be allowed' });
+      expect(createRes.status).toBe(403);
+
+      const updateRes = await api(app)
+        .patch(`/${API_PREFIX}/comments/${bCommentId}`)
+        .set(...authHeader(a.admin.accessToken))
+        .send({ body: 'should not be allowed' });
+      expect(updateRes.status).toBe(403);
+
+      const deleteRes = await api(app)
+        .delete(`/${API_PREFIX}/comments/${bCommentId}`)
+        .set(...authHeader(a.admin.accessToken));
+      expect(deleteRes.status).toBe(403);
+    });
+
     it('GET /users/:id for a cross-org user id is 404 (not 403), to avoid confirming the id exists elsewhere', async () => {
       const a = await seedOrgTeam('userIsoA');
       const b = await seedOrgTeam('userIsoB');

@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { Types } from 'mongoose';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { extractId } from '../../common/utils/mongo.util';
+import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { TasksRepository } from '../tasks/tasks.repository';
@@ -50,26 +51,43 @@ export class CommentsService {
 
   async update(id: string, body: string, actingUser: AuthenticatedUser): Promise<CommentDocument> {
     const comment = await this.getActiveOrThrow(id);
-    this.assertCanModify(comment, actingUser);
+    await this.assertCanModify(comment, actingUser);
     return (await this.commentsRepository.updateById(id, body))!;
   }
 
   async softDelete(id: string, actingUser: AuthenticatedUser): Promise<void> {
     const comment = await this.getActiveOrThrow(id);
-    this.assertCanModify(comment, actingUser);
+    await this.assertCanModify(comment, actingUser);
     await this.commentsRepository.softDelete(id);
   }
 
-  private assertCanModify(comment: CommentDocument, actingUser: AuthenticatedUser): void {
-    if (actingUser.role === Role.ADMIN) return;
+  private async assertCanModify(
+    comment: CommentDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<void> {
     if (extractId(comment.author) === actingUser.id) return;
+    // Same-org-Admin bypass only - see assertTaskMember's comment below for why a global
+    // `role === ADMIN` check would leak across organizations here too.
+    if (actingUser.role === Role.ADMIN) {
+      const task = await this.tasksRepository.findRawById(extractId(comment.task));
+      if (task && extractId(task.organizationId) === requireOrgId(actingUser)) return;
+    }
     throw new ForbiddenException('You can only modify your own comments');
   }
 
   private async assertTaskMember(taskId: string, actingUser: AuthenticatedUser): Promise<void> {
     const task = await this.tasksRepository.findRawById(taskId);
     if (!task) throw new NotFoundException('Task not found');
-    if (actingUser.role === Role.ADMIN) return;
+    // Same-org-Admin bypass only - a global `role === ADMIN` check here would let an Admin from
+    // one organization read/post comments on another organization's task, since findRawById is
+    // not org-scoped (this codebase's repositories verify-then-query-by-id at the service layer
+    // rather than threading organizationId into every repository query).
+    if (
+      actingUser.role === Role.ADMIN &&
+      extractId(task.organizationId) === requireOrgId(actingUser)
+    ) {
+      return;
+    }
     const project = await this.projectsService.getActiveProjectOrThrow(task.project.toString());
     if (!this.projectsService.isProjectMember(project, actingUser.id)) {
       throw new ForbiddenException('You must be a member of this project to comment');
