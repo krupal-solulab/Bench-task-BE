@@ -134,4 +134,14 @@ export class ProjectsController {
   async stats(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.projectsService.statsForProject(id, user);
   }
+
+  @Get(':id/activity')
+  @ApiOperation({ summary: 'Paginated audit trail for a project' })
+  async activity(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Query() query: PaginationQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.listActivity(id, query.page, query.limit, user);
+  }
 }

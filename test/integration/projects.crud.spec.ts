@@ -226,4 +226,53 @@ describe('projects CRUD (integration)', () => {
     expect(res.body.data).toHaveLength(1);
     expect(res.body.data[0].id).toBe(memberProject.id);
   });
+
+  it('GET /projects/:id/activity records CREATED, UPDATED, STATUS_CHANGED, MEMBER_ADDED, MEMBER_REMOVED in order', async () => {
+    const { manager, developer } = await seedManagerAndDeveloper();
+    const project = await createProject(app, manager.accessToken, { name: 'Activity Project' });
+
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}`)
+      .set(...authHeader(manager.accessToken))
+      .send({ description: 'updated description' });
+
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: ProjectStatus.IN_PROGRESS });
+
+    await addMembers(app, manager.accessToken, project.id, [developer.userDoc.id]);
+
+    await api(app)
+      .delete(`/${API_PREFIX}/projects/${project.id}/members/${developer.userDoc.id}`)
+      .set(...authHeader(manager.accessToken));
+
+    // Activity is checked before deletion - like Task, a soft-deleted project's own activity feed
+    // is no longer viewable through this endpoint (getActiveOrThrow filters deletedAt: null), the
+    // same as every other "active only" view in this app.
+    const res = await api(app)
+      .get(`/${API_PREFIX}/projects/${project.id}/activity`)
+      .set(...authHeader(manager.accessToken));
+
+    expect(res.status).toBe(200);
+    // newest first
+    const actions = res.body.data.map((a: { action: string }) => a.action);
+    expect(actions).toEqual([
+      'member_removed',
+      'member_added',
+      'status_changed',
+      'updated',
+      'created',
+    ]);
+
+    const deleteRes = await api(app)
+      .delete(`/${API_PREFIX}/projects/${project.id}`)
+      .set(...authHeader(manager.accessToken));
+    expect(deleteRes.status).toBe(204);
+
+    const activityAfterDelete = await api(app)
+      .get(`/${API_PREFIX}/projects/${project.id}/activity`)
+      .set(...authHeader(manager.accessToken));
+    expect(activityAfterDelete.status).toBe(404);
+  });
 });

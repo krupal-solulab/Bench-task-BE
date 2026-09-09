@@ -26,6 +26,7 @@ import { ListTasksDto } from '../tasks/dto/list-tasks.dto';
 import { buildTaskListFilter } from '../tasks/utils/task-filter.util';
 import { ProjectsRepository } from './projects.repository';
 import { ProjectDocument } from './schemas/project.schema';
+import { ProjectActivityAction } from './schemas/project-activity.schema';
 import { isLegalProjectTransition, legalProjectTransitions } from './project-status.rules';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -100,6 +101,7 @@ export class ProjectsService {
       })),
     });
 
+    await this.projectsRepository.logActivity(doc.id, actingUser.id, ProjectActivityAction.CREATED);
     const populated = await this.projectsRepository.findByIdActive(doc.id);
     await this.invalidateDashboardCache();
     return this.toResponse(populated!);
@@ -136,6 +138,7 @@ export class ProjectsService {
       ...(dto.startDate ? { startDate: nextStartDate } : {}),
       ...(dto.dueDate ? { dueDate: nextDueDate } : {}),
     });
+    await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.UPDATED);
     await this.invalidateDashboardCache();
     return this.toResponse(updated!);
   }
@@ -172,6 +175,13 @@ export class ProjectsService {
     }
 
     const updated = await this.projectsRepository.updateById(id, { status });
+    await this.projectsRepository.logActivity(
+      id,
+      actingUser.id,
+      ProjectActivityAction.STATUS_CHANGED,
+      project.status,
+      status,
+    );
     await this.invalidateDashboardCache();
     return this.toResponse(updated!);
   }
@@ -189,6 +199,7 @@ export class ProjectsService {
       await this.taskModel.updateMany({ _id: { $in: taskIds } }, { deletedAt: now }).exec();
       await this.commentModel.updateMany({ task: { $in: taskIds } }, { deletedAt: now }).exec();
     }
+    await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.DELETED);
     await this.invalidateDashboardCache();
   }
 
@@ -219,7 +230,16 @@ export class ProjectsService {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
     await this.assertActiveDevelopers(userIds, requireOrgId(actingUser));
-    await this.projectsRepository.addMembers(id, userIds);
+    const addedIds = await this.projectsRepository.addMembers(id, userIds);
+    for (const addedId of addedIds) {
+      await this.projectsRepository.logActivity(
+        id,
+        actingUser.id,
+        ProjectActivityAction.MEMBER_ADDED,
+        null,
+        addedId,
+      );
+    }
     const updated = await this.projectsRepository.findByIdActive(id);
     return this.toResponse(updated!);
   }
@@ -263,8 +283,22 @@ export class ProjectsService {
     }
 
     await this.projectsRepository.removeMember(id, userId);
+    await this.projectsRepository.logActivity(
+      id,
+      actingUser.id,
+      ProjectActivityAction.MEMBER_REMOVED,
+      userId,
+      null,
+    );
     const updated = await this.projectsRepository.findByIdActive(id);
     return this.toResponse(updated!);
+  }
+
+  async listActivity(id: string, page: number, limit: number, actingUser: AuthenticatedUser) {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+    const { data, total } = await this.projectsRepository.paginateActivity(id, page, limit);
+    return { data, meta: buildPaginationMeta(total, page, limit) };
   }
 
   async listTasksForProject(id: string, query: ListTasksDto, actingUser: AuthenticatedUser) {

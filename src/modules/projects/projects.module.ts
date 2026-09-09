@@ -4,6 +4,7 @@ import { UsersModule } from '../users/users.module';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
 import { Project, ProjectSchema } from './schemas/project.schema';
+import { ProjectActivity, ProjectActivitySchema } from './schemas/project-activity.schema';
 import { ProjectsRepository } from './projects.repository';
 import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
@@ -13,6 +14,7 @@ import { ProjectsController } from './projects.controller';
     UsersModule,
     MongooseModule.forFeature([
       { name: Project.name, schema: ProjectSchema },
+      { name: ProjectActivity.name, schema: ProjectActivitySchema },
       { name: Task.name, schema: TaskSchema },
       { name: Comment.name, schema: CommentSchema },
     ]),

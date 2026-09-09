@@ -3,13 +3,22 @@ import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
 import { extractId } from '../../common/utils/mongo.util';
 import { Project, ProjectDocument } from './schemas/project.schema';
+import {
+  ProjectActivity,
+  ProjectActivityAction,
+  ProjectActivityDocument,
+} from './schemas/project-activity.schema';
 import { ListProjectsDto } from './dto/list-projects.dto';
 
 const OWNER_POPULATE = 'name email role isActive';
 
 @Injectable()
 export class ProjectsRepository {
-  constructor(@InjectModel(Project.name) private readonly model: Model<ProjectDocument>) {}
+  constructor(
+    @InjectModel(Project.name) private readonly model: Model<ProjectDocument>,
+    @InjectModel(ProjectActivity.name)
+    private readonly activityModel: Model<ProjectActivityDocument>,
+  ) {}
 
   create(data: Partial<Project>): Promise<ProjectDocument> {
     return this.model.create(data);
@@ -64,16 +73,18 @@ export class ProjectsRepository {
     await this.model.updateOne({ _id: id }, { deletedAt: new Date() }).exec();
   }
 
-  async addMembers(id: string, userIds: string[]): Promise<void> {
+  /** Returns the ids that were actually newly added (excludes already-members, since this is
+   * idempotent) - used by ProjectsService to log a MEMBER_ADDED activity per genuinely-new member. */
+  async addMembers(id: string, userIds: string[]): Promise<string[]> {
     const objectIds = userIds.map((u) => new Types.ObjectId(u));
     const project = await this.model.findById(id).exec();
-    if (!project) return;
+    if (!project) return [];
     const existing = new Set(project.members.map((m) => m.user.toString()));
-    const toAdd = objectIds
-      .filter((oid) => !existing.has(oid.toString()))
-      .map((user) => ({ user, joinedAt: new Date() }));
-    if (toAdd.length === 0) return;
+    const newObjectIds = objectIds.filter((oid) => !existing.has(oid.toString()));
+    if (newObjectIds.length === 0) return [];
+    const toAdd = newObjectIds.map((user) => ({ user, joinedAt: new Date() }));
     await this.model.updateOne({ _id: id }, { $push: { members: { $each: toAdd } } }).exec();
+    return newObjectIds.map((oid) => oid.toString());
   }
 
   async removeMember(id: string, userId: string): Promise<void> {
@@ -85,5 +96,41 @@ export class ProjectsRepository {
   isMember(project: ProjectDocument, userId: string): boolean {
     if (extractId(project.owner) === userId) return true;
     return project.members.some((m) => extractId(m.user) === userId);
+  }
+
+  async logActivity(
+    projectId: string,
+    actorId: string,
+    action: ProjectActivityAction,
+    from: string | null = null,
+    to: string | null = null,
+  ): Promise<void> {
+    await this.activityModel.create({
+      project: new Types.ObjectId(projectId),
+      actor: new Types.ObjectId(actorId),
+      action,
+      from,
+      to,
+    });
+  }
+
+  async paginateActivity(
+    projectId: string,
+    page: number,
+    limit: number,
+  ): Promise<{ data: ProjectActivityDocument[]; total: number }> {
+    const filter = { project: new Types.ObjectId(projectId) };
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      this.activityModel
+        .find(filter)
+        .populate('actor', OWNER_POPULATE)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+      this.activityModel.countDocuments(filter).exec(),
+    ]);
+    return { data, total };
   }
 }
