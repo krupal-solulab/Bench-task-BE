@@ -5,7 +5,13 @@ export const envValidationSchema = Joi.object({
   PORT: Joi.number().port().default(3000),
   API_PREFIX: Joi.string().default('api/v1'),
 
-  MONGO_URI: Joi.string().uri().required(),
+  // Not Joi.string().uri(): a non-SRV Atlas connection string legitimately lists
+  // multiple comma-separated host:port pairs in the authority component, which
+  // generic URI syntax (and so Joi's uri() check) rejects even though the mongodb
+  // driver accepts it fine. Just check the scheme instead.
+  MONGO_URI: Joi.string()
+    .pattern(/^mongodb(\+srv)?:\/\/.+/)
+    .required(),
   MONGO_DB_NAME: Joi.string().required(),
 
   // Either REDIS_URL (a single connection string, as given by managed providers
