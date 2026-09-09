@@ -3,6 +3,7 @@ import { config as loadEnv } from 'dotenv';
 import * as bcrypt from 'bcrypt';
 import mongoose from 'mongoose';
 import configuration from '../config/configuration';
+import { redactMongoUri } from './redact-mongo-uri';
 
 loadEnv();
 import { Role } from '../common/enums/role.enum';
@@ -47,7 +48,7 @@ async function upsertUser(
 
 async function main() {
   await mongoose.connect(config.mongo.uri, { dbName: config.mongo.dbName });
-  console.log(`connected to ${config.mongo.uri}/${config.mongo.dbName}`);
+  console.log(`connected to ${redactMongoUri(config.mongo.uri)}/${config.mongo.dbName}`);
 
   const OrganizationModel = mongoose.model(Organization.name, OrganizationSchema);
   const UserModel = mongoose.model(User.name, UserSchema);
