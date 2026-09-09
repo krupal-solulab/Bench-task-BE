@@ -2732,6 +2732,136 @@
           }
         ]
       }
+    },
+    "/api/v1/platform/logs": {
+      "get": {
+        "operationId": "ApiLogsController_list",
+        "summary": "Paginated API request log, filterable by organization/status/method/path/date",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "organizationId",
+            "required": false,
+            "in": "query",
+            "description": "Filter to a single organization",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "method",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "GET",
+                "POST",
+                "PATCH",
+                "PUT",
+                "DELETE"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "statusCode",
+            "required": false,
+            "in": "query",
+            "description": "Exact status code, e.g. 404",
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "name": "statusClass",
+            "required": false,
+            "in": "query",
+            "description": "Coarse status filter; ignored if statusCode is set",
+            "schema": {
+              "enum": [
+                "2xx",
+                "3xx",
+                "4xx",
+                "5xx"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "required": false,
+            "in": "query",
+            "description": "Case-insensitive substring match against the request path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateFrom",
+            "required": false,
+            "in": "query",
+            "description": "ISO date - only logs at or after this instant",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateTo",
+            "required": false,
+            "in": "query",
+            "description": "ISO date - only logs at or before this instant",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
