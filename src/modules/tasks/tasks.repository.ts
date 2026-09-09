@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
+import { TaskStatus } from '../../common/enums/task-status.enum';
 import { Task, TaskDocument } from './schemas/task.schema';
 import {
   TaskActivity,
@@ -67,6 +68,23 @@ export class TasksRepository {
 
   async softDelete(id: string): Promise<void> {
     await this.model.updateOne({ _id: id }, { deletedAt: new Date() }).exec();
+  }
+
+  /** Assigned, not-yet-Done, not-yet-notified tasks whose due date falls within the given window. */
+  findDueSoonUnnotified(now: Date, threshold: Date): Promise<TaskDocument[]> {
+    return this.model
+      .find({
+        deletedAt: null,
+        dueDateNotifiedAt: null,
+        assignee: { $ne: null },
+        status: { $ne: TaskStatus.DONE },
+        dueDate: { $gte: now, $lte: threshold },
+      })
+      .exec();
+  }
+
+  async markDueDateNotified(id: string): Promise<void> {
+    await this.model.updateOne({ _id: id }, { dueDateNotifiedAt: new Date() }).exec();
   }
 
   async logActivity(

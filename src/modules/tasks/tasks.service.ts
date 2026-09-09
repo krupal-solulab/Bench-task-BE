@@ -15,6 +15,7 @@ import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { TaskStatus } from '../../common/enums/task-status.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { TasksRepository } from './tasks.repository';
@@ -31,6 +32,7 @@ export class TasksService {
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
     private readonly cacheService: CacheService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
@@ -60,6 +62,16 @@ export class TasksService {
 
     await this.tasksRepository.logActivity(task.id, actingUser.id, TaskActivityAction.CREATED);
     await this.invalidateDashboardCache();
+
+    if (dto.assignee) {
+      await this.notificationsService.notifyTaskAssigned({
+        taskId: task.id,
+        taskTitle: task.title,
+        assigneeId: dto.assignee,
+        actorEmail: actingUser.email,
+      });
+    }
+
     return this.tasksRepository.findByIdActive(task.id) as Promise<TaskDocument>;
   }
 
@@ -195,6 +207,16 @@ export class TasksService {
       assignee,
     );
     await this.invalidateDashboardCache();
+
+    if (assignee && assignee !== previousAssignee) {
+      await this.notificationsService.notifyTaskAssigned({
+        taskId: id,
+        taskTitle: task.title,
+        assigneeId: assignee,
+        actorEmail: actingUser.email,
+      });
+    }
+
     return updated!;
   }
 

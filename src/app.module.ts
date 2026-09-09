@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
 import configuration, { AppConfig } from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
@@ -75,6 +76,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
         ],
       }),
     }),
+    ScheduleModule.forRoot(),
     DatabaseModule,
     RedisModule,
     StorageModule,

@@ -42,6 +42,11 @@ export class Task {
   @Prop({ type: Date, default: null })
   dueDate!: Date | null;
 
+  // Stamped by the hourly due-date reminder cron once a notification has gone out, so a task
+  // is only ever notified once. Null until then; unrelated to `dueDate` itself changing.
+  @Prop({ type: Date, default: null })
+  dueDateNotifiedAt!: Date | null;
+
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   createdBy!: Types.ObjectId;
 
