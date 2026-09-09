@@ -25,6 +25,7 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     DatabaseModule,
     RedisModule,
     StorageModule,
+    EventsModule,
     HealthModule,
     UsersModule,
     OrganizationsModule,

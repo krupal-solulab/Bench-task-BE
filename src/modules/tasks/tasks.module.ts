@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ProjectsModule } from '../projects/projects.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
+import { EventsModule } from '../../events/events.module';
 import { Task, TaskSchema } from './schemas/task.schema';
 import { TaskActivity, TaskActivitySchema } from './schemas/task-activity.schema';
 import { TasksRepository } from './tasks.repository';
@@ -13,6 +14,7 @@ import { TasksDueDateReminderService } from './tasks-due-date-reminder.service';
   imports: [
     ProjectsModule,
     NotificationsModule,
+    EventsModule,
     MongooseModule.forFeature([
       { name: Task.name, schema: TaskSchema },
       { name: TaskActivity.name, schema: TaskActivitySchema },

@@ -6,7 +6,9 @@ import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { TasksRepository } from '../tasks/tasks.repository';
+import { TaskDocument } from '../tasks/schemas/task.schema';
 import { ProjectsService } from '../projects/projects.service';
+import { EventsGateway } from '../../events/events.gateway';
 import { CommentsRepository } from './comments.repository';
 import { CommentDocument } from './schemas/comment.schema';
 
@@ -16,6 +18,7 @@ export class CommentsService {
     private readonly commentsRepository: CommentsRepository,
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
+    private readonly eventsGateway: EventsGateway,
   ) {}
 
   async create(
@@ -23,13 +26,26 @@ export class CommentsService {
     body: string,
     actingUser: AuthenticatedUser,
   ): Promise<CommentDocument> {
-    await this.assertTaskMember(taskId, actingUser);
+    const { projectId } = await this.assertTaskMember(taskId, actingUser);
     const comment = await this.commentsRepository.create({
       task: new Types.ObjectId(taskId),
       author: new Types.ObjectId(actingUser.id),
       body,
     });
-    return this.commentsRepository.findByIdActive(comment.id) as Promise<CommentDocument>;
+    const created = (await this.commentsRepository.findByIdActive(comment.id)) as CommentDocument;
+
+    try {
+      this.eventsGateway.emitCommentCreated({
+        taskId,
+        projectId,
+        commentId: created.id,
+        authorId: actingUser.id,
+      });
+    } catch {
+      // Best-effort real-time push; a delivery failure here must never fail comment creation.
+    }
+
+    return created;
   }
 
   async paginateForTask(
@@ -75,9 +91,17 @@ export class CommentsService {
     throw new ForbiddenException('You can only modify your own comments');
   }
 
-  private async assertTaskMember(taskId: string, actingUser: AuthenticatedUser): Promise<void> {
+  /**
+   * Returns the task and its project id (needed by create() to target the right socket room) -
+   * every exception/branch is otherwise unchanged from before this method returned a value.
+   */
+  private async assertTaskMember(
+    taskId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<{ task: TaskDocument; projectId: string }> {
     const task = await this.tasksRepository.findRawById(taskId);
     if (!task) throw new NotFoundException('Task not found');
+    const projectId = task.project.toString();
     // Same-org-Admin bypass only - a global `role === ADMIN` check here would let an Admin from
     // one organization read/post comments on another organization's task, since findRawById is
     // not org-scoped (this codebase's repositories verify-then-query-by-id at the service layer
@@ -86,12 +110,13 @@ export class CommentsService {
       actingUser.role === Role.ADMIN &&
       extractId(task.organizationId) === requireOrgId(actingUser)
     ) {
-      return;
+      return { task, projectId };
     }
-    const project = await this.projectsService.getActiveProjectOrThrow(task.project.toString());
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
     if (!this.projectsService.isProjectMember(project, actingUser.id)) {
       throw new ForbiddenException('You must be a member of this project to comment');
     }
+    return { task, projectId };
   }
 
   private async getActiveOrThrow(id: string): Promise<CommentDocument> {

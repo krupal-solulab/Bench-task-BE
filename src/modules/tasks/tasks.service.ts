@@ -16,6 +16,7 @@ import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { TaskStatus } from '../../common/enums/task-status.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { TasksRepository } from './tasks.repository';
@@ -33,6 +34,7 @@ export class TasksService {
     private readonly projectsService: ProjectsService,
     private readonly cacheService: CacheService,
     private readonly notificationsService: NotificationsService,
+    private readonly eventsGateway: EventsGateway,
   ) {}
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
@@ -181,6 +183,19 @@ export class TasksService {
       status,
     );
     await this.invalidateDashboardCache();
+
+    try {
+      this.eventsGateway.emitTaskStatusChanged({
+        taskId: id,
+        projectId: project.id,
+        fromStatus: task.status,
+        toStatus: status,
+        actorId: actingUser.id,
+      });
+    } catch {
+      // Best-effort real-time push; a delivery failure here must never fail the status update.
+    }
+
     return updated!;
   }
 
