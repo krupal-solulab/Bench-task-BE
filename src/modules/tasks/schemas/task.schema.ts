@@ -53,6 +53,17 @@ export class Task {
   @Prop({ type: Date, default: null })
   completedAt!: Date | null;
 
+  // null means "in the backlog". Set only via TasksService.updateSprint(); untouched by ordinary
+  // task create/update, so every task not deliberately put in a sprint behaves exactly as before.
+  @Prop({ type: Types.ObjectId, ref: 'Sprint', default: null })
+  sprint!: Types.ObjectId | null;
+
+  // Fractional backlog/sprint ordering position - see modules/tasks/utils/rank.util.ts. Defaults
+  // to 0 for every task created before this field existed; a secondary `createdAt` sort key keeps
+  // those legacy same-rank tasks in a stable order (see TasksRepository.paginate).
+  @Prop({ type: Number, default: 0 })
+  rank!: number;
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
@@ -76,3 +87,5 @@ TaskSchema.index({ assignee: 1, status: 1 });
 TaskSchema.index({ title: 'text', description: 'text' });
 TaskSchema.index({ organizationId: 1 });
 TaskSchema.index({ organizationId: 1, assignee: 1 });
+TaskSchema.index({ sprint: 1 });
+TaskSchema.index({ project: 1, sprint: 1 });

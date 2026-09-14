@@ -45,6 +45,22 @@ export async function createTask(
   return res.body.data;
 }
 
+export async function createSprint(
+  app: INestApplication,
+  token: string,
+  projectId: string,
+  body: Record<string, unknown>,
+): Promise<ApiRecord> {
+  const res = await api(app)
+    .post(`/${API_PREFIX}/projects/${projectId}/sprints`)
+    .set(...authHeader(token))
+    .send(body);
+  if (res.status !== 201) {
+    throw new Error(`createSprint failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  return res.body.data;
+}
+
 export async function addMembers(
   app: INestApplication,
   token: string,

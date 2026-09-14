@@ -20,6 +20,9 @@ export function buildTaskListFilter(
   if (query.priority?.length) filter.priority = { $in: query.priority };
   if (query.createdBy) filter.createdBy = new Types.ObjectId(query.createdBy);
 
+  if (query.unassignedSprint) filter.sprint = null;
+  else if (query.sprintId) filter.sprint = new Types.ObjectId(query.sprintId);
+
   if (query.dueDateFrom || query.dueDateTo) {
     filter.dueDate = {
       ...(query.dueDateFrom ? { $gte: new Date(query.dueDateFrom) } : {}),
@@ -41,4 +44,16 @@ export function buildTaskListFilter(
   }
 
   return filter;
+}
+
+/**
+ * Shared by TasksRepository and ProjectsService's task-list sort. Adds a stable `createdAt: 1`
+ * tie-break for every sort field except `createdAt` itself (which would otherwise collide with -
+ * and silently override, since object literals can't hold the same key twice - the primary sort's
+ * own direction). This keeps legacy tasks that all share `rank: 0` in a deterministic order in the
+ * Backlog view instead of Mongo's undefined tie-break order.
+ */
+export function buildTaskListSort(sortBy: string, sortOrder: 1 | -1): Record<string, 1 | -1> {
+  if (sortBy === 'createdAt') return { createdAt: sortOrder };
+  return { [sortBy]: sortOrder, createdAt: 1 };
 }

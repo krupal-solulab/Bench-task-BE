@@ -19,12 +19,17 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
-import { TasksRepository } from './tasks.repository';
+import { SprintsService } from '../sprints/sprints.service';
+import { SprintStatus } from '../../common/enums/sprint-status.enum';
+import { TasksRepository, RankScope } from './tasks.repository';
 import { TaskDocument } from './schemas/task.schema';
 import { TaskActivityAction } from './schemas/task-activity.schema';
 import { isLegalTaskTransition, legalTaskTransitions } from './task-status.rules';
+import { midpointRank, needsRenumber, nextAppendRank } from './utils/rank.util';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
+import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
+import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 
 @Injectable()
@@ -32,6 +37,7 @@ export class TasksService {
   constructor(
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
+    private readonly sprintsService: SprintsService,
     private readonly cacheService: CacheService,
     private readonly notificationsService: NotificationsService,
     private readonly eventsGateway: EventsGateway,
@@ -49,6 +55,11 @@ export class TasksService {
       this.assertAssigneeEligible(project, dto.assignee);
     }
 
+    // Every new task starts in the backlog (sprint: null), appended to the end of its rank order -
+    // this keeps task creation's validation surface entirely unchanged for anyone not using sprints.
+    const backlogScope: RankScope = { project: new Types.ObjectId(dto.project), sprint: null };
+    const maxRank = await this.tasksRepository.findMaxRank(backlogScope);
+
     const task = await this.tasksRepository.create({
       title: dto.title,
       description: dto.description ?? '',
@@ -60,6 +71,7 @@ export class TasksService {
       // Copied from the parent project (not actingUser) so a task's org always matches its
       // project's org, even in the platform-provisioned-admin edge case.
       organizationId: project.organizationId,
+      rank: nextAppendRank(maxRank),
     });
 
     await this.tasksRepository.logActivity(task.id, actingUser.id, TaskActivityAction.CREATED);
@@ -232,6 +244,89 @@ export class TasksService {
       });
     }
 
+    return updated!;
+  }
+
+  async updateSprint(
+    id: string,
+    dto: UpdateTaskSprintDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    const projectId = extractId(task.project);
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanManage(project, actingUser);
+
+    const previousSprintId = task.sprint ? extractId(task.sprint) : null;
+    if (dto.sprintId === previousSprintId) return task;
+
+    if (dto.sprintId) {
+      const sprint = await this.sprintsService.getActiveOrThrow(dto.sprintId, projectId);
+      if (sprint.status === SprintStatus.COMPLETED) {
+        throw new ConflictException('Cannot add a task to a completed sprint');
+      }
+    }
+
+    const scope: RankScope = {
+      project: new Types.ObjectId(projectId),
+      sprint: dto.sprintId ? new Types.ObjectId(dto.sprintId) : null,
+    };
+    const maxRank = await this.tasksRepository.findMaxRank(scope);
+
+    const updated = await this.tasksRepository.updateById(id, {
+      sprint: dto.sprintId ? new Types.ObjectId(dto.sprintId) : null,
+      rank: nextAppendRank(maxRank),
+    });
+    await this.tasksRepository.logActivity(
+      id,
+      actingUser.id,
+      dto.sprintId ? TaskActivityAction.SPRINT_ASSIGNED : TaskActivityAction.SPRINT_REMOVED,
+      previousSprintId,
+      dto.sprintId,
+    );
+    await this.invalidateDashboardCache();
+    return updated!;
+  }
+
+  async updateRank(
+    id: string,
+    dto: UpdateTaskRankDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<TaskDocument> {
+    if (!dto.beforeTaskId && !dto.afterTaskId) {
+      throw new BadRequestException('At least one of beforeTaskId/afterTaskId is required');
+    }
+
+    const task = await this.getActiveOrThrow(id);
+    const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+    this.projectsService.assertUserCanManage(project, actingUser);
+
+    const scope: RankScope = {
+      project: new Types.ObjectId(extractId(task.project)),
+      sprint: task.sprint ? new Types.ObjectId(extractId(task.sprint)) : null,
+    };
+
+    const neighborRank = async (neighborId?: string): Promise<number | null> => {
+      if (!neighborId) return null;
+      const rank = await this.tasksRepository.findRankInScope(neighborId, scope);
+      if (rank === null) {
+        throw new BadRequestException('beforeTaskId/afterTaskId must be in the same list');
+      }
+      return rank;
+    };
+
+    let beforeRank = await neighborRank(dto.beforeTaskId);
+    let afterRank = await neighborRank(dto.afterTaskId);
+
+    if (needsRenumber(beforeRank, afterRank)) {
+      await this.tasksRepository.renumberScope(scope);
+      beforeRank = await neighborRank(dto.beforeTaskId);
+      afterRank = await neighborRank(dto.afterTaskId);
+    }
+
+    const updated = await this.tasksRepository.updateById(id, {
+      rank: midpointRank(beforeRank, afterRank),
+    });
     return updated!;
   }
 

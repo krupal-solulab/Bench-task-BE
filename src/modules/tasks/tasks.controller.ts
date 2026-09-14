@@ -22,6 +22,8 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { UpdateTaskAssigneeDto } from './dto/update-task-assignee.dto';
+import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
+import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 
 @ApiTags('tasks')
@@ -94,6 +96,28 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.tasksService.updateAssignee(id, dto.assignee, user);
+  }
+
+  @Patch(':id/sprint')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Move a task into a sprint, or back to the backlog (sprintId: null)' })
+  async updateSprint(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateTaskSprintDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.updateSprint(id, dto, user);
+  }
+
+  @Patch(':id/rank')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Reorder a task within its current backlog/sprint list' })
+  async updateRank(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateTaskRankDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.updateRank(id, dto, user);
   }
 
   @Delete(':id')

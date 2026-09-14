@@ -9,7 +9,13 @@ import {
   TaskActivityDocument,
 } from './schemas/task-activity.schema';
 import { ListTasksDto } from './dto/list-tasks.dto';
-import { buildTaskListFilter } from './utils/task-filter.util';
+import { buildTaskListFilter, buildTaskListSort } from './utils/task-filter.util';
+import { renumberedRanks } from './utils/rank.util';
+
+export interface RankScope {
+  project: Types.ObjectId;
+  sprint: Types.ObjectId | null;
+}
 
 const POPULATE_FIELDS = 'name email role isActive';
 
@@ -30,6 +36,7 @@ export class TasksRepository {
       .populate('assignee', POPULATE_FIELDS)
       .populate('createdBy', POPULATE_FIELDS)
       .populate('project', 'name')
+      .populate('sprint', 'name')
       .exec();
   }
 
@@ -44,6 +51,7 @@ export class TasksRepository {
     const filter = buildTaskListFilter(query, scope);
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
     const skip = (query.page - 1) * query.limit;
+    const sort = buildTaskListSort(query.sortBy, sortOrder);
 
     const [data, total] = await Promise.all([
       this.model
@@ -51,7 +59,8 @@ export class TasksRepository {
         .populate('assignee', POPULATE_FIELDS)
         .populate('createdBy', POPULATE_FIELDS)
         .populate('project', 'name')
-        .sort({ [query.sortBy]: sortOrder })
+        .populate('sprint', 'name')
+        .sort(sort)
         .skip(skip)
         .limit(query.limit)
         .exec(),
@@ -121,5 +130,45 @@ export class TasksRepository {
       this.activityModel.countDocuments(filter).exec(),
     ]);
     return { data, total };
+  }
+
+  /** Highest rank currently in a backlog/sprint scope, or null if the scope is empty. */
+  async findMaxRank(scope: RankScope): Promise<number | null> {
+    const top = await this.model
+      .findOne({ project: scope.project, sprint: scope.sprint, deletedAt: null })
+      .sort({ rank: -1 })
+      .select('rank')
+      .exec();
+    return top ? top.rank : null;
+  }
+
+  /**
+   * A neighbor task's current rank, but only if it actually sits in the given scope - a
+   * before/afterTaskId from a different project or sprint is rejected by returning null rather
+   * than silently reordering against an unrelated list.
+   */
+  async findRankInScope(taskId: string, scope: RankScope): Promise<number | null> {
+    const task = await this.model
+      .findOne({ _id: taskId, project: scope.project, sprint: scope.sprint, deletedAt: null })
+      .select('rank')
+      .exec();
+    return task ? task.rank : null;
+  }
+
+  /** Re-spaces every task in a scope evenly by RANK_STEP, in their current rank order. */
+  async renumberScope(scope: RankScope): Promise<void> {
+    const tasks = await this.model
+      .find({ project: scope.project, sprint: scope.sprint, deletedAt: null })
+      .sort({ rank: 1, createdAt: 1 })
+      .select('_id')
+      .exec();
+    if (tasks.length === 0) return;
+
+    const ranks = renumberedRanks(tasks.length);
+    await this.model.bulkWrite(
+      tasks.map((task, index) => ({
+        updateOne: { filter: { _id: task._id }, update: { rank: ranks[index] } },
+      })),
+    );
   }
 }

@@ -1,18 +1,14 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
-export type TaskActivityDocument = HydratedDocument<TaskActivity>;
+export type SprintActivityDocument = HydratedDocument<SprintActivity>;
 
-export enum TaskActivityAction {
+export enum SprintActivityAction {
   CREATED = 'created',
-  STATUS_CHANGED = 'status_changed',
-  REASSIGNED = 'reassigned',
-  PRIORITY_CHANGED = 'priority_changed',
-  DUE_DATE_CHANGED = 'due_date_changed',
   UPDATED = 'updated',
+  STARTED = 'started',
+  COMPLETED = 'completed',
   DELETED = 'deleted',
-  SPRINT_ASSIGNED = 'sprint_assigned',
-  SPRINT_REMOVED = 'sprint_removed',
 }
 
 @Schema({
@@ -30,15 +26,15 @@ export enum TaskActivityAction {
     },
   },
 })
-export class TaskActivity {
-  @Prop({ type: Types.ObjectId, ref: 'Task', required: true })
-  task!: Types.ObjectId;
+export class SprintActivity {
+  @Prop({ type: Types.ObjectId, ref: 'Sprint', required: true })
+  sprint!: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   actor!: Types.ObjectId;
 
-  @Prop({ type: String, enum: TaskActivityAction, required: true })
-  action!: TaskActivityAction;
+  @Prop({ type: String, enum: SprintActivityAction, required: true })
+  action!: SprintActivityAction;
 
   @Prop({ type: String, default: null })
   from!: string | null;
@@ -49,6 +45,6 @@ export class TaskActivity {
   createdAt!: Date;
 }
 
-export const TaskActivitySchema = SchemaFactory.createForClass(TaskActivity);
+export const SprintActivitySchema = SchemaFactory.createForClass(SprintActivity);
 
-TaskActivitySchema.index({ task: 1, createdAt: -1 });
+SprintActivitySchema.index({ sprint: 1, createdAt: -1 });

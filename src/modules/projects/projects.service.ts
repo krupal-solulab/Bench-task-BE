@@ -22,8 +22,9 @@ import { UsersRepository } from '../users/users.repository';
 import { UserDocument } from '../users/schemas/user.schema';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
 import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
+import { Sprint, SprintDocument } from '../sprints/schemas/sprint.schema';
 import { ListTasksDto } from '../tasks/dto/list-tasks.dto';
-import { buildTaskListFilter } from '../tasks/utils/task-filter.util';
+import { buildTaskListFilter, buildTaskListSort } from '../tasks/utils/task-filter.util';
 import { ProjectsRepository } from './projects.repository';
 import { ProjectDocument } from './schemas/project.schema';
 import { ProjectActivityAction } from './schemas/project-activity.schema';
@@ -60,6 +61,7 @@ export class ProjectsService {
     private readonly cacheService: CacheService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
+    @InjectModel(Sprint.name) private readonly sprintModel: Model<SprintDocument>,
   ) {}
 
   async create(dto: CreateProjectDto, actingUser: AuthenticatedUser): Promise<ProjectResponse> {
@@ -199,6 +201,9 @@ export class ProjectsService {
       await this.taskModel.updateMany({ _id: { $in: taskIds } }, { deletedAt: now }).exec();
       await this.commentModel.updateMany({ task: { $in: taskIds } }, { deletedAt: now }).exec();
     }
+    await this.sprintModel
+      .updateMany({ project: project._id, deletedAt: null }, { deletedAt: now })
+      .exec();
     await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.DELETED);
     await this.invalidateDashboardCache();
   }
@@ -308,13 +313,15 @@ export class ProjectsService {
     const filter = buildTaskListFilter(query, { project: project._id });
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
     const skip = (query.page - 1) * query.limit;
+    const sort = buildTaskListSort(query.sortBy, sortOrder);
 
     const [data, total] = await Promise.all([
       this.taskModel
         .find(filter)
         .populate('assignee', 'name email role isActive')
         .populate('createdBy', 'name email role isActive')
-        .sort({ [query.sortBy]: sortOrder })
+        .populate('sprint', 'name')
+        .sort(sort)
         .skip(skip)
         .limit(query.limit)
         .exec(),

@@ -6,7 +6,7 @@ import { TaskPriority } from '../../../common/enums/task-priority.enum';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 import { IsObjectId } from '../../../common/validators/is-object-id.validator';
 
-const SORT_FIELDS = ['dueDate', 'priority', 'status', 'createdAt', 'updatedAt'] as const;
+const SORT_FIELDS = ['dueDate', 'priority', 'status', 'createdAt', 'updatedAt', 'rank'] as const;
 export type TaskSortBy = (typeof SORT_FIELDS)[number];
 
 const toArray = ({ value }: { value: unknown }) =>
@@ -62,6 +62,17 @@ export class ListTasksDto extends PaginationQueryDto {
   @IsOptional()
   @IsObjectId()
   createdBy?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObjectId()
+  sprintId?: string;
+
+  @ApiPropertyOptional({ description: 'true = only backlog tasks (no sprint assigned)' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  unassignedSprint?: boolean;
 
   @ApiPropertyOptional({ enum: SORT_FIELDS, default: 'createdAt' })
   @IsOptional()

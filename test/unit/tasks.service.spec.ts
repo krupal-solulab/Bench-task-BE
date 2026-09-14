@@ -7,6 +7,7 @@ import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { TasksService } from 'src/modules/tasks/tasks.service';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
 import { ProjectsService } from 'src/modules/projects/projects.service';
+import { SprintsService } from 'src/modules/sprints/sprints.service';
 import { CacheService } from 'src/redis/cache.service';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { EventsGateway } from 'src/events/events.gateway';
@@ -49,7 +50,15 @@ describe('TasksService', () => {
   let tasksRepository: jest.Mocked<
     Pick<
       TasksRepository,
-      'create' | 'findByIdActive' | 'updateById' | 'logActivity' | 'softDelete' | 'paginate'
+      | 'create'
+      | 'findByIdActive'
+      | 'updateById'
+      | 'logActivity'
+      | 'softDelete'
+      | 'paginate'
+      | 'findMaxRank'
+      | 'findRankInScope'
+      | 'renumberScope'
     >
   >;
   let projectsService: jest.Mocked<
@@ -61,6 +70,7 @@ describe('TasksService', () => {
       | 'getAccessibleProjectIds'
     >
   >;
+  let sprintsService: jest.Mocked<Pick<SprintsService, 'getActiveOrThrow'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
   let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifyTaskAssigned'>>;
   let eventsGateway: jest.Mocked<Pick<EventsGateway, 'emitTaskStatusChanged'>>;
@@ -74,6 +84,9 @@ describe('TasksService', () => {
       logActivity: jest.fn(),
       softDelete: jest.fn(),
       paginate: jest.fn(),
+      findMaxRank: jest.fn().mockResolvedValue(null),
+      findRankInScope: jest.fn(),
+      renumberScope: jest.fn().mockResolvedValue(undefined),
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
@@ -81,12 +94,14 @@ describe('TasksService', () => {
       isProjectMember: jest.fn(),
       getAccessibleProjectIds: jest.fn(),
     };
+    sprintsService = { getActiveOrThrow: jest.fn() };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
     notificationsService = { notifyTaskAssigned: jest.fn().mockResolvedValue(undefined) };
     eventsGateway = { emitTaskStatusChanged: jest.fn() };
     service = new TasksService(
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
+      sprintsService as unknown as SprintsService,
       cacheService as unknown as CacheService,
       notificationsService as unknown as NotificationsService,
       eventsGateway as unknown as EventsGateway,

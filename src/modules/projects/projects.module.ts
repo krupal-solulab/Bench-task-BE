@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { UsersModule } from '../users/users.module';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
+import { Sprint, SprintSchema } from '../sprints/schemas/sprint.schema';
 import { Project, ProjectSchema } from './schemas/project.schema';
 import { ProjectActivity, ProjectActivitySchema } from './schemas/project-activity.schema';
 import { ProjectsRepository } from './projects.repository';
@@ -17,6 +18,7 @@ import { ProjectsController } from './projects.controller';
       { name: ProjectActivity.name, schema: ProjectActivitySchema },
       { name: Task.name, schema: TaskSchema },
       { name: Comment.name, schema: CommentSchema },
+      { name: Sprint.name, schema: SprintSchema },
     ]),
   ],
   controllers: [ProjectsController],

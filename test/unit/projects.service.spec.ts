@@ -10,6 +10,7 @@ import { UsersRepository } from 'src/modules/users/users.repository';
 import { CacheService } from 'src/redis/cache.service';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
 import { CommentDocument } from 'src/modules/comments/schemas/comment.schema';
+import { SprintDocument } from 'src/modules/sprints/schemas/sprint.schema';
 
 // Wrapped in `new Types.ObjectId(...)` by ProjectsService.create(), so this must be valid hex.
 const ORG_A = '507f1f77bcf86cd799439099';
@@ -63,6 +64,7 @@ describe('ProjectsService', () => {
     aggregate: jest.Mock;
   };
   let commentModel: { updateMany: jest.Mock };
+  let sprintModel: { updateMany: jest.Mock };
   let service: ProjectsService;
 
   beforeEach(() => {
@@ -87,6 +89,9 @@ describe('ProjectsService', () => {
     commentModel = {
       updateMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(undefined) }),
     };
+    sprintModel = {
+      updateMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(undefined) }),
+    };
 
     service = new ProjectsService(
       projectsRepository as unknown as ProjectsRepository,
@@ -94,6 +99,7 @@ describe('ProjectsService', () => {
       cacheService as unknown as CacheService,
       taskModel as unknown as Model<TaskDocument>,
       commentModel as unknown as Model<CommentDocument>,
+      sprintModel as unknown as Model<SprintDocument>,
     );
   });
 

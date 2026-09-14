@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ProjectsModule } from '../projects/projects.module';
+import { SprintsModule } from '../sprints/sprints.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { EventsModule } from '../../events/events.module';
 import { Task, TaskSchema } from './schemas/task.schema';
@@ -13,6 +14,7 @@ import { TasksDueDateReminderService } from './tasks-due-date-reminder.service';
 @Module({
   imports: [
     ProjectsModule,
+    SprintsModule,
     NotificationsModule,
     EventsModule,
     MongooseModule.forFeature([

@@ -1145,6 +1145,23 @@
             }
           },
           {
+            "name": "sprintId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unassignedSprint",
+            "required": false,
+            "in": "query",
+            "description": "true = only backlog tasks (no sprint assigned)",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -1155,7 +1172,8 @@
                 "priority",
                 "status",
                 "createdAt",
-                "updatedAt"
+                "updatedAt",
+                "rank"
               ],
               "type": "string"
             }
@@ -1608,6 +1626,23 @@
             }
           },
           {
+            "name": "sprintId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unassignedSprint",
+            "required": false,
+            "in": "query",
+            "description": "true = only backlog tasks (no sprint assigned)",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -1618,7 +1653,8 @@
                 "priority",
                 "status",
                 "createdAt",
-                "updatedAt"
+                "updatedAt",
+                "rank"
               ],
               "type": "string"
             }
@@ -1768,6 +1804,23 @@
             }
           },
           {
+            "name": "sprintId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unassignedSprint",
+            "required": false,
+            "in": "query",
+            "description": "true = only backlog tasks (no sprint assigned)",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -1778,7 +1831,8 @@
                 "priority",
                 "status",
                 "createdAt",
-                "updatedAt"
+                "updatedAt",
+                "rank"
               ],
               "type": "string"
             }
@@ -1928,6 +1982,23 @@
             }
           },
           {
+            "name": "sprintId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unassignedSprint",
+            "required": false,
+            "in": "query",
+            "description": "true = only backlog tasks (no sprint assigned)",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -1938,7 +2009,8 @@
                 "priority",
                 "status",
                 "createdAt",
-                "updatedAt"
+                "updatedAt",
+                "rank"
               ],
               "type": "string"
             }
@@ -2130,6 +2202,84 @@
         ]
       }
     },
+    "/api/v1/tasks/{id}/sprint": {
+      "patch": {
+        "operationId": "TasksController_updateSprint",
+        "summary": "Move a task into a sprint, or back to the backlog (sprintId: null)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskSprintDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/rank": {
+      "patch": {
+        "operationId": "TasksController_updateRank",
+        "summary": "Reorder a task within its current backlog/sprint list",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskRankDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{id}/activity": {
       "get": {
         "operationId": "TasksController_activity",
@@ -2185,6 +2335,413 @@
         },
         "tags": [
           "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints": {
+      "post": {
+        "operationId": "SprintsController_create",
+        "summary": "Create a sprint under a project",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSprintDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "SprintsController_list",
+        "summary": "List a project's sprints",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Planned",
+                  "Active",
+                  "Completed"
+                ]
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/active": {
+      "get": {
+        "operationId": "SprintsController_active",
+        "summary": "The project's single Active sprint, or null",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/{sprintId}": {
+      "get": {
+        "operationId": "SprintsController_findOne",
+        "summary": "Get a single sprint",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "SprintsController_update",
+        "summary": "Update sprint name/goal/dates",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSprintDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "SprintsController_remove",
+        "summary": "Delete a Planned sprint (409 if Active or Completed)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/{sprintId}/start": {
+      "post": {
+        "operationId": "SprintsController_start",
+        "summary": "Start a Planned sprint (409 if another sprint is already Active)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/{sprintId}/complete": {
+      "post": {
+        "operationId": "SprintsController_complete",
+        "summary": "Complete an Active sprint (moves incomplete tasks back to backlog)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/{sprintId}/activity": {
+      "get": {
+        "operationId": "SprintsController_activity",
+        "summary": "Paginated audit trail for a sprint",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
         ],
         "security": [
           {
@@ -3244,6 +3801,76 @@
             "type": "object",
             "nullable": true,
             "description": "null to unassign"
+          }
+        }
+      },
+      "UpdateTaskSprintDto": {
+        "type": "object",
+        "properties": {
+          "sprintId": {
+            "type": "object",
+            "nullable": true,
+            "description": "null moves the task back to the backlog"
+          }
+        }
+      },
+      "UpdateTaskRankDto": {
+        "type": "object",
+        "properties": {
+          "beforeTaskId": {
+            "type": "string",
+            "description": "Omit to move to the top of the list"
+          },
+          "afterTaskId": {
+            "type": "string",
+            "description": "Omit to move to the bottom of the list"
+          }
+        }
+      },
+      "CreateSprintDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Sprint 12"
+          },
+          "goal": {
+            "type": "string",
+            "example": "Ship the new onboarding flow."
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2026-09-15"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2026-09-29"
+          }
+        },
+        "required": [
+          "name",
+          "startDate",
+          "endDate"
+        ]
+      },
+      "UpdateSprintDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Sprint 12"
+          },
+          "goal": {
+            "type": "string",
+            "example": "Ship the new onboarding flow."
+          },
+          "startDate": {
+            "type": "string",
+            "example": "2026-09-15"
+          },
+          "endDate": {
+            "type": "string",
+            "example": "2026-09-29"
           }
         }
       },
