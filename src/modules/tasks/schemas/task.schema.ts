@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 import { IssueType } from '../../../common/enums/issue-type.enum';
 import { StatusCategory } from '../../../common/enums/status-category.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
@@ -9,6 +9,11 @@ export type TaskDocument = HydratedDocument<Task>;
 
 @Schema({
   timestamps: true,
+  // Mongoose's default `minimize: true` strips empty-object fields (e.g. an unset
+  // `customFieldValues: {}`) from what's persisted/returned entirely, so a task with no custom
+  // field values would come back with the field missing instead of `{}`. Disabled so
+  // `customFieldValues` is always a reliably-present object.
+  minimize: false,
   toJSON: {
     virtuals: true,
     // Mongoose's transform typings don't carry the schema's field shape through; `any` is the
@@ -94,6 +99,22 @@ export class Task {
   @Prop({ type: String, default: null })
   issueKey!: string | null;
 
+  // Free-form tags. No project-level registry - ProjectsService.listLabels() just returns the
+  // distinct values already in use, for autocomplete.
+  @Prop({ type: [String], default: [] })
+  labels!: string[];
+
+  // A subset of the project's Project.components list - validated in TasksService against the
+  // project's current component names at create/update time.
+  @Prop({ type: [String], default: [] })
+  components!: string[];
+
+  // Keyed by Project.customFields[].id (not name, so renaming a field never orphans its stored
+  // values). Validated against the project's field definitions by
+  // custom-field.schema.ts's validateCustomFieldValues - never trusted as-is from the client.
+  @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
+  customFieldValues!: Record<string, unknown>;
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
@@ -124,3 +145,5 @@ TaskSchema.index({ parent: 1 });
 TaskSchema.index({ statusCategory: 1 });
 TaskSchema.index({ project: 1, statusCategory: 1 });
 TaskSchema.index({ sprint: 1, statusCategory: 1 });
+TaskSchema.index({ project: 1, labels: 1 });
+TaskSchema.index({ project: 1, components: 1 });

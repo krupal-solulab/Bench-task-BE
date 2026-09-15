@@ -1,8 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsEnum,
   IsISO8601,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -63,4 +66,31 @@ export class CreateTaskDto {
   @Min(0)
   @Max(1000)
   storyPoints?: number;
+
+  @ApiPropertyOptional({ type: [String], description: 'Free-form tags' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  labels?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: "Must be names already defined in the project's component list",
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(50, { each: true })
+  components?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      "Keyed by the project's custom field ids. Value shape is validated per-field's type.",
+  })
+  @IsOptional()
+  @IsObject()
+  customFieldValues?: Record<string, unknown>;
 }

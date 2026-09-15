@@ -13,6 +13,7 @@ import { ProjectsService } from 'src/modules/projects/projects.service';
 import { ProjectsRepository } from 'src/modules/projects/projects.repository';
 import { ProjectActivityAction } from 'src/modules/projects/schemas/project-activity.schema';
 import { DEFAULT_WORKFLOW } from 'src/modules/projects/schemas/workflow.schema';
+import { CustomFieldType } from 'src/modules/projects/schemas/custom-field.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { CacheService } from 'src/redis/cache.service';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
@@ -38,6 +39,8 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     status: ProjectStatus.IN_PROGRESS,
     startDate: new Date('2026-01-01'),
     dueDate: null,
+    components: [],
+    customFields: [],
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     ...overrides,
@@ -813,6 +816,263 @@ describe('ProjectsService', () => {
           makeUser({ role: Role.ADMIN }),
         ),
       ).resolves.toBeDefined();
+    });
+  });
+
+  describe('listLabels', () => {
+    it('returns the distinct labels already in use on the project (view access only)', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      taskModel.distinct.mockResolvedValue(['bug', 'urgent']);
+
+      const labels = await service.listLabels('project-1', makeUser({ role: Role.ADMIN }));
+
+      expect(labels).toEqual(['bug', 'urgent']);
+    });
+
+    it('denies a non-member Developer', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      projectsRepository.isMember.mockReturnValue(false);
+
+      await expect(
+        service.listLabels('project-1', makeUser({ id: DEV_ID, role: Role.DEVELOPER })),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('updateComponents', () => {
+    it('rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateComponents(
+          'project-1',
+          { names: ['Frontend'] },
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects duplicate names', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateComponents(
+          'project-1',
+          { names: ['Frontend', 'Frontend'] },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects removing a component still used by an active task', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({ components: ['Frontend', 'API'] }),
+      );
+      taskModel.distinct.mockResolvedValue(['API']);
+
+      await expect(
+        service.updateComponents(
+          'project-1',
+          { names: ['Frontend'] },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(projectsRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('saves a valid component list', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ components: [] }));
+      taskModel.distinct.mockResolvedValue([]);
+      projectsRepository.updateById.mockResolvedValue(
+        makeProject({ components: ['Frontend', 'API'] }),
+      );
+
+      await service.updateComponents(
+        'project-1',
+        { names: ['Frontend', 'API'] },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        components: ['Frontend', 'API'],
+      });
+    });
+  });
+
+  describe('updateCustomFields', () => {
+    it('rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateCustomFields(
+          'project-1',
+          { fields: [{ name: 'Severity', type: CustomFieldType.TEXT, required: false }] },
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('assigns a fresh id to a new field definition', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: [] }));
+      taskModel.countDocuments.mockResolvedValue(0);
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateCustomFields(
+        'project-1',
+        { fields: [{ name: 'Severity', type: CustomFieldType.TEXT, required: false }] },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.customFields).toHaveLength(1);
+      expect(patch.customFields![0]).toMatchObject({
+        name: 'Severity',
+        type: CustomFieldType.TEXT,
+      });
+      expect(patch.customFields![0]!.id).toEqual(expect.any(String));
+    });
+
+    it("rejects changing an existing field's type", async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: [
+            {
+              id: 'f-1',
+              name: 'Severity',
+              type: CustomFieldType.TEXT,
+              required: false,
+              options: null,
+            },
+          ],
+        }),
+      );
+
+      await expect(
+        service.updateCustomFields(
+          'project-1',
+          {
+            fields: [
+              { id: 'f-1', name: 'Severity', type: CustomFieldType.NUMBER, required: false },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an id that does not exist on the project', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: [] }));
+
+      await expect(
+        service.updateCustomFields(
+          'project-1',
+          {
+            fields: [
+              {
+                id: 'does-not-exist',
+                name: 'Severity',
+                type: CustomFieldType.TEXT,
+                required: false,
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects duplicate field names', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: [] }));
+
+      await expect(
+        service.updateCustomFields(
+          'project-1',
+          {
+            fields: [
+              { name: 'Severity', type: CustomFieldType.TEXT, required: false },
+              { name: 'Severity', type: CustomFieldType.NUMBER, required: false },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects removing a field still holding a value on an active task', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: [
+            {
+              id: 'f-1',
+              name: 'Severity',
+              type: CustomFieldType.TEXT,
+              required: false,
+              options: null,
+            },
+          ],
+        }),
+      );
+      taskModel.countDocuments.mockResolvedValue(1);
+
+      await expect(
+        service.updateCustomFields('project-1', { fields: [] }, makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(ConflictException);
+      expect(projectsRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('allows removing a field nobody has a value for', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: [
+            {
+              id: 'f-1',
+              name: 'Severity',
+              type: CustomFieldType.TEXT,
+              required: false,
+              options: null,
+            },
+          ],
+        }),
+      );
+      taskModel.countDocuments.mockResolvedValue(0);
+      projectsRepository.updateById.mockResolvedValue(makeProject({ customFields: [] }));
+
+      await expect(
+        service.updateCustomFields('project-1', { fields: [] }, makeUser({ role: Role.ADMIN })),
+      ).resolves.toBeDefined();
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', { customFields: [] });
+    });
+
+    it("preserves an existing field's id when only its name/required is edited", async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: [
+            {
+              id: 'f-1',
+              name: 'Severity',
+              type: CustomFieldType.TEXT,
+              required: false,
+              options: null,
+            },
+          ],
+        }),
+      );
+      taskModel.countDocuments.mockResolvedValue(0);
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateCustomFields(
+        'project-1',
+        {
+          fields: [
+            { id: 'f-1', name: 'Severity Level', type: CustomFieldType.TEXT, required: true },
+          ],
+        },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.customFields![0]).toMatchObject({
+        id: 'f-1',
+        name: 'Severity Level',
+        required: true,
+      });
     });
   });
 });

@@ -36,6 +36,9 @@ import {
   resolveMemberPermissions,
 } from './schemas/member-permissions.schema';
 import { PutWorkflowDto } from './dto/put-workflow.dto';
+import { CustomFieldDefinition } from './schemas/custom-field.schema';
+import { PutComponentsDto } from './dto/put-components.dto';
+import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
@@ -58,6 +61,8 @@ export interface ProjectResponse {
   dueDate: Date | null;
   taskCount: number;
   key: string | null;
+  components: string[];
+  customFields: CustomFieldDefinition[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -541,6 +546,96 @@ export class ProjectsService {
     return DEFAULT_WORKFLOW;
   }
 
+  /** Distinct labels already in use on this project's active tasks - for autocomplete, not a
+   * registry (labels stay pure free text; there is no "list of allowed labels"). */
+  async listLabels(id: string, actingUser: AuthenticatedUser): Promise<string[]> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+    return this.taskModel.distinct('labels', { project: project._id, deletedAt: null });
+  }
+
+  async updateComponents(
+    id: string,
+    dto: PutComponentsDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const names = dto.names.map((n) => n.trim());
+    if (new Set(names).size !== names.length) {
+      throw new BadRequestException('Component names must be unique');
+    }
+
+    const orphaned: string[] = await this.taskModel.distinct('components', {
+      project: project._id,
+      deletedAt: null,
+      components: { $nin: names },
+    });
+    if (orphaned.length > 0) {
+      throw new ConflictException(
+        `Cannot remove component(s) still in use by active tasks: ${orphaned.join(', ')}. Move those tasks to a different component first.`,
+      );
+    }
+
+    const updated = await this.projectsRepository.updateById(id, { components: names });
+    return this.toResponse(updated!);
+  }
+
+  async updateCustomFields(
+    id: string,
+    dto: PutCustomFieldsDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const existingById = new Map(project.customFields.map((f) => [f.id, f]));
+    const definitions: CustomFieldDefinition[] = dto.fields.map((f) => {
+      const existing = f.id ? existingById.get(f.id) : undefined;
+      if (f.id && !existing) {
+        throw new BadRequestException(`Custom field "${f.id}" does not exist on this project`);
+      }
+      if (existing && existing.type !== f.type) {
+        throw new BadRequestException(
+          `Cannot change "${existing.name}"'s type after creation - remove and recreate it instead`,
+        );
+      }
+      return {
+        id: f.id ?? new Types.ObjectId().toString(),
+        name: f.name.trim(),
+        type: f.type,
+        required: f.required,
+        options: f.options ?? null,
+      };
+    });
+
+    const names = definitions.map((f) => f.name);
+    if (new Set(names).size !== names.length) {
+      throw new BadRequestException('Custom field names must be unique');
+    }
+
+    const keptIds = new Set(definitions.map((f) => f.id));
+    const removedIds = project.customFields.map((f) => f.id).filter((fid) => !keptIds.has(fid));
+    if (removedIds.length > 0) {
+      const inUseCount = await this.taskModel.countDocuments({
+        project: project._id,
+        deletedAt: null,
+        $or: removedIds.map((fid) => ({
+          [`customFieldValues.${fid}`]: { $exists: true, $ne: null },
+        })),
+      });
+      if (inUseCount > 0) {
+        throw new ConflictException(
+          'Cannot remove a custom field still holding a value on an active task. Clear those values first.',
+        );
+      }
+    }
+
+    const updated = await this.projectsRepository.updateById(id, { customFields: definitions });
+    return this.toResponse(updated!);
+  }
+
   private assertValidWorkflow(workflow: Workflow): void {
     if (workflow.statuses.length === 0) {
       throw new BadRequestException('A workflow needs at least one status');
@@ -719,6 +814,8 @@ export class ProjectsService {
       dueDate: project.dueDate,
       taskCount,
       key: project.key,
+      components: project.components,
+      customFields: project.customFields,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };

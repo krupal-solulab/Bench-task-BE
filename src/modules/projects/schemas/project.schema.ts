@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { ProjectStatus } from '../../../common/enums/project-status.enum';
 import { MemberPermissions, MemberPermissionsSchema } from './member-permissions.schema';
+import { CustomFieldDefinition, CustomFieldDefinitionSchema } from './custom-field.schema';
 import { Workflow, WorkflowSchema } from './workflow.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
@@ -78,6 +79,18 @@ export class Project {
   // settings, is completely unaffected by this feature until an Admin/owning Manager configures one.
   @Prop({ type: WorkflowSchema, default: null })
   workflow!: Workflow | null;
+
+  // Project-defined pick-list (e.g. "Frontend", "API") - names are the identity, same convention
+  // as WorkflowStatus.name. Empty for every existing project until an Admin/owning Manager
+  // configures one via ProjectsService.updateComponents().
+  @Prop({ type: [String], default: [] })
+  components!: string[];
+
+  // Admin-defined field definitions (Text/Number/Date/Dropdown/Checkbox) applied to every issue
+  // in this project. Empty for every existing project until configured via
+  // ProjectsService.updateCustomFields(). See custom-field.schema.ts.
+  @Prop({ type: [CustomFieldDefinitionSchema], default: [] })
+  customFields!: CustomFieldDefinition[];
 
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId!: Types.ObjectId;

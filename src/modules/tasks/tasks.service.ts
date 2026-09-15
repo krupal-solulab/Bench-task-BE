@@ -21,6 +21,7 @@ import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { categoryOf, resolveWorkflow } from '../projects/schemas/workflow.schema';
+import { validateCustomFieldValues } from '../projects/schemas/custom-field.schema';
 import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { TasksRepository, RankScope } from './tasks.repository';
@@ -59,6 +60,8 @@ export class TasksService {
 
     const issueType = dto.issueType ?? IssueType.TASK;
     const parent = await this.assertValidHierarchy(dto.project, issueType, dto.parent);
+    this.assertValidComponents(project, dto.components);
+    validateCustomFieldValues(project.customFields, dto.customFieldValues ?? {}, 'create');
 
     // Every new Story/Task/Bug starts in the backlog (sprint: null), appended to the end of its
     // rank order - this keeps task creation's validation surface entirely unchanged for anyone not
@@ -95,6 +98,9 @@ export class TasksService {
       parent,
       storyPoints: dto.storyPoints ?? null,
       issueKey: `${keyPrefix}-${seq}`,
+      labels: dto.labels ?? [],
+      components: dto.components ?? [],
+      customFieldValues: dto.customFieldValues ?? {},
     });
 
     await this.tasksRepository.logActivity(task.id, actingUser.id, TaskActivityAction.CREATED);
@@ -146,6 +152,8 @@ export class TasksService {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canEditAnyTask');
+    this.assertValidComponents(project, dto.components);
+    validateCustomFieldValues(project.customFields, dto.customFieldValues ?? {}, 'update');
 
     const activities: Array<[TaskActivityAction, string | null, string | null]> = [];
     if (dto.priority && dto.priority !== task.priority) {
@@ -167,6 +175,13 @@ export class TasksService {
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.priority ? { priority: dto.priority } : {}),
       ...(dto.dueDate !== undefined ? { dueDate: dto.dueDate ? new Date(dto.dueDate) : null } : {}),
+      ...(dto.labels !== undefined ? { labels: dto.labels } : {}),
+      ...(dto.components !== undefined ? { components: dto.components } : {}),
+      // Merged (not replaced) - omitting a key on update keeps its previously-stored value,
+      // matching UpdateTaskDto's partial-patch semantics for every other field.
+      ...(dto.customFieldValues !== undefined
+        ? { customFieldValues: { ...task.customFieldValues, ...dto.customFieldValues } }
+        : {}),
     });
 
     for (const [action, from, to] of activities) {
@@ -413,6 +428,15 @@ export class TasksService {
   private assertAssigneeEligible(project: ProjectDocument, assignee: string): void {
     if (!this.projectsService.isProjectMember(project, assignee)) {
       throw new BadRequestException('Assignee must be the project owner or a member');
+    }
+  }
+
+  /** Every given component name must already be defined in the project's component list. */
+  private assertValidComponents(project: ProjectDocument, components: string[] | undefined): void {
+    if (!components?.length) return;
+    const unknown = components.filter((c) => !project.components.includes(c));
+    if (unknown.length > 0) {
+      throw new BadRequestException(`Unknown component(s) for this project: ${unknown.join(', ')}`);
     }
   }
 

@@ -1231,6 +1231,30 @@
             }
           },
           {
+            "name": "labels",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these labels",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "components",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these components",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -1433,6 +1457,113 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/labels": {
+      "get": {
+        "operationId": "ProjectsController_listLabels",
+        "summary": "Distinct labels already in use on this project (for autocomplete)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/components": {
+      "put": {
+        "operationId": "ProjectsController_updateComponents",
+        "summary": "Set/replace this project's component list",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutComponentsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/custom-fields": {
+      "put": {
+        "operationId": "ProjectsController_updateCustomFields",
+        "summary": "Set/replace this project's custom field definitions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutCustomFieldsDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -1827,6 +1958,30 @@
             }
           },
           {
+            "name": "labels",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these labels",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "components",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these components",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -2027,6 +2182,30 @@
             }
           },
           {
+            "name": "labels",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these labels",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "components",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these components",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -2224,6 +2403,30 @@
             "description": "An issue's parent (Epic-link or Sub-task's parent)",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "labels",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these labels",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "components",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these components",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           {
@@ -4030,6 +4233,76 @@
           "initialStatus"
         ]
       },
+      "PutComponentsDto": {
+        "type": "object",
+        "properties": {
+          "names": {
+            "example": [
+              "Frontend",
+              "API"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "names"
+        ]
+      },
+      "CustomFieldDefinitionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Omit when creating a new field - the server assigns a stable id. Include the existing id when editing a field's name/required/options."
+          },
+          "name": {
+            "type": "string",
+            "example": "Steps to Reproduce"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Text",
+              "Number",
+              "Date",
+              "Dropdown",
+              "Checkbox"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "options": {
+            "description": "Required, non-empty, only for Dropdown",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "required"
+        ]
+      },
+      "PutCustomFieldsDto": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomFieldDefinitionDto"
+            }
+          }
+        },
+        "required": [
+          "fields"
+        ]
+      },
       "LoginDto": {
         "type": "object",
         "properties": {
@@ -4120,6 +4393,24 @@
           "storyPoints": {
             "type": "number",
             "description": "Story/Task/Bug only"
+          },
+          "labels": {
+            "description": "Free-form tags",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "components": {
+            "description": "Must be names already defined in the project's component list",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "customFieldValues": {
+            "type": "object",
+            "description": "Keyed by the project's custom field ids. Value shape is validated per-field's type."
           }
         },
         "required": [
@@ -4153,6 +4444,24 @@
           "storyPoints": {
             "type": "number",
             "description": "Story/Task/Bug only"
+          },
+          "labels": {
+            "description": "Free-form tags",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "components": {
+            "description": "Must be names already defined in the project's component list",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "customFieldValues": {
+            "type": "object",
+            "description": "Keyed by the project's custom field ids. Value shape is validated per-field's type."
           }
         }
       },

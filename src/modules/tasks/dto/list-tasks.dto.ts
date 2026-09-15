@@ -89,6 +89,23 @@ export class ListTasksDto extends PaginationQueryDto {
   @IsObjectId()
   parent?: string;
 
+  @ApiPropertyOptional({ isArray: true, description: 'Filter to tasks with any of these labels' })
+  @IsOptional()
+  @Transform(toArray)
+  @IsArray()
+  @IsString({ each: true })
+  labels?: string[];
+
+  @ApiPropertyOptional({
+    isArray: true,
+    description: 'Filter to tasks with any of these components',
+  })
+  @IsOptional()
+  @Transform(toArray)
+  @IsArray()
+  @IsString({ each: true })
+  components?: string[];
+
   @ApiPropertyOptional({ enum: SORT_FIELDS, default: 'createdAt' })
   @IsOptional()
   @IsIn(SORT_FIELDS)

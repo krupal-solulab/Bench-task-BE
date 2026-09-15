@@ -5,6 +5,7 @@ import { StatusCategory } from 'src/common/enums/status-category.enum';
 import { TaskStatus } from 'src/common/enums/task-status.enum';
 import { IssueType } from 'src/common/enums/issue-type.enum';
 import { Workflow } from 'src/modules/projects/schemas/workflow.schema';
+import { CustomFieldType } from 'src/modules/projects/schemas/custom-field.schema';
 import { TaskActivityAction } from 'src/modules/tasks/schemas/task-activity.schema';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { TasksService } from 'src/modules/tasks/tasks.service';
@@ -31,6 +32,10 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     organizationId: { toString: () => ORG_A },
     owner: { toString: () => MANAGER_ID },
     status: ProjectStatus.IN_PROGRESS,
+    // Matches the real schema's defaults - every actual project document defaults to these, so a
+    // fixture that doesn't override them should behave the same way.
+    components: [],
+    customFields: [],
     ...overrides,
   } as never;
 }
@@ -221,6 +226,121 @@ describe('TasksService', () => {
 
       expect(tasksRepository.create).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'Backlog', statusCategory: StatusCategory.TODO }),
+      );
+    });
+  });
+
+  describe('create/update - components and custom fields', () => {
+    const REQUIRED_FIELD = {
+      id: 'f-1',
+      name: 'Root Cause',
+      type: CustomFieldType.TEXT,
+      required: true,
+      options: null,
+    };
+
+    it('rejects a component name not defined on the project', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ components: ['Frontend'] }),
+      );
+
+      await expect(
+        service.create(
+          { title: 'x', project: PROJECT_ID, priority: 'P2', components: ['Backend'] } as never,
+          makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a component name defined on the project', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ components: ['Frontend'] }),
+      );
+      tasksRepository.create.mockResolvedValue(makeTask({ id: 'task-1' }));
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ id: 'task-1' }));
+
+      await service.create(
+        { title: 'x', project: PROJECT_ID, priority: 'P2', components: ['Frontend'] } as never,
+        makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+      );
+
+      expect(tasksRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ components: ['Frontend'] }),
+      );
+    });
+
+    it('rejects a missing required custom field on create', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ customFields: [REQUIRED_FIELD] }),
+      );
+
+      await expect(
+        service.create(
+          { title: 'x', project: PROJECT_ID, priority: 'P2' } as never,
+          makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a valid required custom field value on create', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ customFields: [REQUIRED_FIELD] }),
+      );
+      tasksRepository.create.mockResolvedValue(makeTask({ id: 'task-1' }));
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ id: 'task-1' }));
+
+      await service.create(
+        {
+          title: 'x',
+          project: PROJECT_ID,
+          priority: 'P2',
+          customFieldValues: { [REQUIRED_FIELD.id]: 'disk full' },
+        } as never,
+        makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+      );
+
+      expect(tasksRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ customFieldValues: { [REQUIRED_FIELD.id]: 'disk full' } }),
+      );
+    });
+
+    it('update() does not require a required custom field to be re-supplied', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ customFieldValues: { [REQUIRED_FIELD.id]: 'existing value' } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ customFields: [REQUIRED_FIELD] }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask());
+
+      await expect(
+        service.update('task-1', { title: 'Renamed' } as never, makeUser({ role: Role.ADMIN })),
+      ).resolves.toBeDefined();
+    });
+
+    it('update() merges customFieldValues rather than replacing the whole map', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ customFieldValues: { 'f-1': 'a', 'f-2': 'b' } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          customFields: [
+            { id: 'f-1', name: 'A', type: CustomFieldType.TEXT, required: false, options: null },
+            { id: 'f-2', name: 'B', type: CustomFieldType.TEXT, required: false, options: null },
+          ],
+        }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask());
+
+      await service.update(
+        'task-1',
+        { customFieldValues: { 'f-1': 'updated' } } as never,
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      expect(tasksRepository.updateById).toHaveBeenCalledWith(
+        'task-1',
+        expect.objectContaining({ customFieldValues: { 'f-1': 'updated', 'f-2': 'b' } }),
       );
     });
   });

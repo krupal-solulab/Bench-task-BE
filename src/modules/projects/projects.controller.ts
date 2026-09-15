@@ -27,6 +27,8 @@ import { ListProjectsDto } from './dto/list-projects.dto';
 import { AddMembersDto } from './dto/add-members.dto';
 import { PutWorkflowDto } from './dto/put-workflow.dto';
 import { PatchMemberPermissionsDto } from './dto/patch-member-permissions.dto';
+import { PutComponentsDto } from './dto/put-components.dto';
+import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -188,5 +190,36 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.resetWorkflow(id, user);
+  }
+
+  @Get(':id/labels')
+  @ApiOperation({ summary: 'Distinct labels already in use on this project (for autocomplete)' })
+  async listLabels(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.listLabels(id, user);
+  }
+
+  @Put(':id/components')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace this project's component list" })
+  async updateComponents(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutComponentsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateComponents(id, dto, user);
+  }
+
+  @Put(':id/custom-fields')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace this project's custom field definitions" })
+  async updateCustomFields(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutCustomFieldsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateCustomFields(id, dto, user);
   }
 }

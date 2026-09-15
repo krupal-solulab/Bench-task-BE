@@ -26,6 +26,8 @@ export function buildTaskListFilter(
 
   if (query.issueType?.length) filter.issueType = { $in: query.issueType };
   if (query.parent) filter.parent = new Types.ObjectId(query.parent);
+  if (query.labels?.length) filter.labels = { $in: query.labels };
+  if (query.components?.length) filter.components = { $in: query.components };
 
   if (query.dueDateFrom || query.dueDateTo) {
     filter.dueDate = {
