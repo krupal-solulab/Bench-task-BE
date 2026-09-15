@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Put, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -11,6 +11,7 @@ import {
   DeveloperWorkloadQueryDto,
   TaskTrendQueryDto,
 } from './dto/dashboard-scope.dto';
+import { PutDashboardPreferenceDto } from './dto/put-dashboard-preference.dto';
 
 @ApiTags('dashboard')
 @ApiBearerAuth()
@@ -105,6 +106,21 @@ export class DashboardController {
     );
     this.setCacheHeader(res, hit);
     return data;
+  }
+
+  @Get('preferences')
+  @ApiOperation({ summary: "The caller's saved widget visibility/order (defaults if never set)" })
+  async getPreferences(@CurrentUser() user: AuthenticatedUser) {
+    return this.dashboardService.getPreferences(user);
+  }
+
+  @Put('preferences')
+  @ApiOperation({ summary: "Save the caller's own widget visibility/order" })
+  async updatePreferences(
+    @Body() dto: PutDashboardPreferenceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.dashboardService.updatePreferences(dto, user);
   }
 
   private setCacheHeader(res: Response, hit: boolean): void {

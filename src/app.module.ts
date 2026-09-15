@@ -25,6 +25,7 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { SavedFiltersModule } from './modules/saved-filters/saved-filters.module';
 import { ApiLogsModule } from './modules/api-logs/api-logs.module';
 import { EventsModule } from './events/events.module';
 
@@ -92,6 +93,7 @@ import { EventsModule } from './events/events.module';
     CommentsModule,
     AttachmentsModule,
     DashboardModule,
+    SavedFiltersModule,
     ApiLogsModule,
   ],
   providers: [

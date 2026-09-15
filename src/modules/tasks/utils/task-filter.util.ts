@@ -29,6 +29,10 @@ export function buildTaskListFilter(
   if (query.labels?.length) filter.labels = { $in: query.labels };
   if (query.components?.length) filter.components = { $in: query.components };
 
+  for (const { fieldId, value } of query.customFieldFilters ?? []) {
+    filter[`customFieldValues.${fieldId}`] = value;
+  }
+
   if (query.dueDateFrom || query.dueDateTo) {
     filter.dueDate = {
       ...(query.dueDateFrom ? { $gte: new Date(query.dueDateFrom) } : {}),
@@ -48,6 +52,7 @@ export function buildTaskListFilter(
     filter.$or = [
       { title: { $regex: pattern, $options: 'i' } },
       { description: { $regex: pattern, $options: 'i' } },
+      { issueKey: { $regex: pattern, $options: 'i' } },
     ];
   }
 

@@ -17,6 +17,11 @@ import { ProjectsService } from '../projects/projects.service';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { DeveloperWorkloadQueryDto } from './dto/dashboard-scope.dto';
+import { PutDashboardPreferenceDto } from './dto/put-dashboard-preference.dto';
+import {
+  DashboardPreference,
+  DashboardPreferenceDocument,
+} from './schemas/dashboard-preference.schema';
 
 interface CachedResult<T> {
   data: T;
@@ -32,7 +37,42 @@ export class DashboardService {
     @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    @InjectModel(DashboardPreference.name)
+    private readonly dashboardPreferenceModel: Model<DashboardPreferenceDocument>,
   ) {}
+
+  /** Layout metadata, not the expensive aggregations elsewhere in this service - a direct read of
+   * a single tiny per-user document, so this isn't cached like everything else here. */
+  async getPreferences(
+    actingUser: AuthenticatedUser,
+  ): Promise<{ hiddenWidgets: string[]; widgetOrder: string[] }> {
+    const preference = await this.dashboardPreferenceModel
+      .findOne({ owner: new Types.ObjectId(actingUser.id) })
+      .exec();
+    return {
+      hiddenWidgets: preference?.hiddenWidgets ?? [],
+      widgetOrder: preference?.widgetOrder ?? [],
+    };
+  }
+
+  async updatePreferences(
+    dto: PutDashboardPreferenceDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<{ hiddenWidgets: string[]; widgetOrder: string[] }> {
+    const updated = await this.dashboardPreferenceModel
+      .findOneAndUpdate(
+        { owner: new Types.ObjectId(actingUser.id) },
+        {
+          owner: new Types.ObjectId(actingUser.id),
+          organizationId: new Types.ObjectId(requireOrgId(actingUser)),
+          hiddenWidgets: dto.hiddenWidgets,
+          widgetOrder: dto.widgetOrder,
+        },
+        { upsert: true, new: true },
+      )
+      .exec();
+    return { hiddenWidgets: updated.hiddenWidgets, widgetOrder: updated.widgetOrder };
+  }
 
   async summary(projectId: string | undefined, actingUser: AuthenticatedUser) {
     return this.cached('summary', actingUser, { projectId }, this.ttlDashboard(), async () => {

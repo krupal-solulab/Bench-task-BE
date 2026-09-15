@@ -12,6 +12,35 @@ export type TaskSortBy = (typeof SORT_FIELDS)[number];
 const toArray = ({ value }: { value: unknown }) =>
   value === undefined ? undefined : Array.isArray(value) ? value : [value];
 
+export interface CustomFieldFilter {
+  fieldId: string;
+  value: string;
+}
+
+function isCustomFieldFilter(item: unknown): item is CustomFieldFilter {
+  return (
+    !!item &&
+    typeof item === 'object' &&
+    typeof (item as CustomFieldFilter).fieldId === 'string' &&
+    typeof (item as CustomFieldFilter).value === 'string'
+  );
+}
+
+/** Parses a JSON-encoded `{fieldId, value}[]` from a single query-string value - malformed JSON,
+ * a non-array, or any wrongly-shaped element is dropped rather than causing a 400/500, since a
+ * query param can't otherwise carry an array of objects and this filter is purely additive. */
+const toCustomFieldFilters = ({ value }: { value: unknown }): CustomFieldFilter[] | undefined => {
+  if (typeof value !== 'string') return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(parsed)) return undefined;
+  return parsed.filter(isCustomFieldFilter);
+};
+
 export class ListTasksDto extends PaginationQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -110,4 +139,14 @@ export class ListTasksDto extends PaginationQueryDto {
   @IsOptional()
   @IsIn(SORT_FIELDS)
   sortBy: TaskSortBy = 'createdAt';
+
+  @ApiPropertyOptional({
+    description:
+      'JSON-encoded array of {fieldId, value} - equals-match against a custom field, ANDed. ' +
+      'Malformed/wrongly-shaped entries are silently dropped rather than rejected.',
+  })
+  @IsOptional()
+  @Transform(toCustomFieldFilters)
+  @IsArray()
+  customFieldFilters?: CustomFieldFilter[];
 }

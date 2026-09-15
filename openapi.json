@@ -1270,6 +1270,18 @@
               ],
               "type": "string"
             }
+          },
+          {
+            "name": "customFieldFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON-encoded array of {fieldId, value} - equals-match against a custom field, ANDed. Malformed/wrongly-shaped entries are silently dropped rather than rejected.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         ],
         "responses": {
@@ -2036,6 +2048,18 @@
               ],
               "type": "string"
             }
+          },
+          {
+            "name": "customFieldFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON-encoded array of {fieldId, value} - equals-match against a custom field, ANDed. Malformed/wrongly-shaped entries are silently dropped rather than rejected.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         ],
         "responses": {
@@ -2260,6 +2284,18 @@
               ],
               "type": "string"
             }
+          },
+          {
+            "name": "customFieldFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON-encoded array of {fieldId, value} - equals-match against a custom field, ANDed. Malformed/wrongly-shaped entries are silently dropped rather than rejected.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           }
         ],
         "responses": {
@@ -2483,6 +2519,18 @@
                 "rank"
               ],
               "type": "string"
+            }
+          },
+          {
+            "name": "customFieldFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON-encoded array of {fieldId, value} - equals-match against a custom field, ANDed. Malformed/wrongly-shaped entries are silently dropped rather than rejected.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         ],
@@ -3789,6 +3837,152 @@
         ]
       }
     },
+    "/api/v1/dashboard/preferences": {
+      "get": {
+        "operationId": "DashboardController_getPreferences",
+        "summary": "The caller's saved widget visibility/order (defaults if never set)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "DashboardController_updatePreferences",
+        "summary": "Save the caller's own widget visibility/order",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutDashboardPreferenceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/saved-filters": {
+      "post": {
+        "operationId": "SavedFiltersController_create",
+        "summary": "Save the caller's own current task-filter combination",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSavedFilterDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "saved-filters"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "SavedFiltersController_list",
+        "summary": "List the caller's own saved filters",
+        "parameters": [
+          {
+            "name": "scope",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "project",
+                "myTasks"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "saved-filters"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/saved-filters/{id}": {
+      "delete": {
+        "operationId": "SavedFiltersController_remove",
+        "summary": "Delete one of the caller's own saved filters",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "saved-filters"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/platform/logs": {
       "get": {
         "operationId": "ApiLogsController_list",
@@ -4735,6 +4929,72 @@
         },
         "required": [
           "body"
+        ]
+      },
+      "PutDashboardPreferenceDto": {
+        "type": "object",
+        "properties": {
+          "hiddenWidgets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "projectsByStatus",
+                "tasksStatus",
+                "tasksByPriority",
+                "taskTrend",
+                "developerWorkload",
+                "overdueList"
+              ]
+            }
+          },
+          "widgetOrder": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "projectsByStatus",
+                "tasksStatus",
+                "tasksByPriority",
+                "taskTrend",
+                "developerWorkload",
+                "overdueList"
+              ]
+            }
+          }
+        },
+        "required": [
+          "hiddenWidgets",
+          "widgetOrder"
+        ]
+      },
+      "CreateSavedFilterDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "My open P1 bugs"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "project",
+              "myTasks"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Required when scope is \"project\""
+          },
+          "query": {
+            "type": "object",
+            "description": "The task-list query this filter replays (minus `page`)"
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "query"
         ]
       }
     }
