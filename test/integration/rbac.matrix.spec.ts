@@ -78,7 +78,7 @@ describe('RBAC matrix (integration)', () => {
     expect(asDeveloper.status).toBe(403);
   });
 
-  it('POST /tasks: Admin and Manager (owner) 201, Developer 403', async () => {
+  it('POST /tasks: Admin and Manager (owner) 201, non-member Developer 403', async () => {
     const { admin, developer } = await seedRoleUsers();
     const project = await createProject(app, admin.accessToken, { name: 'Task RBAC Project' });
 
@@ -93,6 +93,38 @@ describe('RBAC matrix (integration)', () => {
       .set(...authHeader(developer.accessToken))
       .send({ title: 'Dev task', project: project.id, priority: TaskPriority.P2 });
     expect(asDeveloper.status).toBe(403);
+  });
+
+  it('POST /tasks: a project-member Developer with no grant still gets 403', async () => {
+    const { admin, developer } = await seedRoleUsers();
+    const project = await createProject(app, admin.accessToken, {
+      name: 'Task RBAC Project (member, no grant)',
+      memberIds: [developer.userDoc.id],
+    });
+
+    const res = await api(app)
+      .post(`/${API_PREFIX}/tasks`)
+      .set(...authHeader(developer.accessToken))
+      .send({ title: 'Dev task', project: project.id, priority: TaskPriority.P2 });
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /tasks: a project-member Developer WITH a canCreateTask grant gets 201', async () => {
+    const { admin, developer } = await seedRoleUsers();
+    const project = await createProject(app, admin.accessToken, {
+      name: 'Task RBAC Project (member, granted)',
+      memberIds: [developer.userDoc.id],
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/members/${developer.userDoc.id}/permissions`)
+      .set(...authHeader(admin.accessToken))
+      .send({ canCreateTask: true });
+
+    const res = await api(app)
+      .post(`/${API_PREFIX}/tasks`)
+      .set(...authHeader(developer.accessToken))
+      .send({ title: 'Dev task', project: project.id, priority: TaskPriority.P2 });
+    expect(res.status).toBe(201);
   });
 
   it('PATCH /tasks/:id/status: assigned Developer 200, unassigned Developer 403', async () => {

@@ -1,9 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum } from 'class-validator';
-import { TaskStatus } from '../../../common/enums/task-status.enum';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateTaskStatusDto {
-  @ApiProperty({ enum: TaskStatus })
-  @IsEnum(TaskStatus)
-  status!: TaskStatus;
+  @ApiProperty({
+    example: 'In Progress',
+    description:
+      "A status name from the task's project workflow (its custom workflow, or the system default). Legality is validated against that workflow, not a fixed enum.",
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  status!: string;
 }

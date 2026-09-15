@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -24,6 +25,8 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdateProjectStatusDto } from './dto/update-project-status.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
 import { AddMembersDto } from './dto/add-members.dto';
+import { PutWorkflowDto } from './dto/put-workflow.dto';
+import { PatchMemberPermissionsDto } from './dto/patch-member-permissions.dto';
 
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -119,6 +122,18 @@ export class ProjectsController {
     return this.projectsService.removeMember(id, userId, reassignTo, user);
   }
 
+  @Patch(':id/members/:userId/permissions')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Grant/revoke a member's per-project task/sprint capabilities" })
+  async setMemberPermissions(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('userId', ParseObjectIdPipe) userId: string,
+    @Body() dto: PatchMemberPermissionsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.setMemberPermissions(id, userId, dto, user);
+  }
+
   @Get(':id/tasks')
   @ApiOperation({ summary: 'List tasks for a project (pre-scoped, same filters as /tasks)' })
   async listTasks(
@@ -143,5 +158,35 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.listActivity(id, query.page, query.limit, user);
+  }
+
+  @Get(':id/workflow')
+  @ApiOperation({ summary: "The project's effective workflow (custom, or the system default)" })
+  async getWorkflow(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.getWorkflow(id, user);
+  }
+
+  @Put(':id/workflow')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace this project's custom workflow" })
+  async updateWorkflow(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutWorkflowDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateWorkflow(id, dto, user);
+  }
+
+  @Delete(':id/workflow')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Reset this project to the system default workflow' })
+  async resetWorkflow(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.resetWorkflow(id, user);
   }
 }

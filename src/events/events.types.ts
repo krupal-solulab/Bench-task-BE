@@ -1,10 +1,8 @@
-import { TaskStatus } from '../common/enums/task-status.enum';
-
 export interface TaskStatusChangedEvent {
   taskId: string;
   projectId: string;
-  fromStatus: TaskStatus;
-  toStatus: TaskStatus;
+  fromStatus: string;
+  toStatus: string;
   actorId: string;
 }
 

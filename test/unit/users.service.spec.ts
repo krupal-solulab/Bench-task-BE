@@ -155,6 +155,7 @@ describe('UsersService', () => {
             { _id: TaskStatus.DONE, count: 3 },
           ],
           total: [{ count: 5 }],
+          done: [{ count: 3 }],
           overdue: [{ count: 1 }],
         },
       ]);
@@ -176,7 +177,7 @@ describe('UsersService', () => {
 
     it('returns a 0% completion rate when the user has no tasks at all', async () => {
       usersRepository.findById.mockResolvedValue(makeUser({ id: VALID_USER_ID }));
-      taskModel.aggregate.mockResolvedValue([{ byStatus: [], total: [], overdue: [] }]);
+      taskModel.aggregate.mockResolvedValue([{ byStatus: [], total: [], done: [], overdue: [] }]);
 
       const result = await service.getWorkload(VALID_USER_ID, ORG_ID);
 

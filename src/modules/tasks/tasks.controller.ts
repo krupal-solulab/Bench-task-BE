@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
-import { Role } from '../../common/enums/role.enum';
+import { ORG_ROLES, Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { TasksService } from './tasks.service';
@@ -33,7 +33,7 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Create a task under a project' })
   async create(@Body() dto: CreateTaskDto, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.create(dto, user);
@@ -67,7 +67,7 @@ export class TasksController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Update title/description/priority/dueDate' })
   async update(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -99,7 +99,7 @@ export class TasksController {
   }
 
   @Patch(':id/sprint')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Move a task into a sprint, or back to the backlog (sprintId: null)' })
   async updateSprint(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -110,7 +110,7 @@ export class TasksController {
   }
 
   @Patch(':id/rank')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Reorder a task within its current backlog/sprint list' })
   async updateRank(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -121,7 +121,7 @@ export class TasksController {
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Soft-delete a task' })
   async remove(
@@ -139,5 +139,14 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.tasksService.listActivity(id, query.page, query.limit, user);
+  }
+
+  @Get(':id/epic-progress')
+  @ApiOperation({ summary: "An Epic's linked-issue count and completion percentage" })
+  async epicProgress(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.epicProgress(id, user);
   }
 }

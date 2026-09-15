@@ -1,5 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import { IssueType } from '../../../common/enums/issue-type.enum';
+import { StatusCategory } from '../../../common/enums/status-category.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 
@@ -36,8 +38,18 @@ export class Task {
   @Prop({ type: String, enum: TaskPriority, default: TaskPriority.P2 })
   priority!: TaskPriority;
 
-  @Prop({ type: String, enum: TaskStatus, default: TaskStatus.TODO })
-  status!: TaskStatus;
+  // Free-form status name once a project has a custom workflow (see workflow.schema.ts); still
+  // defaults to "Todo" for every project on the system default workflow, so every pre-existing
+  // document (and every task created without a custom workflow in play) is unaffected. Legality is
+  // enforced in TasksService against the project's resolved workflow, not by a fixed schema enum.
+  @Prop({ type: String, default: TaskStatus.TODO })
+  status!: string;
+
+  // Denormalized from `status` via the project's resolved workflow on every write, so cross-cutting
+  // aggregations (sprint completion, dashboards) can cheaply check "is this done" without joining
+  // through Project on every query. Never independently settable by a client.
+  @Prop({ type: String, enum: StatusCategory, default: StatusCategory.TODO })
+  statusCategory!: StatusCategory;
 
   @Prop({ type: Date, default: null })
   dueDate!: Date | null;
@@ -64,6 +76,24 @@ export class Task {
   @Prop({ type: Number, default: 0 })
   rank!: number;
 
+  // Defaults to TASK so every pre-existing document (and every task created without specifying
+  // this) is completely unaffected - Epic/Story/Bug/Sub-task are opt-in.
+  @Prop({ type: String, enum: IssueType, default: IssueType.TASK })
+  issueType!: IssueType;
+
+  // Self-referential: an Epic-link for Story/Task/Bug, or the required parent for Sub-task. Never
+  // set for an Epic itself. See TasksService.create()'s hierarchy validation for the exact rules.
+  @Prop({ type: Types.ObjectId, ref: 'Task', default: null })
+  parent!: Types.ObjectId | null;
+
+  @Prop({ type: Number, default: null })
+  storyPoints!: number | null;
+
+  // "SUP-101" style, assigned once at creation (TasksService.create()) and never changed after -
+  // null for every task created before this field existed (no backfill, purely historical gap).
+  @Prop({ type: String, default: null })
+  issueKey!: string | null;
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
@@ -89,3 +119,8 @@ TaskSchema.index({ organizationId: 1 });
 TaskSchema.index({ organizationId: 1, assignee: 1 });
 TaskSchema.index({ sprint: 1 });
 TaskSchema.index({ project: 1, sprint: 1 });
+TaskSchema.index({ project: 1, issueType: 1 });
+TaskSchema.index({ parent: 1 });
+TaskSchema.index({ statusCategory: 1 });
+TaskSchema.index({ project: 1, statusCategory: 1 });
+TaskSchema.index({ sprint: 1, statusCategory: 1 });

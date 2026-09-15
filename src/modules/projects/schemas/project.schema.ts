@@ -1,6 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { ProjectStatus } from '../../../common/enums/project-status.enum';
+import { MemberPermissions, MemberPermissionsSchema } from './member-permissions.schema';
+import { Workflow, WorkflowSchema } from './workflow.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
 
@@ -11,6 +13,12 @@ export class ProjectMember {
 
   @Prop({ required: true, default: () => new Date() })
   joinedAt!: Date;
+
+  // Null means "no custom grants" - every existing member, and every newly-added member, is
+  // completely unaffected until an Admin/owning Manager explicitly grants something via
+  // ProjectsService.setMemberPermissions(). See member-permissions.schema.ts's resolveMemberPermissions.
+  @Prop({ type: MemberPermissionsSchema, default: null })
+  permissions?: MemberPermissions | null;
 }
 
 export const ProjectMemberSchema = SchemaFactory.createForClass(ProjectMember);
@@ -55,6 +63,22 @@ export class Project {
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
+  // Short issue-key prefix (e.g. "SUP") used to build issue keys like "SUP-101". Lazily
+  // assigned by ProjectsService.getOrAssignKey() the first time a task/issue is created on this
+  // project, rather than backfilled - existing projects are untouched until then.
+  @Prop({ type: String, default: null })
+  key!: string | null;
+
+  // Per-project atomic counter feeding issue-key numbering (see ProjectsRepository.incrementIssueSeq).
+  @Prop({ type: Number, default: 0 })
+  issueSeq!: number;
+
+  // Null means "use the system default workflow" (see workflow.schema.ts's DEFAULT_WORKFLOW /
+  // resolveWorkflow) - every existing project, and any new one that never opens the workflow
+  // settings, is completely unaffected by this feature until an Admin/owning Manager configures one.
+  @Prop({ type: WorkflowSchema, default: null })
+  workflow!: Workflow | null;
+
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId!: Types.ObjectId;
 
@@ -71,3 +95,11 @@ ProjectSchema.index({ deletedAt: 1 });
 ProjectSchema.index({ name: 'text' });
 ProjectSchema.index({ organizationId: 1 });
 ProjectSchema.index({ organizationId: 1, status: 1 });
+
+// DB-level backstop for key uniqueness within an org (the service layer dedupes too, but only this
+// partial unique index makes it race-safe). Partial so the many projects with no key yet (null)
+// never collide with each other.
+ProjectSchema.index(
+  { organizationId: 1, key: 1 },
+  { unique: true, partialFilterExpression: { key: { $type: 'string' } } },
+);

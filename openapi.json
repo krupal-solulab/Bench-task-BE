@@ -1008,6 +1008,53 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/members/{userId}/permissions": {
+      "patch": {
+        "operationId": "ProjectsController_setMemberPermissions",
+        "summary": "Grant/revoke a member's per-project task/sprint capabilities",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchMemberPermissionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{id}/tasks": {
       "get": {
         "operationId": "ProjectsController_listTasks",
@@ -1075,16 +1122,11 @@
             "name": "status",
             "required": false,
             "in": "query",
+            "description": "Status name(s) from the project's workflow (custom or system default)",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Todo",
-                  "In Progress",
-                  "Review",
-                  "Done"
-                ]
+                "type": "string"
               }
             }
           },
@@ -1159,6 +1201,33 @@
             "description": "true = only backlog tasks (no sprint assigned)",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Epic",
+                  "Story",
+                  "Task",
+                  "Bug",
+                  "Sub-task"
+                ]
+              }
+            }
+          },
+          {
+            "name": "parent",
+            "required": false,
+            "in": "query",
+            "description": "An issue's parent (Epic-link or Sub-task's parent)",
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -1267,6 +1336,99 @@
                 "asc",
                 "desc"
               ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/workflow": {
+      "get": {
+        "operationId": "ProjectsController_getWorkflow",
+        "summary": "The project's effective workflow (custom, or the system default)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "ProjectsController_updateWorkflow",
+        "summary": "Set/replace this project's custom workflow",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutWorkflowDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ProjectsController_resetWorkflow",
+        "summary": "Reset this project to the system default workflow",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
               "type": "string"
             }
           }
@@ -1556,16 +1718,11 @@
             "name": "status",
             "required": false,
             "in": "query",
+            "description": "Status name(s) from the project's workflow (custom or system default)",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Todo",
-                  "In Progress",
-                  "Review",
-                  "Done"
-                ]
+                "type": "string"
               }
             }
           },
@@ -1640,6 +1797,33 @@
             "description": "true = only backlog tasks (no sprint assigned)",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Epic",
+                  "Story",
+                  "Task",
+                  "Bug",
+                  "Sub-task"
+                ]
+              }
+            }
+          },
+          {
+            "name": "parent",
+            "required": false,
+            "in": "query",
+            "description": "An issue's parent (Epic-link or Sub-task's parent)",
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -1734,16 +1918,11 @@
             "name": "status",
             "required": false,
             "in": "query",
+            "description": "Status name(s) from the project's workflow (custom or system default)",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Todo",
-                  "In Progress",
-                  "Review",
-                  "Done"
-                ]
+                "type": "string"
               }
             }
           },
@@ -1818,6 +1997,33 @@
             "description": "true = only backlog tasks (no sprint assigned)",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Epic",
+                  "Story",
+                  "Task",
+                  "Bug",
+                  "Sub-task"
+                ]
+              }
+            }
+          },
+          {
+            "name": "parent",
+            "required": false,
+            "in": "query",
+            "description": "An issue's parent (Epic-link or Sub-task's parent)",
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -1912,16 +2118,11 @@
             "name": "status",
             "required": false,
             "in": "query",
+            "description": "Status name(s) from the project's workflow (custom or system default)",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Todo",
-                  "In Progress",
-                  "Review",
-                  "Done"
-                ]
+                "type": "string"
               }
             }
           },
@@ -1996,6 +2197,33 @@
             "description": "true = only backlog tasks (no sprint assigned)",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Epic",
+                  "Story",
+                  "Task",
+                  "Bug",
+                  "Sub-task"
+                ]
+              }
+            }
+          },
+          {
+            "name": "parent",
+            "required": false,
+            "in": "query",
+            "description": "An issue's parent (Epic-link or Sub-task's parent)",
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -2324,6 +2552,35 @@
                 "asc",
                 "desc"
               ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/epic-progress": {
+      "get": {
+        "operationId": "TasksController_epicProgress",
+        "summary": "An Epic's linked-issue count and completion percentage",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
               "type": "string"
             }
           }
@@ -3616,6 +3873,11 @@
           "owner": {
             "type": "string",
             "description": "Admin only: assign a different Manager/Admin as owner"
+          },
+          "key": {
+            "type": "string",
+            "example": "SUP",
+            "description": "Issue-key prefix (e.g. \"SUP\" for SUP-101). Auto-derived from the name on first use if omitted."
           }
         },
         "required": [
@@ -3641,6 +3903,11 @@
           "dueDate": {
             "type": "string",
             "example": "2026-12-31"
+          },
+          "key": {
+            "type": "string",
+            "example": "SUP",
+            "description": "Issue-key prefix (e.g. \"SUP\" for SUP-101). Auto-derived from the name on first use if omitted."
           }
         }
       },
@@ -3672,6 +3939,95 @@
         },
         "required": [
           "userIds"
+        ]
+      },
+      "PatchMemberPermissionsDto": {
+        "type": "object",
+        "properties": {
+          "canCreateTask": {
+            "type": "boolean",
+            "description": "Create tasks in this project"
+          },
+          "canEditAnyTask": {
+            "type": "boolean",
+            "description": "Edit any task in this project, not just their own"
+          },
+          "canDeleteTask": {
+            "type": "boolean",
+            "description": "Delete any task in this project"
+          },
+          "canChangeAnyTaskStatus": {
+            "type": "boolean",
+            "description": "Transition any task's status, not just assigned tasks"
+          },
+          "canManageSprints": {
+            "type": "boolean",
+            "description": "Create/edit/start/complete/delete sprints, move tasks in/out"
+          }
+        }
+      },
+      "WorkflowStatusDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Blocked"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "To Do",
+              "In Progress",
+              "Done"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "category"
+        ]
+      },
+      "WorkflowTransitionDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "example": "Todo"
+          },
+          "to": {
+            "type": "string",
+            "example": "Blocked"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ]
+      },
+      "PutWorkflowDto": {
+        "type": "object",
+        "properties": {
+          "statuses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowStatusDto"
+            }
+          },
+          "transitions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowTransitionDto"
+            }
+          },
+          "initialStatus": {
+            "type": "string",
+            "example": "Todo"
+          }
+        },
+        "required": [
+          "statuses",
+          "transitions",
+          "initialStatus"
         ]
       },
       "LoginDto": {
@@ -3745,6 +4101,25 @@
           "dueDate": {
             "type": "object",
             "nullable": true
+          },
+          "issueType": {
+            "type": "string",
+            "enum": [
+              "Epic",
+              "Story",
+              "Task",
+              "Bug",
+              "Sub-task"
+            ],
+            "default": "Task"
+          },
+          "parent": {
+            "type": "string",
+            "description": "Epic-link (for Story/Task/Bug) or required parent (for Sub-task)"
+          },
+          "storyPoints": {
+            "type": "number",
+            "description": "Story/Task/Bug only"
           }
         },
         "required": [
@@ -3774,6 +4149,10 @@
           "dueDate": {
             "type": "object",
             "nullable": true
+          },
+          "storyPoints": {
+            "type": "number",
+            "description": "Story/Task/Bug only"
           }
         }
       },
@@ -3782,12 +4161,8 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": [
-              "Todo",
-              "In Progress",
-              "Review",
-              "Done"
-            ]
+            "example": "In Progress",
+            "description": "A status name from the task's project workflow (its custom workflow, or the system default). Legality is validated against that workflow, not a fixed enum."
           }
         },
         "required": [

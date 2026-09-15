@@ -2,8 +2,8 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsEnum, IsISO8601, IsIn, IsOptional, IsString } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
+import { IssueType } from '../../../common/enums/issue-type.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
-import { TaskStatus } from '../../../common/enums/task-status.enum';
 import { IsObjectId } from '../../../common/validators/is-object-id.validator';
 
 const SORT_FIELDS = ['dueDate', 'priority', 'status', 'createdAt', 'updatedAt', 'rank'] as const;
@@ -23,12 +23,15 @@ export class ListTasksDto extends PaginationQueryDto {
   @IsObjectId()
   assignee?: string;
 
-  @ApiPropertyOptional({ enum: TaskStatus, isArray: true })
+  @ApiPropertyOptional({
+    isArray: true,
+    description: "Status name(s) from the project's workflow (custom or system default)",
+  })
   @IsOptional()
   @Transform(toArray)
   @IsArray()
-  @IsEnum(TaskStatus, { each: true })
-  status?: TaskStatus[];
+  @IsString({ each: true })
+  status?: string[];
 
   @ApiPropertyOptional({ enum: TaskPriority, isArray: true })
   @IsOptional()
@@ -73,6 +76,18 @@ export class ListTasksDto extends PaginationQueryDto {
   @Type(() => Boolean)
   @IsBoolean()
   unassignedSprint?: boolean;
+
+  @ApiPropertyOptional({ enum: IssueType, isArray: true })
+  @IsOptional()
+  @Transform(toArray)
+  @IsArray()
+  @IsEnum(IssueType, { each: true })
+  issueType?: IssueType[];
+
+  @ApiPropertyOptional({ description: "An issue's parent (Epic-link or Sub-task's parent)" })
+  @IsOptional()
+  @IsObjectId()
+  parent?: string;
 
   @ApiPropertyOptional({ enum: SORT_FIELDS, default: 'createdAt' })
   @IsOptional()

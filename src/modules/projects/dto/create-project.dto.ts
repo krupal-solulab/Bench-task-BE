@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsISO8601, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { IsObjectId } from '../../../common/validators/is-object-id.validator';
 
 export class CreateProjectDto {
@@ -37,4 +45,16 @@ export class CreateProjectDto {
   @IsOptional()
   @IsObjectId()
   owner?: string;
+
+  @ApiPropertyOptional({
+    example: 'SUP',
+    description:
+      'Issue-key prefix (e.g. "SUP" for SUP-101). Auto-derived from the name on first use if omitted.',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Z][A-Z0-9]{1,9}$/, {
+    message: 'key must be 2-10 uppercase letters/digits, starting with a letter',
+  })
+  key?: string;
 }

@@ -8,10 +8,11 @@ import { buildDashboardCacheKey } from '../../common/utils/cache-key.util';
 import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
-import { TaskStatus } from '../../common/enums/task-status.enum';
+import { StatusCategory } from '../../common/enums/status-category.enum';
 import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { Project, ProjectDocument } from '../projects/schemas/project.schema';
+import { DEFAULT_WORKFLOW, resolveWorkflow } from '../projects/schemas/workflow.schema';
 import { ProjectsService } from '../projects/projects.service';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
@@ -48,9 +49,14 @@ export class DashboardService {
           {
             $facet: {
               total: [{ $count: 'count' }],
-              done: [{ $match: { status: TaskStatus.DONE } }, { $count: 'count' }],
+              done: [{ $match: { statusCategory: StatusCategory.DONE } }, { $count: 'count' }],
               overdue: [
-                { $match: { dueDate: { $lt: new Date() }, status: { $ne: TaskStatus.DONE } } },
+                {
+                  $match: {
+                    dueDate: { $lt: new Date() },
+                    statusCategory: { $ne: StatusCategory.DONE },
+                  },
+                },
                 { $count: 'count' },
               ],
             },
@@ -94,13 +100,32 @@ export class DashboardService {
   async tasksStatus(projectId: string | undefined, actingUser: AuthenticatedUser) {
     return this.cached('tasks-status', actingUser, { projectId }, this.ttlDashboard(), async () => {
       const { taskFilter } = await this.resolveScope(actingUser, projectId);
-      const rows = await this.taskModel.aggregate([
+      const rows: { _id: string; count: number }[] = await this.taskModel.aggregate([
         { $match: taskFilter },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]);
-      return Object.values(TaskStatus).map((status) => ({
-        status,
-        count: rows.find((r: { _id: string }) => r._id === status)?.count ?? 0,
+
+      // Scoped to one project: zero-fill from that project's actual workflow (custom, or the
+      // system default), so its real status names always show up. Org-wide: zero-fill from the
+      // system default's 4 names, unioned with any other status names actually in use - an org
+      // that never touches custom workflows sees identical output to today, and any project's
+      // custom statuses simply appear additionally when used.
+      let statusDefs: { name: string; category: StatusCategory }[];
+      if (projectId) {
+        const project = await this.projectModel.findById(projectId).select('workflow').exec();
+        statusDefs = resolveWorkflow(project ?? {}).statuses;
+      } else {
+        const known = new Set(DEFAULT_WORKFLOW.statuses.map((s) => s.name));
+        const extra = rows
+          .filter((r) => !known.has(r._id))
+          .map((r) => ({ name: r._id, category: StatusCategory.IN_PROGRESS }) as const);
+        statusDefs = [...DEFAULT_WORKFLOW.statuses, ...extra];
+      }
+
+      return statusDefs.map(({ name, category }) => ({
+        status: name,
+        category,
+        count: rows.find((r) => r._id === name)?.count ?? 0,
       }));
     });
   }
@@ -139,7 +164,9 @@ export class DashboardService {
             $group: {
               _id: '$assignee',
               total: { $sum: 1 },
-              completed: { $sum: { $cond: [{ $eq: ['$status', TaskStatus.DONE] }, 1, 0] } },
+              completed: {
+                $sum: { $cond: [{ $eq: ['$statusCategory', StatusCategory.DONE] }, 1, 0] },
+              },
             },
           },
           {
@@ -188,7 +215,11 @@ export class DashboardService {
       async () => {
         const { taskFilter } = await this.resolveScope(actingUser, projectId);
         const tasks = await this.taskModel
-          .find({ ...taskFilter, dueDate: { $lt: new Date() }, status: { $ne: TaskStatus.DONE } })
+          .find({
+            ...taskFilter,
+            dueDate: { $lt: new Date() },
+            statusCategory: { $ne: StatusCategory.DONE },
+          })
           .populate('project', 'name')
           .populate('assignee', 'name')
           .sort({ dueDate: 1 })
@@ -231,7 +262,7 @@ export class DashboardService {
           {
             $match: {
               ...taskFilter,
-              status: TaskStatus.DONE,
+              statusCategory: StatusCategory.DONE,
               completedAt: { $gte: since, $ne: null },
             },
           },

@@ -1,4 +1,5 @@
 import { FilterQuery, Types } from 'mongoose';
+import { StatusCategory } from '../../../common/enums/status-category.enum';
 import { TaskDocument } from '../schemas/task.schema';
 import { ListTasksDto } from '../dto/list-tasks.dto';
 
@@ -23,6 +24,9 @@ export function buildTaskListFilter(
   if (query.unassignedSprint) filter.sprint = null;
   else if (query.sprintId) filter.sprint = new Types.ObjectId(query.sprintId);
 
+  if (query.issueType?.length) filter.issueType = { $in: query.issueType };
+  if (query.parent) filter.parent = new Types.ObjectId(query.parent);
+
   if (query.dueDateFrom || query.dueDateTo) {
     filter.dueDate = {
       ...(query.dueDateFrom ? { $gte: new Date(query.dueDateFrom) } : {}),
@@ -32,7 +36,9 @@ export function buildTaskListFilter(
 
   if (query.overdue) {
     filter.dueDate = { ...(filter.dueDate as object), $lt: new Date() };
-    filter.status = { $ne: 'Done' };
+    // Category-based, not the literal "Done" - a custom workflow's Done-category status can be
+    // named anything (e.g. "Shipped"), so this must keep matching correctly for those projects too.
+    filter.statusCategory = { $ne: StatusCategory.DONE };
   }
 
   if (query.search) {

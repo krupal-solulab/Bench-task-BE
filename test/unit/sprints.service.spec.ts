@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Role } from 'src/common/enums/role.enum';
 import { SprintStatus } from 'src/common/enums/sprint-status.enum';
-import { TaskStatus } from 'src/common/enums/task-status.enum';
+import { StatusCategory } from 'src/common/enums/status-category.enum';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { SprintsService } from 'src/modules/sprints/sprints.service';
 import { SprintsRepository } from 'src/modules/sprints/sprints.repository';
@@ -58,7 +58,13 @@ describe('SprintsService', () => {
     >
   >;
   let projectsService: jest.Mocked<
-    Pick<ProjectsService, 'getActiveProjectOrThrow' | 'assertUserCanManage' | 'assertUserCanView'>
+    Pick<
+      ProjectsService,
+      | 'getActiveProjectOrThrow'
+      | 'assertUserCanManage'
+      | 'assertUserCanManageOrGranted'
+      | 'assertUserCanView'
+    >
   >;
   let taskModel: { updateMany: jest.Mock };
   let service: SprintsService;
@@ -78,6 +84,7 @@ describe('SprintsService', () => {
     projectsService = {
       getActiveProjectOrThrow: jest.fn().mockResolvedValue(makeProject()),
       assertUserCanManage: jest.fn(),
+      assertUserCanManageOrGranted: jest.fn(),
       assertUserCanView: jest.fn(),
     };
     taskModel = {
@@ -90,6 +97,83 @@ describe('SprintsService', () => {
       projectsService as unknown as ProjectsService,
       taskModel as never,
     );
+  });
+
+  describe('permission-grant delegation (Phase 3: per-project member grants)', () => {
+    const dev = makeUser({ id: '507f1f77bcf86cd799439013', role: Role.DEVELOPER });
+
+    it('create() checks canManageSprints', async () => {
+      sprintsRepository.create.mockResolvedValue(makeSprint());
+      sprintsRepository.findByIdActive.mockResolvedValue(makeSprint());
+
+      await service.create(
+        PROJECT_ID,
+        { name: 'Sprint 1', startDate: '2026-01-01', endDate: '2026-01-14' } as never,
+        dev,
+      );
+
+      expect(projectsService.assertUserCanManageOrGranted).toHaveBeenCalledWith(
+        expect.anything(),
+        dev,
+        'canManageSprints',
+      );
+    });
+
+    it('update() checks canManageSprints', async () => {
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(makeSprint());
+      sprintsRepository.updateById.mockResolvedValue(makeSprint({ name: 'Renamed' }));
+
+      await service.update(PROJECT_ID, SPRINT_ID, { name: 'Renamed' }, dev);
+
+      expect(projectsService.assertUserCanManageOrGranted).toHaveBeenCalledWith(
+        expect.anything(),
+        dev,
+        'canManageSprints',
+      );
+    });
+
+    it('start() checks canManageSprints', async () => {
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(makeSprint());
+      sprintsRepository.findActiveSprintForProject.mockResolvedValue(null);
+      sprintsRepository.updateById.mockResolvedValue(makeSprint({ status: SprintStatus.ACTIVE }));
+
+      await service.start(PROJECT_ID, SPRINT_ID, dev);
+
+      expect(projectsService.assertUserCanManageOrGranted).toHaveBeenCalledWith(
+        expect.anything(),
+        dev,
+        'canManageSprints',
+      );
+    });
+
+    it('complete() checks canManageSprints', async () => {
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(
+        makeSprint({ status: SprintStatus.ACTIVE }),
+      );
+      sprintsRepository.updateById.mockResolvedValue(
+        makeSprint({ status: SprintStatus.COMPLETED }),
+      );
+
+      await service.complete(PROJECT_ID, SPRINT_ID, dev);
+
+      expect(projectsService.assertUserCanManageOrGranted).toHaveBeenCalledWith(
+        expect.anything(),
+        dev,
+        'canManageSprints',
+      );
+    });
+
+    it('remove() checks canManageSprints', async () => {
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(makeSprint());
+
+      await service.remove(PROJECT_ID, SPRINT_ID, dev);
+
+      expect(projectsService.assertUserCanManageOrGranted).toHaveBeenCalledWith(
+        expect.anything(),
+        dev,
+        'canManageSprints',
+      );
+    });
   });
 
   describe('start', () => {
@@ -135,14 +219,18 @@ describe('SprintsService', () => {
       );
     });
 
-    it('delegates the permission check to ProjectsService.assertUserCanManage', async () => {
+    it('delegates the permission check to ProjectsService.assertUserCanManageOrGranted', async () => {
       sprintsRepository.findByIdActiveInProject.mockResolvedValue(makeSprint());
       sprintsRepository.findActiveSprintForProject.mockResolvedValue(null);
       sprintsRepository.updateById.mockResolvedValue(makeSprint({ status: SprintStatus.ACTIVE }));
 
       await service.start(PROJECT_ID, SPRINT_ID, makeUser());
 
-      expect(projectsService.assertUserCanManage).toHaveBeenCalled();
+      expect(projectsService.assertUserCanManageOrGranted).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        'canManageSprints',
+      );
     });
   });
 
@@ -172,7 +260,10 @@ describe('SprintsService', () => {
       await service.complete(PROJECT_ID, SPRINT_ID, makeUser());
 
       expect(taskModel.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ deletedAt: null, status: { $ne: TaskStatus.DONE } }),
+        expect.objectContaining({
+          deletedAt: null,
+          statusCategory: { $ne: StatusCategory.DONE },
+        }),
         { sprint: null },
       );
       expect(sprintsRepository.updateById).toHaveBeenCalledWith(

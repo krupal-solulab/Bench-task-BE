@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
-import { Role } from '../../common/enums/role.enum';
+import { ORG_ROLES } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { SprintsService } from './sprints.service';
@@ -29,7 +29,7 @@ export class SprintsController {
   constructor(private readonly sprintsService: SprintsService) {}
 
   @Post()
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Create a sprint under a project' })
   async create(
     @Param('projectId', ParseObjectIdPipe) projectId: string,
@@ -69,7 +69,7 @@ export class SprintsController {
   }
 
   @Patch(':sprintId')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Update sprint name/goal/dates' })
   async update(
     @Param('projectId', ParseObjectIdPipe) projectId: string,
@@ -81,7 +81,7 @@ export class SprintsController {
   }
 
   @Post(':sprintId/start')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Start a Planned sprint (409 if another sprint is already Active)' })
   async start(
     @Param('projectId', ParseObjectIdPipe) projectId: string,
@@ -92,7 +92,7 @@ export class SprintsController {
   }
 
   @Post(':sprintId/complete')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Complete an Active sprint (moves incomplete tasks back to backlog)' })
   async complete(
     @Param('projectId', ParseObjectIdPipe) projectId: string,
@@ -103,7 +103,7 @@ export class SprintsController {
   }
 
   @Delete(':sprintId')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a Planned sprint (409 if Active or Completed)' })
   async remove(

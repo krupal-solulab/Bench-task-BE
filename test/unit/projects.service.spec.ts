@@ -1,11 +1,18 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Model } from 'mongoose';
 import { Role } from 'src/common/enums/role.enum';
 import { ProjectStatus } from 'src/common/enums/project-status.enum';
+import { StatusCategory } from 'src/common/enums/status-category.enum';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { ProjectsService } from 'src/modules/projects/projects.service';
 import { ProjectsRepository } from 'src/modules/projects/projects.repository';
 import { ProjectActivityAction } from 'src/modules/projects/schemas/project-activity.schema';
+import { DEFAULT_WORKFLOW } from 'src/modules/projects/schemas/workflow.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { CacheService } from 'src/redis/cache.service';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
@@ -41,6 +48,22 @@ function makeUser(overrides: Partial<AuthenticatedUser> = {}): AuthenticatedUser
   return { id: ADMIN_ID, email: 'a@a.com', role: Role.ADMIN, organizationId: ORG_A, ...overrides };
 }
 
+const NO_PERMS = {
+  canCreateTask: false,
+  canEditAnyTask: false,
+  canDeleteTask: false,
+  canChangeAnyTaskStatus: false,
+  canManageSprints: false,
+};
+
+function makeMember(userId: string, permissions: Partial<Record<string, boolean>> | null = null) {
+  return {
+    user: { toString: () => userId },
+    joinedAt: new Date('2026-01-01'),
+    permissions: permissions ? { ...NO_PERMS, ...permissions } : null,
+  };
+}
+
 describe('ProjectsService', () => {
   let projectsRepository: jest.Mocked<
     Pick<
@@ -53,6 +76,9 @@ describe('ProjectsService', () => {
       | 'isMember'
       | 'logActivity'
       | 'softDelete'
+      | 'keyExistsInOrg'
+      | 'incrementIssueSeq'
+      | 'setMemberPermissions'
     >
   >;
   let usersRepository: jest.Mocked<Pick<UsersRepository, 'findById' | 'findByIds'>>;
@@ -62,6 +88,7 @@ describe('ProjectsService', () => {
     find: jest.Mock;
     updateMany: jest.Mock;
     aggregate: jest.Mock;
+    distinct: jest.Mock;
   };
   let commentModel: { updateMany: jest.Mock };
   let sprintModel: { updateMany: jest.Mock };
@@ -77,6 +104,9 @@ describe('ProjectsService', () => {
       isMember: jest.fn(),
       logActivity: jest.fn(),
       softDelete: jest.fn(),
+      keyExistsInOrg: jest.fn().mockResolvedValue(false),
+      incrementIssueSeq: jest.fn(),
+      setMemberPermissions: jest.fn().mockResolvedValue(undefined),
     };
     usersRepository = { findById: jest.fn(), findByIds: jest.fn() };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
@@ -85,6 +115,7 @@ describe('ProjectsService', () => {
       find: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue([]) }),
       updateMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(undefined) }),
       aggregate: jest.fn(),
+      distinct: jest.fn().mockResolvedValue([]),
     };
     commentModel = {
       updateMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(undefined) }),
@@ -204,6 +235,33 @@ describe('ProjectsService', () => {
         ),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('rejects an explicit key already used by another project in the org', async () => {
+      projectsRepository.keyExistsInOrg.mockResolvedValue(true);
+
+      await expect(
+        service.create(
+          { name: 'x', key: 'SUP' } as never,
+          makeUser({ role: Role.MANAGER, id: MANAGER_ID }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(projectsRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts an available explicit key', async () => {
+      projectsRepository.keyExistsInOrg.mockResolvedValue(false);
+      projectsRepository.create.mockResolvedValue(makeProject({ key: 'SUP' }));
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ key: 'SUP' }));
+
+      await service.create(
+        { name: 'x', key: 'SUP' } as never,
+        makeUser({ role: Role.MANAGER, id: MANAGER_ID }),
+      );
+
+      expect(projectsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'SUP' }),
+      );
+    });
   });
 
   describe('update', () => {
@@ -219,6 +277,68 @@ describe('ProjectsService', () => {
           makeUser({ role: Role.ADMIN }),
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects changing a key that is already set (immutable once assigned)', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ key: 'OLD' }));
+
+      await expect(
+        service.update('project-1', { key: 'NEW' } as never, makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('allows setting a key for the first time via update', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ key: null }));
+      projectsRepository.keyExistsInOrg.mockResolvedValue(false);
+      projectsRepository.updateById.mockResolvedValue(makeProject({ key: 'SUP' }));
+
+      await service.update('project-1', { key: 'SUP' } as never, makeUser({ role: Role.ADMIN }));
+
+      expect(projectsRepository.updateById).toHaveBeenCalledWith(
+        'project-1',
+        expect.objectContaining({ key: 'SUP' }),
+      );
+    });
+  });
+
+  describe('getOrAssignKey', () => {
+    it('returns the existing key without touching the repository', async () => {
+      const key = await service.getOrAssignKey(makeProject({ key: 'SUP' }));
+
+      expect(key).toBe('SUP');
+      expect(projectsRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('derives a key from the project name when none is set', async () => {
+      projectsRepository.keyExistsInOrg.mockResolvedValue(false);
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      const key = await service.getOrAssignKey(makeProject({ key: null, name: 'Support Desk' }));
+
+      expect(key).toBe('SUPP');
+      expect(projectsRepository.updateById).toHaveBeenCalledWith(
+        PROJECT_ID,
+        expect.objectContaining({ key: 'SUPP' }),
+      );
+    });
+
+    it('falls back to "PRJ" when the name has no letters', async () => {
+      projectsRepository.keyExistsInOrg.mockResolvedValue(false);
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      const key = await service.getOrAssignKey(makeProject({ key: null, name: '2026' }));
+
+      expect(key).toBe('PRJ');
+    });
+
+    it('dedupes against an existing key in the org by appending a number', async () => {
+      projectsRepository.keyExistsInOrg
+        .mockResolvedValueOnce(true) // "SUPP" taken
+        .mockResolvedValueOnce(false); // "SUPP2" free
+
+      const key = await service.getOrAssignKey(makeProject({ key: null, name: 'Support Desk' }));
+
+      expect(key).toBe('SUPP2');
     });
   });
 
@@ -398,6 +518,301 @@ describe('ProjectsService', () => {
 
       expect(taskModel.updateMany).not.toHaveBeenCalled();
       expect(commentModel.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getWorkflow', () => {
+    it('returns the system default when the project has no custom workflow', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ workflow: null }));
+
+      const workflow = await service.getWorkflow('project-1', makeUser({ role: Role.ADMIN }));
+
+      expect(workflow).toEqual(DEFAULT_WORKFLOW);
+    });
+
+    it("returns the project's own custom workflow when set", async () => {
+      const custom = {
+        statuses: [{ name: 'Backlog', category: StatusCategory.TODO }],
+        transitions: [],
+        initialStatus: 'Backlog',
+      };
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ workflow: custom }));
+
+      const workflow = await service.getWorkflow('project-1', makeUser({ role: Role.ADMIN }));
+
+      expect(workflow).toEqual(custom);
+    });
+  });
+
+  describe('updateWorkflow', () => {
+    const validDto = {
+      statuses: [
+        { name: 'Backlog', category: StatusCategory.TODO },
+        { name: 'Building', category: StatusCategory.IN_PROGRESS },
+        { name: 'Shipped', category: StatusCategory.DONE },
+      ],
+      transitions: [
+        { from: 'Backlog', to: 'Building' },
+        { from: 'Building', to: 'Shipped' },
+      ],
+      initialStatus: 'Backlog',
+    };
+
+    it('rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateWorkflow(
+          'project-1',
+          validDto,
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects duplicate status names', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      const dto = {
+        ...validDto,
+        statuses: [...validDto.statuses, { name: 'Backlog', category: StatusCategory.TODO }],
+      };
+      await expect(
+        service.updateWorkflow('project-1', dto, makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an initialStatus that is not one of the statuses', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      const dto = { ...validDto, initialStatus: 'Nonexistent' };
+      await expect(
+        service.updateWorkflow('project-1', dto, makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a transition that references an unknown status', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      const dto = {
+        ...validDto,
+        transitions: [...validDto.transitions, { from: 'Building', to: 'Ghost' }],
+      };
+      await expect(
+        service.updateWorkflow('project-1', dto, makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects dropping a status still held by an active task', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      taskModel.distinct.mockResolvedValue(['Todo']);
+
+      await expect(
+        service.updateWorkflow('project-1', validDto, makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(ConflictException);
+      expect(projectsRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('saves a valid workflow and returns it', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      taskModel.distinct.mockResolvedValue([]);
+      projectsRepository.updateById.mockResolvedValue(makeProject({ workflow: validDto }));
+
+      const result = await service.updateWorkflow(
+        'project-1',
+        validDto,
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      expect(result).toEqual(validDto);
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        workflow: validDto,
+      });
+    });
+  });
+
+  describe('resetWorkflow', () => {
+    it('is a no-op returning the default when the project already has no custom workflow', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ workflow: null }));
+
+      const result = await service.resetWorkflow('project-1', makeUser({ role: Role.ADMIN }));
+
+      expect(result).toEqual(DEFAULT_WORKFLOW);
+      expect(projectsRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('rejects when an active task holds a status the default workflow does not have', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          workflow: {
+            statuses: [{ name: 'Backlog', category: StatusCategory.TODO }],
+            transitions: [],
+            initialStatus: 'Backlog',
+          },
+        }),
+      );
+      taskModel.distinct.mockResolvedValue(['Backlog']);
+
+      await expect(
+        service.resetWorkflow('project-1', makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('clears the custom workflow when every active task already matches a default status', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          workflow: {
+            statuses: [{ name: 'Todo', category: StatusCategory.TODO }],
+            transitions: [],
+            initialStatus: 'Todo',
+          },
+        }),
+      );
+      taskModel.distinct.mockResolvedValue([]);
+      projectsRepository.updateById.mockResolvedValue(makeProject({ workflow: null }));
+
+      const result = await service.resetWorkflow('project-1', makeUser({ role: Role.ADMIN }));
+
+      expect(result).toEqual(DEFAULT_WORKFLOW);
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', { workflow: null });
+    });
+  });
+
+  describe('assertUserCanManageOrGranted / memberHasCapability', () => {
+    it('passes for a same-org Admin regardless of grants', () => {
+      const project = makeProject({ members: [] });
+      expect(() =>
+        service.assertUserCanManageOrGranted(
+          project,
+          makeUser({ role: Role.ADMIN }),
+          'canDeleteTask',
+        ),
+      ).not.toThrow();
+    });
+
+    it('passes for the owning Manager regardless of grants', () => {
+      const project = makeProject({ members: [] });
+      expect(() =>
+        service.assertUserCanManageOrGranted(
+          project,
+          makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+          'canDeleteTask',
+        ),
+      ).not.toThrow();
+    });
+
+    it('passes for a non-owning member who holds the matching grant', () => {
+      const project = makeProject({ members: [makeMember(DEV_ID, { canCreateTask: true })] });
+      expect(() =>
+        service.assertUserCanManageOrGranted(
+          project,
+          makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+          'canCreateTask',
+        ),
+      ).not.toThrow();
+    });
+
+    it('rejects a non-owning member who holds a DIFFERENT grant than the one being checked', () => {
+      const project = makeProject({ members: [makeMember(DEV_ID, { canCreateTask: true })] });
+      expect(() =>
+        service.assertUserCanManageOrGranted(
+          project,
+          makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+          'canDeleteTask',
+        ),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('rejects a non-member regardless of any stray permissions data', () => {
+      const project = makeProject({ members: [makeMember(DEV_ID, { canCreateTask: true })] });
+      expect(() =>
+        service.assertUserCanManageOrGranted(
+          project,
+          makeUser({ id: OTHER_DEV_ID, role: Role.DEVELOPER }),
+          'canCreateTask',
+        ),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('memberHasCapability returns false for a member with no permissions set', () => {
+      const project = makeProject({ members: [makeMember(DEV_ID, null)] });
+      expect(service.memberHasCapability(project, DEV_ID, 'canCreateTask')).toBe(false);
+    });
+  });
+
+  describe('setMemberPermissions', () => {
+    it('rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({ members: [makeMember(DEV_ID)] }),
+      );
+      await expect(
+        service.setMemberPermissions(
+          'project-1',
+          DEV_ID,
+          { canCreateTask: true },
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects targeting the project owner', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({ members: [makeMember(DEV_ID)] }),
+      );
+      await expect(
+        service.setMemberPermissions(
+          'project-1',
+          MANAGER_ID,
+          { canCreateTask: true },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects targeting a non-member', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ members: [] }));
+      await expect(
+        service.setMemberPermissions(
+          'project-1',
+          DEV_ID,
+          { canCreateTask: true },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("merges a partial patch onto the member's existing permissions rather than replacing wholesale", async () => {
+      projectsRepository.findByIdActive
+        .mockResolvedValueOnce(
+          makeProject({ members: [makeMember(DEV_ID, { canCreateTask: true })] }),
+        )
+        .mockResolvedValueOnce(makeProject({ members: [makeMember(DEV_ID)] }));
+
+      await service.setMemberPermissions(
+        'project-1',
+        DEV_ID,
+        { canManageSprints: true },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      expect(projectsRepository.setMemberPermissions).toHaveBeenCalledWith('project-1', DEV_ID, {
+        canCreateTask: true,
+        canEditAnyTask: false,
+        canDeleteTask: false,
+        canChangeAnyTaskStatus: false,
+        canManageSprints: true,
+      });
+    });
+
+    it('a same-org Admin can grant on a project they do not own', async () => {
+      projectsRepository.findByIdActive
+        .mockResolvedValueOnce(makeProject({ members: [makeMember(DEV_ID)] }))
+        .mockResolvedValueOnce(makeProject({ members: [makeMember(DEV_ID)] }));
+
+      await expect(
+        service.setMemberPermissions(
+          'project-1',
+          DEV_ID,
+          { canCreateTask: true },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).resolves.toBeDefined();
     });
   });
 });

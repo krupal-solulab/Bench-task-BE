@@ -5,6 +5,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppConfig } from '../../config/configuration';
 import { Role } from '../../common/enums/role.enum';
+import { StatusCategory } from '../../common/enums/status-category.enum';
 import { TaskStatus } from '../../common/enums/task-status.enum';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { extractId } from '../../common/utils/mongo.util';
@@ -141,18 +142,28 @@ export class UsersService {
         $facet: {
           byStatus: [{ $group: { _id: '$status', count: { $sum: 1 } } }],
           total: [{ $count: 'count' }],
+          done: [{ $match: { statusCategory: StatusCategory.DONE } }, { $count: 'count' }],
           overdue: [
-            { $match: { dueDate: { $lt: new Date() }, status: { $ne: TaskStatus.DONE } } },
+            {
+              $match: {
+                dueDate: { $lt: new Date() },
+                statusCategory: { $ne: StatusCategory.DONE },
+              },
+            },
             { $count: 'count' },
           ],
         },
       },
     ]);
 
+    // todo/inProgress/review stay literal-status-name based (an assignee's tasks can span
+    // projects with different custom workflows, and this per-user breakdown's fixed 4 buckets
+    // aren't extended to enumerate every workflow's statuses - see Phase 2's "My Tasks" scope
+    // note). done/overdue/completionRate use statusCategory so they stay correct regardless.
     const byStatus = (status: TaskStatus): number =>
       facetResult.byStatus.find((b: { _id: string }) => b._id === status)?.count ?? 0;
     const total = facetResult.total[0]?.count ?? 0;
-    const done = byStatus(TaskStatus.DONE);
+    const done = facetResult.done[0]?.count ?? 0;
 
     return {
       userId: user.id,

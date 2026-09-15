@@ -13,12 +13,14 @@ import { extractId } from '../../common/utils/mongo.util';
 import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
-import { TaskStatus } from '../../common/enums/task-status.enum';
+import { StatusCategory } from '../../common/enums/status-category.enum';
+import { IssueType, STANDARD_ISSUE_TYPES } from '../../common/enums/issue-type.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
+import { categoryOf, resolveWorkflow } from '../projects/schemas/workflow.schema';
 import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { TasksRepository, RankScope } from './tasks.repository';
@@ -45,7 +47,7 @@ export class TasksService {
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
     const project = await this.projectsService.getActiveProjectOrThrow(dto.project);
-    this.projectsService.assertUserCanManage(project, actingUser);
+    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canCreateTask');
 
     if (project.status === ProjectStatus.COMPLETED) {
       throw new ConflictException('Cannot create tasks in a Completed project');
@@ -55,10 +57,25 @@ export class TasksService {
       this.assertAssigneeEligible(project, dto.assignee);
     }
 
-    // Every new task starts in the backlog (sprint: null), appended to the end of its rank order -
-    // this keeps task creation's validation surface entirely unchanged for anyone not using sprints.
-    const backlogScope: RankScope = { project: new Types.ObjectId(dto.project), sprint: null };
-    const maxRank = await this.tasksRepository.findMaxRank(backlogScope);
+    const issueType = dto.issueType ?? IssueType.TASK;
+    const parent = await this.assertValidHierarchy(dto.project, issueType, dto.parent);
+
+    // Every new Story/Task/Bug starts in the backlog (sprint: null), appended to the end of its
+    // rank order - this keeps task creation's validation surface entirely unchanged for anyone not
+    // using sprints. Epics/Sub-tasks never appear in backlog ordering, so skip the extra query.
+    let rank = 0;
+    if (this.isStandardIssue(issueType)) {
+      const backlogScope: RankScope = { project: new Types.ObjectId(dto.project), sprint: null };
+      const maxRank = await this.tasksRepository.findMaxRank(backlogScope);
+      rank = nextAppendRank(maxRank);
+    }
+
+    const keyPrefix = await this.projectsService.getOrAssignKey(project);
+    const seq = await this.projectsService.nextIssueNumber(dto.project);
+
+    const workflow = resolveWorkflow(project);
+    const status = workflow.initialStatus;
+    const statusCategory = categoryOf(workflow, status) ?? StatusCategory.TODO;
 
     const task = await this.tasksRepository.create({
       title: dto.title,
@@ -66,12 +83,18 @@ export class TasksService {
       project: new Types.ObjectId(dto.project),
       assignee: dto.assignee ? new Types.ObjectId(dto.assignee) : null,
       priority: dto.priority,
+      status,
+      statusCategory,
       dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
       createdBy: new Types.ObjectId(actingUser.id),
       // Copied from the parent project (not actingUser) so a task's org always matches its
       // project's org, even in the platform-provisioned-admin edge case.
       organizationId: project.organizationId,
-      rank: nextAppendRank(maxRank),
+      rank,
+      issueType,
+      parent,
+      storyPoints: dto.storyPoints ?? null,
+      issueKey: `${keyPrefix}-${seq}`,
     });
 
     await this.tasksRepository.logActivity(task.id, actingUser.id, TaskActivityAction.CREATED);
@@ -122,7 +145,7 @@ export class TasksService {
   ): Promise<TaskDocument> {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    this.projectsService.assertUserCanManage(project, actingUser);
+    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canEditAnyTask');
 
     const activities: Array<[TaskActivityAction, string | null, string | null]> = [];
     if (dto.priority && dto.priority !== task.priority) {
@@ -155,7 +178,7 @@ export class TasksService {
 
   async updateStatus(
     id: string,
-    status: TaskStatus,
+    status: string,
     actingUser: AuthenticatedUser,
   ): Promise<TaskDocument> {
     const task = await this.getActiveOrThrow(id);
@@ -169,22 +192,40 @@ export class TasksService {
       actingUser.role === Role.DEVELOPER &&
       !!task.assignee &&
       extractId(task.assignee) === actingUser.id;
+    const hasStatusGrant = this.projectsService.memberHasCapability(
+      project,
+      actingUser.id,
+      'canChangeAnyTaskStatus',
+    );
 
-    if (!isManagerOrAdmin && !isAssignedDeveloper) {
+    if (!isManagerOrAdmin && !isAssignedDeveloper && !hasStatusGrant) {
       throw new ForbiddenException('You cannot change the status of this task');
     }
 
     if (task.status === status) return task;
 
-    if (!isLegalTaskTransition(task.status, status)) {
-      throw new ConflictException(
-        `Cannot transition from ${task.status} to ${status}. Allowed: ${legalTaskTransitions(task.status).join(', ') || 'none'}`,
+    const workflow = resolveWorkflow(project);
+    const newCategory = categoryOf(workflow, status);
+    if (!newCategory) {
+      throw new BadRequestException(
+        `"${status}" is not a status in this project's workflow. Allowed: ${workflow.statuses.map((s) => s.name).join(', ')}`,
       );
     }
 
-    const update: Partial<{ status: TaskStatus; completedAt: Date | null }> = { status };
-    if (status === TaskStatus.DONE) update.completedAt = new Date();
-    else if (task.status === TaskStatus.DONE) update.completedAt = null;
+    if (!isLegalTaskTransition(workflow, task.status, status)) {
+      throw new ConflictException(
+        `Cannot transition from ${task.status} to ${status}. Allowed: ${legalTaskTransitions(workflow, task.status).join(', ') || 'none'}`,
+      );
+    }
+
+    const previousCategory = categoryOf(workflow, task.status);
+    const update: Partial<{
+      status: string;
+      statusCategory: StatusCategory;
+      completedAt: Date | null;
+    }> = { status, statusCategory: newCategory };
+    if (newCategory === StatusCategory.DONE) update.completedAt = new Date();
+    else if (previousCategory === StatusCategory.DONE) update.completedAt = null;
 
     const updated = await this.tasksRepository.updateById(id, update);
     await this.tasksRepository.logActivity(
@@ -255,7 +296,11 @@ export class TasksService {
     const task = await this.getActiveOrThrow(id);
     const projectId = extractId(task.project);
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManage(project, actingUser);
+    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+
+    if (!this.isStandardIssue(task.issueType)) {
+      throw new BadRequestException('Only Story/Task/Bug issues can be assigned to a sprint');
+    }
 
     const previousSprintId = task.sprint ? extractId(task.sprint) : null;
     if (dto.sprintId === previousSprintId) return task;
@@ -299,7 +344,7 @@ export class TasksService {
 
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    this.projectsService.assertUserCanManage(project, actingUser);
+    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
 
     const scope: RankScope = {
       project: new Types.ObjectId(extractId(task.project)),
@@ -333,7 +378,7 @@ export class TasksService {
   async softDelete(id: string, actingUser: AuthenticatedUser): Promise<void> {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    this.projectsService.assertUserCanManage(project, actingUser);
+    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canDeleteTask');
 
     await this.tasksRepository.softDelete(id);
     await this.tasksRepository.logActivity(id, actingUser.id, TaskActivityAction.DELETED);
@@ -347,6 +392,20 @@ export class TasksService {
     return { data, meta: buildPaginationMeta(total, page, limit) };
   }
 
+  async epicProgress(id: string, actingUser: AuthenticatedUser) {
+    const epic = await this.getActiveOrThrow(id);
+    await this.assertCanView(epic, actingUser);
+    if (epic.issueType !== IssueType.EPIC) {
+      throw new BadRequestException('epic-progress is only valid for an Epic issue');
+    }
+    const { total, done } = await this.tasksRepository.countLinkedIssues(id);
+    return {
+      linkedIssueCount: total,
+      doneCount: done,
+      progress: total > 0 ? Math.round((done / total) * 100) : 0,
+    };
+  }
+
   private isOwner(project: ProjectDocument, userId: string): boolean {
     return extractId(project.owner) === userId;
   }
@@ -355,6 +414,47 @@ export class TasksService {
     if (!this.projectsService.isProjectMember(project, assignee)) {
       throw new BadRequestException('Assignee must be the project owner or a member');
     }
+  }
+
+  private isStandardIssue(issueType: IssueType): boolean {
+    return (STANDARD_ISSUE_TYPES as readonly IssueType[]).includes(issueType);
+  }
+
+  /**
+   * Enforces the fixed 2-level hierarchy: Epic (no parent) <- Story/Task/Bug (optional Epic-link)
+   * <- Sub-task (required Story/Task/Bug parent). Returns the validated parent id, or null.
+   */
+  private async assertValidHierarchy(
+    projectId: string,
+    issueType: IssueType,
+    parentId: string | undefined,
+  ): Promise<Types.ObjectId | null> {
+    if (issueType === IssueType.EPIC) {
+      if (parentId) throw new BadRequestException('An Epic cannot have a parent');
+      return null;
+    }
+
+    if (!parentId) {
+      if (issueType === IssueType.SUBTASK) {
+        throw new BadRequestException('A Sub-task requires a parent issue');
+      }
+      return null;
+    }
+
+    const parentTask = await this.tasksRepository.findRawById(parentId);
+    if (!parentTask || extractId(parentTask.project) !== projectId) {
+      throw new BadRequestException('parent must be an existing issue in the same project');
+    }
+
+    if (issueType === IssueType.SUBTASK) {
+      if (!this.isStandardIssue(parentTask.issueType)) {
+        throw new BadRequestException("A Sub-task's parent must be a Story, Task, or Bug");
+      }
+    } else if (parentTask.issueType !== IssueType.EPIC) {
+      throw new BadRequestException('parent must be an Epic for a Story/Task/Bug');
+    }
+
+    return new Types.ObjectId(parentId);
   }
 
   private async assertCanView(task: TaskDocument, actingUser: AuthenticatedUser): Promise<void> {

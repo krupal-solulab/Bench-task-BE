@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
 import { extractId } from '../../common/utils/mongo.util';
 import { Project, ProjectDocument } from './schemas/project.schema';
+import { MemberPermissions } from './schemas/member-permissions.schema';
 import {
   ProjectActivity,
   ProjectActivityAction,
@@ -69,6 +70,29 @@ export class ProjectsRepository {
     return this.findByIdActive(id);
   }
 
+  /** Atomically increments and returns the project's issue-number sequence - a single
+   * findOneAndUpdate avoids the read-then-write race a separate read+update would have. */
+  async incrementIssueSeq(projectId: string): Promise<number> {
+    const updated = await this.model
+      .findOneAndUpdate({ _id: projectId }, { $inc: { issueSeq: 1 } }, { new: true })
+      .exec();
+    return updated!.issueSeq;
+  }
+
+  /** True if another project in the org already has this key (used by getOrAssignKey's dedupe loop). */
+  async keyExistsInOrg(
+    organizationId: string,
+    key: string,
+    excludeProjectId?: string,
+  ): Promise<boolean> {
+    const filter: FilterQuery<ProjectDocument> = {
+      organizationId: new Types.ObjectId(organizationId),
+      key,
+    };
+    if (excludeProjectId) filter._id = { $ne: excludeProjectId };
+    return (await this.model.countDocuments(filter).exec()) > 0;
+  }
+
   async softDelete(id: string): Promise<void> {
     await this.model.updateOne({ _id: id }, { deletedAt: new Date() }).exec();
   }
@@ -90,6 +114,19 @@ export class ProjectsRepository {
   async removeMember(id: string, userId: string): Promise<void> {
     await this.model
       .updateOne({ _id: id }, { $pull: { members: { user: new Types.ObjectId(userId) } } })
+      .exec();
+  }
+
+  async setMemberPermissions(
+    id: string,
+    userId: string,
+    permissions: MemberPermissions,
+  ): Promise<void> {
+    await this.model
+      .updateOne(
+        { _id: id, 'members.user': new Types.ObjectId(userId) },
+        { $set: { 'members.$.permissions': permissions } },
+      )
       .exec();
   }
 

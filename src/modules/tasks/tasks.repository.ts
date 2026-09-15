@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
-import { TaskStatus } from '../../common/enums/task-status.enum';
+import { StatusCategory } from '../../common/enums/status-category.enum';
 import { Task, TaskDocument } from './schemas/task.schema';
 import {
   TaskActivity,
@@ -37,6 +37,7 @@ export class TasksRepository {
       .populate('createdBy', POPULATE_FIELDS)
       .populate('project', 'name')
       .populate('sprint', 'name')
+      .populate('parent', 'title issueKey')
       .exec();
   }
 
@@ -60,6 +61,7 @@ export class TasksRepository {
         .populate('createdBy', POPULATE_FIELDS)
         .populate('project', 'name')
         .populate('sprint', 'name')
+        .populate('parent', 'title issueKey')
         .sort(sort)
         .skip(skip)
         .limit(query.limit)
@@ -86,7 +88,7 @@ export class TasksRepository {
         deletedAt: null,
         dueDateNotifiedAt: null,
         assignee: { $ne: null },
-        status: { $ne: TaskStatus.DONE },
+        statusCategory: { $ne: StatusCategory.DONE },
         dueDate: { $gte: now, $lte: threshold },
       })
       .exec();
@@ -153,6 +155,16 @@ export class TasksRepository {
       .select('rank')
       .exec();
     return task ? task.rank : null;
+  }
+
+  /** Direct (not transitive) linked-issue counts for an Epic's progress bar. */
+  async countLinkedIssues(epicId: string): Promise<{ total: number; done: number }> {
+    const filter = { parent: new Types.ObjectId(epicId), deletedAt: null };
+    const [total, done] = await Promise.all([
+      this.model.countDocuments(filter).exec(),
+      this.model.countDocuments({ ...filter, statusCategory: StatusCategory.DONE }).exec(),
+    ]);
+    return { total, done };
   }
 
   /** Re-spaces every task in a scope evenly by RANK_STEP, in their current rank order. */

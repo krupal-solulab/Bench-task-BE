@@ -16,7 +16,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
-import { TaskStatus } from '../../common/enums/task-status.enum';
+import { StatusCategory } from '../../common/enums/status-category.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { UsersRepository } from '../users/users.repository';
 import { UserDocument } from '../users/schemas/user.schema';
@@ -29,6 +29,13 @@ import { ProjectsRepository } from './projects.repository';
 import { ProjectDocument } from './schemas/project.schema';
 import { ProjectActivityAction } from './schemas/project-activity.schema';
 import { isLegalProjectTransition, legalProjectTransitions } from './project-status.rules';
+import { DEFAULT_WORKFLOW, Workflow, resolveWorkflow } from './schemas/workflow.schema';
+import {
+  GrantableCapability,
+  MemberPermissions,
+  resolveMemberPermissions,
+} from './schemas/member-permissions.schema';
+import { PutWorkflowDto } from './dto/put-workflow.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
@@ -37,6 +44,7 @@ interface ProjectMemberResponse {
   user: unknown;
   role: 'owner' | 'member';
   joinedAt: Date;
+  permissions: MemberPermissions | null;
 }
 
 export interface ProjectResponse {
@@ -49,6 +57,7 @@ export interface ProjectResponse {
   startDate: Date;
   dueDate: Date | null;
   taskCount: number;
+  key: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -90,12 +99,18 @@ export class ProjectsService {
     const dueDate = dto.dueDate ? new Date(dto.dueDate) : undefined;
     this.assertValidDateRange(startDate, dueDate);
 
+    if (dto.key) {
+      const taken = await this.projectsRepository.keyExistsInOrg(organizationId, dto.key);
+      if (taken) throw new BadRequestException(`Project key "${dto.key}" is already in use`);
+    }
+
     const doc = await this.projectsRepository.create({
       name: dto.name,
       description: dto.description ?? '',
       owner: new Types.ObjectId(ownerId) as unknown as Types.ObjectId,
       startDate,
       dueDate,
+      key: dto.key ?? null,
       organizationId: new Types.ObjectId(organizationId),
       members: (dto.memberIds ?? []).map((id) => ({
         user: new Types.ObjectId(id),
@@ -134,11 +149,26 @@ export class ProjectsService {
     const nextDueDate = dto.dueDate ? new Date(dto.dueDate) : project.dueDate;
     this.assertValidDateRange(nextStartDate, nextDueDate);
 
+    // Immutable once set - changing it after issues already carry keys like "OLD-101" would leave
+    // historical issue keys inconsistent with the project's new prefix.
+    if (dto.key && project.key) {
+      throw new ConflictException('This project already has an issue key and it cannot be changed');
+    }
+    if (dto.key) {
+      const taken = await this.projectsRepository.keyExistsInOrg(
+        extractId(project.organizationId),
+        dto.key,
+        project.id,
+      );
+      if (taken) throw new BadRequestException(`Project key "${dto.key}" is already in use`);
+    }
+
     const updated = await this.projectsRepository.updateById(id, {
       ...(dto.name ? { name: dto.name } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.startDate ? { startDate: nextStartDate } : {}),
       ...(dto.dueDate ? { dueDate: nextDueDate } : {}),
+      ...(dto.key && !project.key ? { key: dto.key } : {}),
     });
     await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.UPDATED);
     await this.invalidateDashboardCache();
@@ -167,7 +197,7 @@ export class ProjectsService {
       const blockingCount = await this.taskModel.countDocuments({
         project: project._id,
         deletedAt: null,
-        status: { $ne: TaskStatus.DONE },
+        statusCategory: { $ne: StatusCategory.DONE },
       });
       if (blockingCount > 0) {
         throw new ConflictException(
@@ -263,7 +293,7 @@ export class ProjectsService {
         project: project._id,
         assignee: new Types.ObjectId(userId),
         deletedAt: null,
-        status: { $ne: TaskStatus.DONE },
+        statusCategory: { $ne: StatusCategory.DONE },
       })
       .exec();
 
@@ -299,6 +329,38 @@ export class ProjectsService {
     return this.toResponse(updated!);
   }
 
+  /**
+   * Grants/revokes a member's extra per-project task/sprint capabilities. Gated by the
+   * UNMODIFIED assertCanManage (same-org Admin or owning Manager only) - never by
+   * assertUserCanManageOrGranted - so a member holding any grant can never grant themselves or
+   * anyone else more capability.
+   */
+  async setMemberPermissions(
+    id: string,
+    userId: string,
+    patch: Partial<MemberPermissions>,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const ownerId = extractId(project.owner);
+    if (userId === ownerId) {
+      throw new BadRequestException(
+        'The project owner already has full access and cannot be granted or restricted',
+      );
+    }
+    const member = project.members.find((m) => extractId(m.user) === userId);
+    if (!member) {
+      throw new NotFoundException('User is not a member of this project');
+    }
+
+    const next: MemberPermissions = { ...resolveMemberPermissions(member), ...patch };
+    await this.projectsRepository.setMemberPermissions(id, userId, next);
+    const updated = await this.projectsRepository.findByIdActive(id);
+    return this.toResponse(updated!);
+  }
+
   async listActivity(id: string, page: number, limit: number, actingUser: AuthenticatedUser) {
     const project = await this.getActiveOrThrow(id);
     this.assertCanView(project, actingUser);
@@ -321,6 +383,7 @@ export class ProjectsService {
         .populate('assignee', 'name email role isActive')
         .populate('createdBy', 'name email role isActive')
         .populate('sprint', 'name')
+        .populate('parent', 'title issueKey')
         .sort(sort)
         .skip(skip)
         .limit(query.limit)
@@ -343,10 +406,15 @@ export class ProjectsService {
           byPriority: [{ $group: { _id: '$priority', count: { $sum: 1 } } }],
           total: [{ $count: 'count' }],
           overdue: [
-            { $match: { dueDate: { $lt: new Date() }, status: { $ne: TaskStatus.DONE } } },
+            {
+              $match: {
+                dueDate: { $lt: new Date() },
+                statusCategory: { $ne: StatusCategory.DONE },
+              },
+            },
             { $count: 'count' },
           ],
-          done: [{ $match: { status: TaskStatus.DONE } }, { $count: 'count' }],
+          done: [{ $match: { statusCategory: StatusCategory.DONE } }, { $count: 'count' }],
         },
       },
     ]);
@@ -355,10 +423,14 @@ export class ProjectsService {
     const doneCount = facetResult.done[0]?.count ?? 0;
     const overdueCount = facetResult.overdue[0]?.count ?? 0;
 
+    // Zero-filled from this project's actual workflow (custom, or the system default) - so a
+    // project on the default workflow still always shows exactly its 4 familiar buckets, and a
+    // custom-workflow project's real status names show up instead.
+    const workflow = resolveWorkflow(project);
     const tasksByStatus = Object.fromEntries(
-      Object.values(TaskStatus).map((s) => [
-        s,
-        facetResult.byStatus.find((b: { _id: string }) => b._id === s)?.count ?? 0,
+      workflow.statuses.map((s) => [
+        s.name,
+        facetResult.byStatus.find((b: { _id: string }) => b._id === s.name)?.count ?? 0,
       ]),
     );
 
@@ -390,12 +462,160 @@ export class ProjectsService {
     return this.getActiveOrThrow(id);
   }
 
+  /**
+   * Returns the project's issue-key prefix (e.g. "SUP"), assigning one on first use rather than
+   * backfilling every existing project - a project nobody has created a hierarchy-aware issue on
+   * yet is completely untouched. Derives a default from the name, deduping against the org's
+   * other keys, when the project doesn't already have one.
+   */
+  async getOrAssignKey(project: ProjectDocument): Promise<string> {
+    if (project.key) return project.key;
+
+    const organizationId = extractId(project.organizationId);
+    const base =
+      project.name
+        .replace(/[^A-Za-z]/g, '')
+        .toUpperCase()
+        .slice(0, 4) || 'PRJ';
+    let candidate = base;
+    let suffix = 2;
+    while (await this.projectsRepository.keyExistsInOrg(organizationId, candidate, project.id)) {
+      candidate = `${base}${suffix}`;
+      suffix += 1;
+    }
+
+    await this.projectsRepository.updateById(project.id, { key: candidate });
+    return candidate;
+  }
+
+  /** Atomic per-project issue-number sequence, for building issue keys like "SUP-101". */
+  async nextIssueNumber(projectId: string): Promise<number> {
+    return this.projectsRepository.incrementIssueSeq(projectId);
+  }
+
+  /** The project's effective workflow - its own custom one, or the system default. */
+  async getWorkflow(id: string, actingUser: AuthenticatedUser): Promise<Workflow> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+    return resolveWorkflow(project);
+  }
+
+  async updateWorkflow(
+    id: string,
+    dto: PutWorkflowDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<Workflow> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const workflow: Workflow = {
+      statuses: dto.statuses,
+      transitions: dto.transitions,
+      initialStatus: dto.initialStatus,
+    };
+    this.assertValidWorkflow(workflow);
+    await this.assertNoOrphanedTaskStatuses(
+      project,
+      workflow.statuses.map((s) => s.name),
+    );
+
+    await this.projectsRepository.updateById(id, { workflow });
+    await this.invalidateDashboardCache();
+    return workflow;
+  }
+
+  /** Reverts a project to the system default workflow. */
+  async resetWorkflow(id: string, actingUser: AuthenticatedUser): Promise<Workflow> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    if (!project.workflow) return DEFAULT_WORKFLOW;
+
+    await this.assertNoOrphanedTaskStatuses(
+      project,
+      DEFAULT_WORKFLOW.statuses.map((s) => s.name),
+    );
+
+    await this.projectsRepository.updateById(id, { workflow: null });
+    await this.invalidateDashboardCache();
+    return DEFAULT_WORKFLOW;
+  }
+
+  private assertValidWorkflow(workflow: Workflow): void {
+    if (workflow.statuses.length === 0) {
+      throw new BadRequestException('A workflow needs at least one status');
+    }
+    const names = workflow.statuses.map((s) => s.name);
+    if (new Set(names).size !== names.length) {
+      throw new BadRequestException('Status names must be unique');
+    }
+    if (!names.includes(workflow.initialStatus)) {
+      throw new BadRequestException("initialStatus must be one of the workflow's statuses");
+    }
+    for (const t of workflow.transitions) {
+      if (!names.includes(t.from) || !names.includes(t.to)) {
+        throw new BadRequestException(
+          `Transition ${t.from} -> ${t.to} references a status that isn't in this workflow`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Rejects a workflow change that would drop a status name still held by an active task in this
+   * project - forces cleanup instead of silently orphaning tasks in an undefined status.
+   */
+  private async assertNoOrphanedTaskStatuses(
+    project: ProjectDocument,
+    validNames: string[],
+  ): Promise<void> {
+    const orphaned: string[] = await this.taskModel.distinct('status', {
+      project: project._id,
+      deletedAt: null,
+      status: { $nin: validNames },
+    });
+    if (orphaned.length > 0) {
+      throw new ConflictException(
+        `Cannot remove status(es) still in use by active tasks: ${orphaned.join(', ')}. Move those tasks to a different status first.`,
+      );
+    }
+  }
+
   assertUserCanView(project: ProjectDocument, actingUser: AuthenticatedUser): void {
     this.assertCanView(project, actingUser);
   }
 
   assertUserCanManage(project: ProjectDocument, actingUser: AuthenticatedUser): void {
     this.assertCanManage(project, actingUser);
+  }
+
+  /**
+   * Same as assertUserCanManage, PLUS a third success path: a project member who was explicitly
+   * granted this specific capability on this specific project (see setMemberPermissions). The
+   * same-org-Admin/owning-Manager checks run first and are completely unchanged - this can only
+   * ever add a way to pass, never remove one, and a member with no grant hits the exact same
+   * ForbiddenException as before this feature existed.
+   */
+  assertUserCanManageOrGranted(
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+    capability: GrantableCapability,
+  ): void {
+    if (this.isManager(project, actingUser)) return;
+    if (this.memberHasCapability(project, actingUser.id, capability)) return;
+    throw new ForbiddenException('You do not have permission to manage this project');
+  }
+
+  /** Whether a project member (by user id) was explicitly granted a specific capability on this
+   * project - false for a non-member, and false for any capability nobody ever granted them. */
+  memberHasCapability(
+    project: ProjectDocument,
+    userId: string,
+    capability: GrantableCapability,
+  ): boolean {
+    const member = project.members.find((m) => extractId(m.user) === userId);
+    if (!member) return false;
+    return resolveMemberPermissions(member)[capability] === true;
   }
 
   isProjectMember(project: ProjectDocument, userId: string): boolean {
@@ -424,10 +644,16 @@ export class ProjectsService {
   }
 
   private assertCanManage(project: ProjectDocument, actingUser: AuthenticatedUser): void {
-    if (this.isSameOrgAdmin(project, actingUser)) return;
-    const ownerId = extractId(project.owner);
-    if (actingUser.role === Role.MANAGER && ownerId === actingUser.id) return;
+    if (this.isManager(project, actingUser)) return;
     throw new ForbiddenException('You do not have permission to manage this project');
+  }
+
+  /** Same-org Admin, or the project's owning Manager - the authority level that has always been
+   * required to manage a project, unaffected by the per-member grants added alongside it. */
+  private isManager(project: ProjectDocument, actingUser: AuthenticatedUser): boolean {
+    if (this.isSameOrgAdmin(project, actingUser)) return true;
+    const ownerId = extractId(project.owner);
+    return actingUser.role === Role.MANAGER && ownerId === actingUser.id;
   }
 
   /** An Admin bypasses ownership/membership checks, but only within their own organization. */
@@ -464,11 +690,16 @@ export class ProjectsService {
     const ownerJson = typeof owner.toJSON === 'function' ? owner.toJSON() : owner;
 
     const members: ProjectMemberResponse[] = [
-      { user: ownerJson, role: 'owner', joinedAt: project.createdAt },
+      { user: ownerJson, role: 'owner', joinedAt: project.createdAt, permissions: null },
       ...project.members.map((m) => {
         const userDoc = m.user as unknown as UserDocument;
         const userJson = typeof userDoc.toJSON === 'function' ? userDoc.toJSON() : userDoc;
-        return { user: userJson, role: 'member' as const, joinedAt: m.joinedAt };
+        return {
+          user: userJson,
+          role: 'member' as const,
+          joinedAt: m.joinedAt,
+          permissions: resolveMemberPermissions(m),
+        };
       }),
     ];
 
@@ -487,6 +718,7 @@ export class ProjectsService {
       startDate: project.startDate,
       dueDate: project.dueDate,
       taskCount,
+      key: project.key,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };
