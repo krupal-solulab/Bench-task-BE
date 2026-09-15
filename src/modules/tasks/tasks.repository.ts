@@ -104,6 +104,7 @@ export class TasksRepository {
     action: TaskActivityAction,
     from: string | null = null,
     to: string | null = null,
+    viaAutomationRule: string | null = null,
   ): Promise<void> {
     await this.activityModel.create({
       task: new Types.ObjectId(taskId),
@@ -111,6 +112,7 @@ export class TasksRepository {
       action,
       from,
       to,
+      viaAutomationRule,
     });
   }
 

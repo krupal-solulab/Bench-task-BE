@@ -14,6 +14,11 @@ import { ProjectsRepository } from 'src/modules/projects/projects.repository';
 import { ProjectActivityAction } from 'src/modules/projects/schemas/project-activity.schema';
 import { DEFAULT_WORKFLOW } from 'src/modules/projects/schemas/workflow.schema';
 import { CustomFieldType } from 'src/modules/projects/schemas/custom-field.schema';
+import {
+  AutomationActionType,
+  AutomationConditionField,
+  AutomationTriggerType,
+} from 'src/modules/projects/schemas/automation-rule.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { CacheService } from 'src/redis/cache.service';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
@@ -41,6 +46,7 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     dueDate: null,
     components: [],
     customFields: [],
+    automationRules: [],
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     ...overrides,
@@ -1073,6 +1079,196 @@ describe('ProjectsService', () => {
         name: 'Severity Level',
         required: true,
       });
+    });
+  });
+
+  describe('updateAutomationRules', () => {
+    const VALID_RULE = {
+      name: 'Auto-label bugs',
+      enabled: true,
+      trigger: { type: AutomationTriggerType.ISSUE_CREATED },
+      conditions: [],
+      actions: [{ type: AutomationActionType.ADD_LABELS, value: 'triage' }],
+    };
+
+    it('rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          { rules: [VALID_RULE] },
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects a StatusChanged trigger with a status not in the workflow', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          {
+            rules: [
+              {
+                ...VALID_RULE,
+                trigger: { type: AutomationTriggerType.STATUS_CHANGED, toStatus: 'Nope' },
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a StatusChanged trigger targeting a real workflow status', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          {
+            rules: [
+              {
+                ...VALID_RULE,
+                trigger: { type: AutomationTriggerType.STATUS_CHANGED, toStatus: 'Done' },
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('rejects a condition referencing an unknown component', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ components: ['API'] }));
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          {
+            rules: [
+              {
+                ...VALID_RULE,
+                conditions: [{ field: AutomationConditionField.COMPONENT, value: 'Frontend' }],
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a SetAssignee action targeting a non-member', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          {
+            rules: [
+              {
+                ...VALID_RULE,
+                actions: [{ type: AutomationActionType.SET_ASSIGNEE, value: 'not-a-member' }],
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a SetAssignee action targeting a real project member', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({ members: [makeMember(DEV_ID)] }),
+      );
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          {
+            rules: [
+              {
+                ...VALID_RULE,
+                actions: [{ type: AutomationActionType.SET_ASSIGNEE, value: DEV_ID }],
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('rejects a SetStatus action targeting a status not in the workflow', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          {
+            rules: [
+              {
+                ...VALID_RULE,
+                actions: [{ type: AutomationActionType.SET_STATUS, value: 'Nope' }],
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects duplicate rule names', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          { rules: [VALID_RULE, VALID_RULE] },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an id that does not exist on the project', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ automationRules: [] }));
+      await expect(
+        service.updateAutomationRules(
+          'project-1',
+          { rules: [{ ...VALID_RULE, id: 'does-not-exist' }] },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('assigns a fresh id to a new rule', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ automationRules: [] }));
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateAutomationRules(
+        'project-1',
+        { rules: [VALID_RULE] },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.automationRules).toHaveLength(1);
+      expect(patch.automationRules![0]!.id).toEqual(expect.any(String));
+    });
+
+    it("preserves an existing rule's id when only its name is edited", async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          automationRules: [{ id: 'r-1', ...VALID_RULE }],
+        }),
+      );
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateAutomationRules(
+        'project-1',
+        { rules: [{ ...VALID_RULE, id: 'r-1', name: 'Auto-label bugs v2' }] },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.automationRules![0]).toMatchObject({ id: 'r-1', name: 'Auto-label bugs v2' });
     });
   });
 });

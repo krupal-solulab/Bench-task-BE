@@ -3,9 +3,11 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Types } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import { CacheService } from '../../redis/cache.service';
 import { dashboardCachePattern } from '../../common/utils/cache-key.util';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
@@ -15,6 +17,7 @@ import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
 import { IssueType, STANDARD_ISSUE_TYPES } from '../../common/enums/issue-type.enum';
+import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { EventsGateway } from '../../events/events.gateway';
@@ -22,6 +25,15 @@ import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { categoryOf, resolveWorkflow } from '../projects/schemas/workflow.schema';
 import { validateCustomFieldValues } from '../projects/schemas/custom-field.schema';
+import {
+  AutomationAction,
+  AutomationActionType,
+  AutomationFiredAction,
+  AutomationTriggerType,
+  evaluateAutomationRules,
+  renderTemplate,
+} from '../projects/schemas/automation-rule.schema';
+import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
 import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { TasksRepository, RankScope } from './tasks.repository';
@@ -35,8 +47,22 @@ import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
 import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 
+/**
+ * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
+ * than a human request: the permission check is skipped (the rule's Admin/Manager author already
+ * authorized this behavior when they created it), but every other guard - workflow-transition
+ * legality, assignee eligibility, component/custom-field validation - still runs unchanged.
+ */
+interface AutomationContext {
+  bypassPermission: true;
+  viaRuleId: string;
+  viaRuleName: string;
+}
+
 @Injectable()
 export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
   constructor(
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
@@ -44,6 +70,7 @@ export class TasksService {
     private readonly cacheService: CacheService,
     private readonly notificationsService: NotificationsService,
     private readonly eventsGateway: EventsGateway,
+    @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
   ) {}
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
@@ -115,7 +142,18 @@ export class TasksService {
       });
     }
 
-    return this.tasksRepository.findByIdActive(task.id) as Promise<TaskDocument>;
+    const created = (await this.tasksRepository.findByIdActive(task.id)) as TaskDocument;
+    const changedByAutomation = await this.runAutomations(
+      project,
+      { type: AutomationTriggerType.ISSUE_CREATED },
+      created,
+      actingUser,
+    );
+    // Re-fetch so the response reflects any fields an automation action just changed, rather than
+    // the stale pre-automation snapshot already held in `created`.
+    return changedByAutomation
+      ? ((await this.tasksRepository.findByIdActive(task.id)) as TaskDocument)
+      : created;
   }
 
   async paginate(query: ListTasksDto, actingUser: AuthenticatedUser) {
@@ -148,10 +186,13 @@ export class TasksService {
     id: string,
     dto: UpdateTaskDto,
     actingUser: AuthenticatedUser,
+    automation?: AutomationContext,
   ): Promise<TaskDocument> {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canEditAnyTask');
+    if (!automation?.bypassPermission) {
+      this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canEditAnyTask');
+    }
     this.assertValidComponents(project, dto.components);
     validateCustomFieldValues(project.customFields, dto.customFieldValues ?? {}, 'update');
 
@@ -185,7 +226,14 @@ export class TasksService {
     });
 
     for (const [action, from, to] of activities) {
-      await this.tasksRepository.logActivity(id, actingUser.id, action, from, to);
+      await this.tasksRepository.logActivity(
+        id,
+        actingUser.id,
+        action,
+        from,
+        to,
+        automation?.viaRuleName ?? null,
+      );
     }
     await this.invalidateDashboardCache();
     return updated!;
@@ -195,6 +243,7 @@ export class TasksService {
     id: string,
     status: string,
     actingUser: AuthenticatedUser,
+    automation?: AutomationContext,
   ): Promise<TaskDocument> {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
@@ -213,7 +262,12 @@ export class TasksService {
       'canChangeAnyTaskStatus',
     );
 
-    if (!isManagerOrAdmin && !isAssignedDeveloper && !hasStatusGrant) {
+    if (
+      !automation?.bypassPermission &&
+      !isManagerOrAdmin &&
+      !isAssignedDeveloper &&
+      !hasStatusGrant
+    ) {
       throw new ForbiddenException('You cannot change the status of this task');
     }
 
@@ -249,6 +303,7 @@ export class TasksService {
       TaskActivityAction.STATUS_CHANGED,
       task.status,
       status,
+      automation?.viaRuleName ?? null,
     );
     await this.invalidateDashboardCache();
 
@@ -264,6 +319,22 @@ export class TasksService {
       // Best-effort real-time push; a delivery failure here must never fail the status update.
     }
 
+    // Only a human-initiated status change fires automations - an automation's own status change
+    // (automation is set) never re-evaluates rules, which is what makes chaining impossible.
+    if (!automation) {
+      const changedByAutomation = await this.runAutomations(
+        project,
+        { type: AutomationTriggerType.STATUS_CHANGED, toStatus: status },
+        updated!,
+        actingUser,
+      );
+      // Re-fetch so the response reflects any fields an automation action just changed, rather
+      // than the stale pre-automation snapshot already held in `updated`.
+      if (changedByAutomation) {
+        return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
+      }
+    }
+
     return updated!;
   }
 
@@ -271,10 +342,13 @@ export class TasksService {
     id: string,
     assignee: string | null,
     actingUser: AuthenticatedUser,
+    automation?: AutomationContext,
   ): Promise<TaskDocument> {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    this.projectsService.assertUserCanManage(project, actingUser);
+    if (!automation?.bypassPermission) {
+      this.projectsService.assertUserCanManage(project, actingUser);
+    }
 
     if (assignee) this.assertAssigneeEligible(project, assignee);
 
@@ -288,6 +362,7 @@ export class TasksService {
       TaskActivityAction.REASSIGNED,
       previousAssignee,
       assignee,
+      automation?.viaRuleName ?? null,
     );
     await this.invalidateDashboardCache();
 
@@ -509,5 +584,121 @@ export class TasksService {
 
   private async invalidateDashboardCache(): Promise<void> {
     await this.cacheService.delByPattern(dashboardCachePattern());
+  }
+
+  /**
+   * Evaluates this project's automation rules against a fired trigger and applies every matched
+   * action. Never throws - a bad rule (evaluation failure) or a single failing action is logged
+   * and skipped, so automation can never break the human-initiated change that triggered it.
+   */
+  /**
+   * Returns whether any rule matched (regardless of whether its action(s) individually
+   * succeeded) - the caller uses this to decide whether it needs to re-fetch the task before
+   * returning it, since a fired action may have changed fields the caller already read.
+   */
+  private async runAutomations(
+    project: ProjectDocument,
+    trigger: { type: AutomationTriggerType; toStatus?: string },
+    task: TaskDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<boolean> {
+    if (!project.automationRules?.length) return false;
+
+    let fired: AutomationFiredAction[];
+    try {
+      fired = evaluateAutomationRules(project.automationRules, trigger, {
+        issueType: task.issueType,
+        priority: task.priority,
+        components: task.components,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Automation rule evaluation failed on task ${task.id}: ${(err as Error).message}`,
+      );
+      return false;
+    }
+
+    for (const { ruleId, ruleName, action } of fired) {
+      try {
+        await this.applyAutomationAction(task, action, actingUser, {
+          bypassPermission: true,
+          viaRuleId: ruleId,
+          viaRuleName: ruleName,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `Automation rule "${ruleName}" (${action.type}) failed on task ${task.id}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    return fired.length > 0;
+  }
+
+  /**
+   * Applies one automation action by calling this service's own existing mutation methods
+   * reentrantly (with the permission check bypassed) - every other guard those methods already
+   * run (transition legality, assignee eligibility, component/custom-field validation) applies
+   * exactly as it would to a human-initiated call, so automation never needs to duplicate them.
+   */
+  private async applyAutomationAction(
+    task: TaskDocument,
+    action: AutomationAction,
+    actingUser: AuthenticatedUser,
+    ctx: AutomationContext,
+  ): Promise<void> {
+    switch (action.type) {
+      case AutomationActionType.SET_STATUS:
+        await this.updateStatus(task.id, action.value, actingUser, ctx);
+        return;
+      case AutomationActionType.SET_PRIORITY:
+        await this.update(task.id, { priority: action.value as TaskPriority }, actingUser, ctx);
+        return;
+      case AutomationActionType.SET_ASSIGNEE:
+        await this.updateAssignee(task.id, action.value, actingUser, ctx);
+        return;
+      case AutomationActionType.ADD_LABELS: {
+        const additions = action.value
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const labels = [...new Set([...task.labels, ...additions])];
+        await this.update(task.id, { labels }, actingUser, ctx);
+        return;
+      }
+      case AutomationActionType.ADD_COMMENT:
+        await this.addAutomationComment(task, renderTemplate(action.value, task), actingUser);
+        return;
+    }
+  }
+
+  /**
+   * Posts a comment on behalf of an automation action. Injects the Comment model directly rather
+   * than CommentsService/CommentsModule - CommentsModule already imports TasksModule (for
+   * TasksRepository), so importing CommentsModule back here would create a genuine two-way module
+   * cycle for the sake of one small action; this mirrors ProjectsService's own existing direct
+   * Comment-model injection.
+   */
+  private async addAutomationComment(
+    task: TaskDocument,
+    body: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<void> {
+    const comment = await this.commentModel.create({
+      task: new Types.ObjectId(task.id),
+      author: new Types.ObjectId(actingUser.id),
+      body,
+    });
+
+    try {
+      this.eventsGateway.emitCommentCreated({
+        taskId: task.id,
+        projectId: extractId(task.project),
+        commentId: comment.id,
+        authorId: actingUser.id,
+      });
+    } catch {
+      // Best-effort real-time push; a delivery failure here must never fail the automation action.
+    }
   }
 }

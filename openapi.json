@@ -1579,6 +1579,45 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/automation-rules": {
+      "put": {
+        "operationId": "ProjectsController_updateAutomationRules",
+        "summary": "Set/replace this project's automation rules",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAutomationRulesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "operationId": "HealthController_check",
@@ -4301,6 +4340,122 @@
         },
         "required": [
           "fields"
+        ]
+      },
+      "AutomationTriggerDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "IssueCreated",
+              "StatusChanged"
+            ]
+          },
+          "toStatus": {
+            "type": "string",
+            "description": "Required, only meaningful, for StatusChanged"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "AutomationConditionDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "IssueType",
+              "Priority",
+              "Component"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "example": "Bug"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ]
+      },
+      "AutomationActionDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "SetStatus",
+              "SetPriority",
+              "SetAssignee",
+              "AddLabels",
+              "AddComment"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "example": "Done",
+            "description": "Status name (SetStatus), priority (SetPriority), user id (SetAssignee), comma-separated labels (AddLabels), or comment text supporting {{title}}/{{issueKey}}/{{status}} (AddComment)."
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ]
+      },
+      "AutomationRuleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Omit when creating a new rule - the server assigns a stable id. Include the existing id when editing a rule's name/enabled/trigger/conditions/actions."
+          },
+          "name": {
+            "type": "string",
+            "example": "Auto-assign new bugs"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/AutomationTriggerDto"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AutomationConditionDto"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AutomationActionDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "enabled",
+          "trigger",
+          "conditions",
+          "actions"
+        ]
+      },
+      "PutAutomationRulesDto": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AutomationRuleDto"
+            }
+          }
+        },
+        "required": [
+          "rules"
         ]
       },
       "LoginDto": {

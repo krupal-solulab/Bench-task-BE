@@ -17,6 +17,8 @@ import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
+import { IssueType } from '../../common/enums/issue-type.enum';
+import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { UsersRepository } from '../users/users.repository';
 import { UserDocument } from '../users/schemas/user.schema';
@@ -39,6 +41,13 @@ import { PutWorkflowDto } from './dto/put-workflow.dto';
 import { CustomFieldDefinition } from './schemas/custom-field.schema';
 import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
+import {
+  AutomationActionType,
+  AutomationConditionField,
+  AutomationRule,
+  AutomationTriggerType,
+} from './schemas/automation-rule.schema';
+import { AutomationRuleDto, PutAutomationRulesDto } from './dto/put-automation-rules.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
@@ -63,6 +72,7 @@ export interface ProjectResponse {
   key: string | null;
   components: string[];
   customFields: CustomFieldDefinition[];
+  automationRules: AutomationRule[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -636,6 +646,94 @@ export class ProjectsService {
     return this.toResponse(updated!);
   }
 
+  async updateAutomationRules(
+    id: string,
+    dto: PutAutomationRulesDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const existingById = new Map(project.automationRules.map((r) => [r.id, r]));
+    const rules: AutomationRule[] = dto.rules.map((r) => {
+      if (r.id && !existingById.has(r.id)) {
+        throw new BadRequestException(`Automation rule "${r.id}" does not exist on this project`);
+      }
+      this.assertValidAutomationRule(r, project);
+      return {
+        id: r.id ?? new Types.ObjectId().toString(),
+        name: r.name.trim(),
+        enabled: r.enabled,
+        trigger: { type: r.trigger.type, toStatus: r.trigger.toStatus ?? null },
+        conditions: r.conditions.map((c) => ({ field: c.field, value: c.value.trim() })),
+        actions: r.actions.map((a) => ({ type: a.type, value: a.value.trim() })),
+      };
+    });
+
+    const names = rules.map((r) => r.name);
+    if (new Set(names).size !== names.length) {
+      throw new BadRequestException('Automation rule names must be unique');
+    }
+
+    const updated = await this.projectsRepository.updateById(id, { automationRules: rules });
+    return this.toResponse(updated!);
+  }
+
+  /** Every check runs synchronously against the already-loaded project - no extra queries. */
+  private assertValidAutomationRule(dto: AutomationRuleDto, project: ProjectDocument): void {
+    const statusNames = resolveWorkflow(project).statuses.map((s) => s.name);
+
+    if (dto.trigger.type === AutomationTriggerType.STATUS_CHANGED) {
+      if (!dto.trigger.toStatus || !statusNames.includes(dto.trigger.toStatus)) {
+        throw new BadRequestException(
+          `"${dto.trigger.toStatus}" is not a status in this project's workflow`,
+        );
+      }
+    }
+
+    for (const condition of dto.conditions) {
+      if (
+        condition.field === AutomationConditionField.ISSUE_TYPE &&
+        !Object.values(IssueType).includes(condition.value as IssueType)
+      ) {
+        throw new BadRequestException(`"${condition.value}" is not a valid issue type`);
+      }
+      if (
+        condition.field === AutomationConditionField.PRIORITY &&
+        !Object.values(TaskPriority).includes(condition.value as TaskPriority)
+      ) {
+        throw new BadRequestException(`"${condition.value}" is not a valid priority`);
+      }
+      if (
+        condition.field === AutomationConditionField.COMPONENT &&
+        !project.components.includes(condition.value)
+      ) {
+        throw new BadRequestException(`"${condition.value}" is not a component on this project`);
+      }
+    }
+
+    const memberIds = new Set([
+      extractId(project.owner),
+      ...project.members.map((m) => extractId(m.user)),
+    ]);
+    for (const action of dto.actions) {
+      if (action.type === AutomationActionType.SET_STATUS && !statusNames.includes(action.value)) {
+        throw new BadRequestException(
+          `"${action.value}" is not a status in this project's workflow`,
+        );
+      }
+      if (
+        action.type === AutomationActionType.SET_PRIORITY &&
+        !Object.values(TaskPriority).includes(action.value as TaskPriority)
+      ) {
+        throw new BadRequestException(`"${action.value}" is not a valid priority`);
+      }
+      if (action.type === AutomationActionType.SET_ASSIGNEE && !memberIds.has(action.value)) {
+        throw new BadRequestException(`"${action.value}" is not a member of this project`);
+      }
+    }
+  }
+
   private assertValidWorkflow(workflow: Workflow): void {
     if (workflow.statuses.length === 0) {
       throw new BadRequestException('A workflow needs at least one status');
@@ -816,6 +914,7 @@ export class ProjectsService {
       key: project.key,
       components: project.components,
       customFields: project.customFields,
+      automationRules: project.automationRules,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };

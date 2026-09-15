@@ -6,6 +6,10 @@ import { TaskStatus } from 'src/common/enums/task-status.enum';
 import { IssueType } from 'src/common/enums/issue-type.enum';
 import { Workflow } from 'src/modules/projects/schemas/workflow.schema';
 import { CustomFieldType } from 'src/modules/projects/schemas/custom-field.schema';
+import {
+  AutomationActionType,
+  AutomationTriggerType,
+} from 'src/modules/projects/schemas/automation-rule.schema';
 import { TaskActivityAction } from 'src/modules/tasks/schemas/task-activity.schema';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { TasksService } from 'src/modules/tasks/tasks.service';
@@ -36,6 +40,7 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     // fixture that doesn't override them should behave the same way.
     components: [],
     customFields: [],
+    automationRules: [],
     ...overrides,
   } as never;
 }
@@ -48,9 +53,12 @@ function makeTask(overrides: Partial<Record<string, unknown>> = {}) {
     organizationId: { toString: () => ORG_A },
     assignee: { toString: () => DEV_ID },
     status: TaskStatus.TODO,
-    // Matches the real schema's default - every actual document defaults to this, so a fixture
-    // that doesn't override it should behave the same way.
+    // Matches the real schema's defaults - every actual document defaults to these, so a fixture
+    // that doesn't override them should behave the same way.
     issueType: IssueType.TASK,
+    priority: 'P2',
+    labels: [],
+    components: [],
     ...overrides,
   } as never;
 }
@@ -105,7 +113,10 @@ describe('TasksService', () => {
   let sprintsService: jest.Mocked<Pick<SprintsService, 'getActiveOrThrow'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
   let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifyTaskAssigned'>>;
-  let eventsGateway: jest.Mocked<Pick<EventsGateway, 'emitTaskStatusChanged'>>;
+  let eventsGateway: jest.Mocked<
+    Pick<EventsGateway, 'emitTaskStatusChanged' | 'emitCommentCreated'>
+  >;
+  let commentModel: { create: jest.Mock };
   let service: TasksService;
 
   beforeEach(() => {
@@ -135,7 +146,8 @@ describe('TasksService', () => {
     sprintsService = { getActiveOrThrow: jest.fn() };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
     notificationsService = { notifyTaskAssigned: jest.fn().mockResolvedValue(undefined) };
-    eventsGateway = { emitTaskStatusChanged: jest.fn() };
+    eventsGateway = { emitTaskStatusChanged: jest.fn(), emitCommentCreated: jest.fn() };
+    commentModel = { create: jest.fn().mockResolvedValue({ id: 'comment-1' }) };
     service = new TasksService(
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
@@ -143,6 +155,7 @@ describe('TasksService', () => {
       cacheService as unknown as CacheService,
       notificationsService as unknown as NotificationsService,
       eventsGateway as unknown as EventsGateway,
+      commentModel as never,
     );
   });
 
@@ -923,6 +936,191 @@ describe('TasksService', () => {
       await expect(service.updateAssignee('task-1', OTHER_DEV_ID, makeUser())).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe('automation rules', () => {
+    it('a project with no automation rules behaves identically to before this feature (regression)', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.TODO, assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ automationRules: [] }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.IN_PROGRESS }));
+
+      await service.updateStatus(
+        'task-1',
+        TaskStatus.IN_PROGRESS,
+        makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+      );
+
+      expect(tasksRepository.updateById).toHaveBeenCalledTimes(1);
+      expect(tasksRepository.logActivity).toHaveBeenCalledWith(
+        'task-1',
+        DEV_ID,
+        TaskActivityAction.STATUS_CHANGED,
+        TaskStatus.TODO,
+        TaskStatus.IN_PROGRESS,
+        null,
+      );
+    });
+
+    it("create() fires a matching IssueCreated rule's AddLabels action", async () => {
+      const project = makeProject({
+        automationRules: [
+          {
+            id: 'r-1',
+            name: 'Auto-label',
+            enabled: true,
+            trigger: { type: AutomationTriggerType.ISSUE_CREATED, toStatus: null },
+            conditions: [],
+            actions: [{ type: AutomationActionType.ADD_LABELS, value: 'triage' }],
+          },
+        ],
+      });
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      const createdTask = makeTask({ id: 'task-1' });
+      tasksRepository.create.mockResolvedValue(createdTask);
+      tasksRepository.findByIdActive.mockResolvedValue(createdTask);
+      tasksRepository.updateById.mockResolvedValue(makeTask({ id: 'task-1', labels: ['triage'] }));
+
+      await service.create(
+        { title: 'x', project: PROJECT_ID, priority: 'P2' } as never,
+        makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+      );
+
+      expect(tasksRepository.updateById).toHaveBeenCalledWith(
+        'task-1',
+        expect.objectContaining({ labels: ['triage'] }),
+      );
+    });
+
+    it("updateStatus() fires a matching StatusChanged rule's SetAssignee action, bypassing the triggering user's own lack of reassign permission", async () => {
+      const project = makeProject({
+        automationRules: [
+          {
+            id: 'r-1',
+            name: 'Auto-reassign on Review',
+            enabled: true,
+            trigger: { type: AutomationTriggerType.STATUS_CHANGED, toStatus: TaskStatus.REVIEW },
+            conditions: [],
+            actions: [{ type: AutomationActionType.SET_ASSIGNEE, value: ASSIGNEE_ID }],
+          },
+        ],
+      });
+      // The triggering Developer IS the task's assignee, so their own status change is legal on
+      // its own merits - a Developer could never call updateAssignee themselves though (that's
+      // Admin/owning-Manager only), so the second updateById call below only happens because the
+      // automation action bypasses that check.
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.IN_PROGRESS, assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      projectsService.isProjectMember.mockReturnValue(true);
+      tasksRepository.updateById
+        .mockResolvedValueOnce(makeTask({ status: TaskStatus.REVIEW }))
+        .mockResolvedValueOnce(makeTask({ assignee: { toString: () => ASSIGNEE_ID } }));
+
+      await service.updateStatus(
+        'task-1',
+        TaskStatus.REVIEW,
+        makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+      );
+
+      expect(tasksRepository.updateById).toHaveBeenCalledTimes(2);
+      expect(tasksRepository.logActivity).toHaveBeenCalledWith(
+        'task-1',
+        DEV_ID,
+        TaskActivityAction.REASSIGNED,
+        DEV_ID,
+        ASSIGNEE_ID,
+        'Auto-reassign on Review',
+      );
+    });
+
+    it('skips a rule action that would be an illegal transition, without breaking the underlying status change', async () => {
+      const project = makeProject({
+        automationRules: [
+          {
+            id: 'r-1',
+            name: 'Bad rule',
+            enabled: true,
+            trigger: {
+              type: AutomationTriggerType.STATUS_CHANGED,
+              toStatus: TaskStatus.IN_PROGRESS,
+            },
+            conditions: [],
+            // Todo -> Done isn't a legal transition in the default workflow (only Review -> Done is).
+            actions: [{ type: AutomationActionType.SET_STATUS, value: TaskStatus.DONE }],
+          },
+        ],
+      });
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.TODO, assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.IN_PROGRESS }));
+
+      await expect(
+        service.updateStatus(
+          'task-1',
+          TaskStatus.IN_PROGRESS,
+          makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+        ),
+      ).resolves.toBeDefined();
+
+      // Only the original, human-initiated status change persisted - the illegal automation
+      // action never reached tasksRepository.updateById a second time.
+      expect(tasksRepository.updateById).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not chain: an automation-caused status change does not itself re-fire rules', async () => {
+      const project = makeProject({
+        automationRules: [
+          {
+            id: 'r-1',
+            name: 'Move to Review on In Progress',
+            enabled: true,
+            trigger: {
+              type: AutomationTriggerType.STATUS_CHANGED,
+              toStatus: TaskStatus.IN_PROGRESS,
+            },
+            conditions: [],
+            actions: [{ type: AutomationActionType.SET_STATUS, value: TaskStatus.REVIEW }],
+          },
+          {
+            id: 'r-2',
+            name: 'Should never fire',
+            enabled: true,
+            trigger: { type: AutomationTriggerType.STATUS_CHANGED, toStatus: TaskStatus.REVIEW },
+            conditions: [],
+            actions: [{ type: AutomationActionType.ADD_LABELS, value: 'chained' }],
+          },
+        ],
+      });
+      tasksRepository.findByIdActive
+        .mockResolvedValueOnce(
+          makeTask({ status: TaskStatus.TODO, assignee: { toString: () => DEV_ID } }),
+        )
+        .mockResolvedValueOnce(
+          makeTask({ status: TaskStatus.IN_PROGRESS, assignee: { toString: () => DEV_ID } }),
+        );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      tasksRepository.updateById
+        .mockResolvedValueOnce(makeTask({ status: TaskStatus.IN_PROGRESS }))
+        .mockResolvedValueOnce(makeTask({ status: TaskStatus.REVIEW }));
+
+      await service.updateStatus(
+        'task-1',
+        TaskStatus.IN_PROGRESS,
+        makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+      );
+
+      // Rule 1 fires once (Todo->InProgress human change, then InProgress->Review automated
+      // change = 2 updateById calls). If chaining were possible, rule 2 firing on the resulting
+      // Review status would add a 3rd (AddLabels) update call.
+      expect(tasksRepository.updateById).toHaveBeenCalledTimes(2);
     });
   });
 

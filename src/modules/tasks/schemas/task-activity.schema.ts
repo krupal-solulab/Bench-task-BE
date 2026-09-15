@@ -46,6 +46,11 @@ export class TaskActivity {
   @Prop({ type: String, default: null })
   to!: string | null;
 
+  // Set only when this entry was produced by an automation rule's action rather than directly by
+  // `actor` - null for every entry logged before this feature and for every human-initiated change.
+  @Prop({ type: String, default: null })
+  viaAutomationRule!: string | null;
+
   createdAt!: Date;
 }
 

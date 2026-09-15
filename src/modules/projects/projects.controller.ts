@@ -29,6 +29,7 @@ import { PutWorkflowDto } from './dto/put-workflow.dto';
 import { PatchMemberPermissionsDto } from './dto/patch-member-permissions.dto';
 import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
+import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
 
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -221,5 +222,16 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.updateCustomFields(id, dto, user);
+  }
+
+  @Put(':id/automation-rules')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace this project's automation rules" })
+  async updateAutomationRules(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutAutomationRulesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateAutomationRules(id, dto, user);
   }
 }

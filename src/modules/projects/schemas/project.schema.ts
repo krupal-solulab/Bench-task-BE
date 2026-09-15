@@ -3,6 +3,7 @@ import { HydratedDocument, Types } from 'mongoose';
 import { ProjectStatus } from '../../../common/enums/project-status.enum';
 import { MemberPermissions, MemberPermissionsSchema } from './member-permissions.schema';
 import { CustomFieldDefinition, CustomFieldDefinitionSchema } from './custom-field.schema';
+import { AutomationRule, AutomationRuleSchema } from './automation-rule.schema';
 import { Workflow, WorkflowSchema } from './workflow.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
@@ -91,6 +92,11 @@ export class Project {
   // ProjectsService.updateCustomFields(). See custom-field.schema.ts.
   @Prop({ type: [CustomFieldDefinitionSchema], default: [] })
   customFields!: CustomFieldDefinition[];
+
+  // Project-scoped "WHEN trigger [IF conditions] THEN actions" rules. Empty for every existing
+  // project until configured via ProjectsService.updateAutomationRules(). See automation-rule.schema.ts.
+  @Prop({ type: [AutomationRuleSchema], default: [] })
+  automationRules!: AutomationRule[];
 
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId!: Types.ObjectId;
