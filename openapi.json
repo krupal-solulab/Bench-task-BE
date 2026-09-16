@@ -1630,6 +1630,159 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/permission-scheme": {
+      "patch": {
+        "operationId": "ProjectsController_assignPermissionScheme",
+        "summary": "Assign (or, with null, unassign) a permission scheme to this project",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchPermissionSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/permission-schemes": {
+      "post": {
+        "operationId": "PermissionSchemesController_create",
+        "summary": "Create a reusable permission scheme for this organization",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePermissionSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "PermissionSchemesController_list",
+        "summary": "List this organization's permission schemes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/permission-schemes/{id}": {
+      "patch": {
+        "operationId": "PermissionSchemesController_update",
+        "summary": "Update a permission scheme's name and/or grants",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePermissionSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "PermissionSchemesController_remove",
+        "summary": "Delete a permission scheme (must not be assigned to any project)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "operationId": "HealthController_check",
@@ -4832,6 +4985,90 @@
         "required": [
           "rules"
         ]
+      },
+      "PatchPermissionSchemeDto": {
+        "type": "object",
+        "properties": {
+          "permissionSchemeId": {
+            "type": "object",
+            "nullable": true,
+            "description": "null to unassign (fall back to default project permissions)"
+          }
+        }
+      },
+      "PermissionGrantDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "CreateIssue",
+              "Assign",
+              "Transition",
+              "Delete",
+              "EditCustomFields",
+              "ManageSprint"
+            ]
+          },
+          "allowedRoles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PlatformAdmin",
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          },
+          "allowedUserIds": {
+            "description": "User ids individually granted this action",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "action",
+          "allowedRoles",
+          "allowedUserIds"
+        ]
+      },
+      "CreatePermissionSchemeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Strict (QA cannot delete)"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionGrantDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "grants"
+        ]
+      },
+      "UpdatePermissionSchemeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Strict (QA cannot delete)"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionGrantDto"
+            }
+          }
+        }
       },
       "LoginDto": {
         "type": "object",

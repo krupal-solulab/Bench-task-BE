@@ -101,6 +101,13 @@ export class Project {
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId!: Types.ObjectId;
 
+  // Null means "use the legacy per-member permission flags" (see member-permissions.schema.ts) -
+  // every existing project, and any new one that never opens the permission-scheme settings, is
+  // completely unaffected by this feature until an Admin/owning Manager assigns a scheme via
+  // ProjectsService.assignPermissionScheme(). See permission-schemes/schemas/permission-scheme.schema.ts.
+  @Prop({ type: Types.ObjectId, ref: 'PermissionScheme', default: null })
+  permissionSchemeId!: Types.ObjectId | null;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

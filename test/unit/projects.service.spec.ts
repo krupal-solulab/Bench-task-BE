@@ -20,6 +20,7 @@ import {
   AutomationTriggerType,
 } from 'src/modules/projects/schemas/automation-rule.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
+import { PermissionSchemesService } from 'src/permission-schemes/permission-schemes.service';
 import { CacheService } from 'src/redis/cache.service';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
 import { CommentDocument } from 'src/modules/comments/schemas/comment.schema';
@@ -47,6 +48,7 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     components: [],
     customFields: [],
     automationRules: [],
+    permissionSchemeId: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     ...overrides,
@@ -92,6 +94,7 @@ describe('ProjectsService', () => {
   >;
   let usersRepository: jest.Mocked<Pick<UsersRepository, 'findById' | 'findByIds'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
+  let permissionSchemesService: jest.Mocked<Pick<PermissionSchemesService, 'findByIdOrNull'>>;
   let taskModel: {
     countDocuments: jest.Mock;
     find: jest.Mock;
@@ -119,6 +122,7 @@ describe('ProjectsService', () => {
     };
     usersRepository = { findById: jest.fn(), findByIds: jest.fn() };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
+    permissionSchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     taskModel = {
       countDocuments: jest.fn().mockResolvedValue(0),
       find: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue([]) }),
@@ -137,6 +141,7 @@ describe('ProjectsService', () => {
       projectsRepository as unknown as ProjectsRepository,
       usersRepository as unknown as UsersRepository,
       cacheService as unknown as CacheService,
+      permissionSchemesService as unknown as PermissionSchemesService,
       taskModel as unknown as Model<TaskDocument>,
       commentModel as unknown as Model<CommentDocument>,
       sprintModel as unknown as Model<SprintDocument>,
@@ -684,64 +689,93 @@ describe('ProjectsService', () => {
   });
 
   describe('assertUserCanManageOrGranted / memberHasCapability', () => {
-    it('passes for a same-org Admin regardless of grants', () => {
+    it('passes for a same-org Admin regardless of grants', async () => {
       const project = makeProject({ members: [] });
-      expect(() =>
+      await expect(
         service.assertUserCanManageOrGranted(
           project,
           makeUser({ role: Role.ADMIN }),
           'canDeleteTask',
         ),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     });
 
-    it('passes for the owning Manager regardless of grants', () => {
+    it('passes for the owning Manager regardless of grants', async () => {
       const project = makeProject({ members: [] });
-      expect(() =>
+      await expect(
         service.assertUserCanManageOrGranted(
           project,
           makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
           'canDeleteTask',
         ),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     });
 
-    it('passes for a non-owning member who holds the matching grant', () => {
+    it('passes for a non-owning member who holds the matching grant', async () => {
       const project = makeProject({ members: [makeMember(DEV_ID, { canCreateTask: true })] });
-      expect(() =>
+      await expect(
         service.assertUserCanManageOrGranted(
           project,
           makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
           'canCreateTask',
         ),
-      ).not.toThrow();
+      ).resolves.toBeUndefined();
     });
 
-    it('rejects a non-owning member who holds a DIFFERENT grant than the one being checked', () => {
+    it('rejects a non-owning member who holds a DIFFERENT grant than the one being checked', async () => {
       const project = makeProject({ members: [makeMember(DEV_ID, { canCreateTask: true })] });
-      expect(() =>
+      await expect(
         service.assertUserCanManageOrGranted(
           project,
           makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
           'canDeleteTask',
         ),
-      ).toThrow(ForbiddenException);
+      ).rejects.toThrow(ForbiddenException);
     });
 
-    it('rejects a non-member regardless of any stray permissions data', () => {
+    it('rejects a non-member regardless of any stray permissions data', async () => {
       const project = makeProject({ members: [makeMember(DEV_ID, { canCreateTask: true })] });
-      expect(() =>
+      await expect(
         service.assertUserCanManageOrGranted(
           project,
           makeUser({ id: OTHER_DEV_ID, role: Role.DEVELOPER }),
           'canCreateTask',
         ),
-      ).toThrow(ForbiddenException);
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('memberHasCapability returns false for a member with no permissions set', () => {
       const project = makeProject({ members: [makeMember(DEV_ID, null)] });
       expect(service.memberHasCapability(project, DEV_ID, 'canCreateTask')).toBe(false);
+    });
+
+    it('a scheme grant lets a Developer with no member flag pass, when the project has a scheme assigned', async () => {
+      const project = makeProject({
+        members: [],
+        permissionSchemeId: { toString: () => 'scheme-1' },
+      });
+      permissionSchemesService.findByIdOrNull.mockResolvedValue({
+        grants: [{ action: 'CreateIssue', allowedRoles: [Role.DEVELOPER], allowedUserIds: [] }],
+      } as never);
+      await expect(
+        service.assertUserCanManageOrGranted(
+          project,
+          makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+          'canCreateTask',
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('a project with no scheme assigned is unaffected by this feature (regression)', async () => {
+      const project = makeProject({ members: [], permissionSchemeId: null });
+      await expect(
+        service.assertUserCanManageOrGranted(
+          project,
+          makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+          'canCreateTask',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+      expect(permissionSchemesService.findByIdOrNull).not.toHaveBeenCalled();
     });
   });
 

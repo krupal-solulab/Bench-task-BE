@@ -28,6 +28,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SavedFiltersModule } from './modules/saved-filters/saved-filters.module';
 import { ApiLogsModule } from './modules/api-logs/api-logs.module';
 import { EventsModule } from './events/events.module';
+import { PermissionSchemesModule } from './permission-schemes/permission-schemes.module';
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { EventsModule } from './events/events.module';
     AttachmentsModule,
     DashboardModule,
     SavedFiltersModule,
+    PermissionSchemesModule,
     ApiLogsModule,
   ],
   providers: [

@@ -101,8 +101,9 @@ describe('TasksService', () => {
     Pick<
       ProjectsService,
       | 'getActiveProjectOrThrow'
-      | 'assertUserCanManage'
       | 'assertUserCanManageOrGranted'
+      | 'assertUserCanAssignOrGranted'
+      | 'hasSchemeGrant'
       | 'memberHasCapability'
       | 'isProjectMember'
       | 'getAccessibleProjectIds'
@@ -137,8 +138,9 @@ describe('TasksService', () => {
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
-      assertUserCanManage: jest.fn(),
       assertUserCanManageOrGranted: jest.fn(),
+      assertUserCanAssignOrGranted: jest.fn(),
+      hasSchemeGrant: jest.fn().mockResolvedValue(false),
       memberHasCapability: jest.fn().mockReturnValue(false),
       isProjectMember: jest.fn(),
       getAccessibleProjectIds: jest.fn(),

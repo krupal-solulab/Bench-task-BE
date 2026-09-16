@@ -14,7 +14,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
-import { ORG_ROLES, Role } from '../../common/enums/role.enum';
+import { ORG_ROLES } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { TasksService } from './tasks.service';
@@ -88,7 +88,7 @@ export class TasksController {
   }
 
   @Patch(':id/assignee')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Reassign a task (assignee must be owner or project member)' })
   async updateAssignee(
     @Param('id', ParseObjectIdPipe) id: string,

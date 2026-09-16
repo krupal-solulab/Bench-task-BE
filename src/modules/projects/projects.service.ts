@@ -51,6 +51,12 @@ import { AutomationRuleDto, PutAutomationRulesDto } from './dto/put-automation-r
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
+import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
+import { PermissionSchemesService } from '../../permission-schemes/permission-schemes.service';
+import {
+  SchemeAction,
+  schemeGrants,
+} from '../../permission-schemes/schemas/permission-scheme.schema';
 
 interface ProjectMemberResponse {
   user: unknown;
@@ -73,6 +79,7 @@ export interface ProjectResponse {
   components: string[];
   customFields: CustomFieldDefinition[];
   automationRules: AutomationRule[];
+  permissionSchemeId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -83,6 +90,7 @@ export class ProjectsService {
     private readonly projectsRepository: ProjectsRepository,
     private readonly usersRepository: UsersRepository,
     private readonly cacheService: CacheService,
+    private readonly permissionSchemesService: PermissionSchemesService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     @InjectModel(Sprint.name) private readonly sprintModel: Model<SprintDocument>,
@@ -679,6 +687,31 @@ export class ProjectsService {
     return this.toResponse(updated!);
   }
 
+  /** Assign (or, with `null`, unassign) a reusable PermissionScheme to this project. Unassigning
+   * falls back to the legacy per-member permission flags - never a dead end. */
+  async assignPermissionScheme(
+    id: string,
+    dto: PatchPermissionSchemeDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    if (dto.permissionSchemeId) {
+      const scheme = await this.permissionSchemesService.findByIdOrNull(dto.permissionSchemeId);
+      if (!scheme || extractId(scheme.organizationId) !== requireOrgId(actingUser)) {
+        throw new BadRequestException('Permission scheme not found in this organization');
+      }
+    }
+
+    const updated = await this.projectsRepository.updateById(id, {
+      permissionSchemeId: dto.permissionSchemeId
+        ? new Types.ObjectId(dto.permissionSchemeId)
+        : null,
+    });
+    return this.toResponse(updated!);
+  }
+
   /** Every check runs synchronously against the already-loaded project - no extra queries. */
   private assertValidAutomationRule(dto: AutomationRuleDto, project: ProjectDocument): void {
     const statusNames = resolveWorkflow(project).statuses.map((s) => s.name);
@@ -788,15 +821,71 @@ export class ProjectsService {
    * same-org-Admin/owning-Manager checks run first and are completely unchanged - this can only
    * ever add a way to pass, never remove one, and a member with no grant hits the exact same
    * ForbiddenException as before this feature existed.
+   *
+   * When the project has a PermissionScheme assigned, the scheme is authoritative for this
+   * capability instead of the legacy per-member flag - every existing project has no scheme
+   * (`permissionSchemeId` is null) and so is completely unaffected; a scheme only ever applies to
+   * a project that explicitly opted into one via assignPermissionScheme().
    */
-  assertUserCanManageOrGranted(
+  async assertUserCanManageOrGranted(
     project: ProjectDocument,
     actingUser: AuthenticatedUser,
     capability: GrantableCapability,
-  ): void {
+  ): Promise<void> {
     if (this.isManager(project, actingUser)) return;
+    if (project.permissionSchemeId) {
+      if (await this.hasSchemeGrant(project, actingUser, this.schemeActionFor(capability))) return;
+      throw new ForbiddenException('You do not have permission to manage this project');
+    }
     if (this.memberHasCapability(project, actingUser.id, capability)) return;
     throw new ForbiddenException('You do not have permission to manage this project');
+  }
+
+  /** Maps a legacy per-member flag onto its closest BRD PermissionScheme action - a naming
+   * alignment, not a behavior change: today's flag already gates exactly this call site. */
+  private schemeActionFor(capability: GrantableCapability): SchemeAction {
+    switch (capability) {
+      case 'canCreateTask':
+        return SchemeAction.CREATE_ISSUE;
+      case 'canDeleteTask':
+        return SchemeAction.DELETE;
+      case 'canManageSprints':
+        return SchemeAction.MANAGE_SPRINT;
+      case 'canChangeAnyTaskStatus':
+        return SchemeAction.TRANSITION;
+      case 'canEditAnyTask':
+      default:
+        return SchemeAction.EDIT_CUSTOM_FIELDS;
+    }
+  }
+
+  /** Same shape as assertUserCanManageOrGranted, but for actions with no legacy per-member flag
+   * (e.g. reassigning a task) - a project with no scheme assigned behaves exactly like
+   * assertUserCanManage (Admin/owning-Manager only), unchanged from before this feature existed. */
+  async assertUserCanAssignOrGranted(
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<void> {
+    if (this.isManager(project, actingUser)) return;
+    if (project.permissionSchemeId) {
+      if (await this.hasSchemeGrant(project, actingUser, SchemeAction.ASSIGN)) return;
+    }
+    throw new ForbiddenException('You do not have permission to manage this project');
+  }
+
+  /** Whether the project's assigned scheme (if any) grants `actingUser` this action - false, with
+   * no throw, when no scheme is assigned or the scheme id no longer resolves to a real document. */
+  async hasSchemeGrant(
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+    action: SchemeAction,
+  ): Promise<boolean> {
+    if (!project.permissionSchemeId) return false;
+    const scheme = await this.permissionSchemesService.findByIdOrNull(
+      extractId(project.permissionSchemeId),
+    );
+    if (!scheme) return false;
+    return schemeGrants(scheme, action, actingUser);
   }
 
   /** Whether a project member (by user id) was explicitly granted a specific capability on this
@@ -915,6 +1004,7 @@ export class ProjectsService {
       components: project.components,
       customFields: project.customFields,
       automationRules: project.automationRules,
+      permissionSchemeId: project.permissionSchemeId ? extractId(project.permissionSchemeId) : null,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };

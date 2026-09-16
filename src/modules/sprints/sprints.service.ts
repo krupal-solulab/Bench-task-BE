@@ -34,7 +34,11 @@ export class SprintsService {
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+    await this.projectsService.assertUserCanManageOrGranted(
+      project,
+      actingUser,
+      'canManageSprints',
+    );
 
     const startDate = new Date(dto.startDate);
     const endDate = new Date(dto.endDate);
@@ -91,7 +95,11 @@ export class SprintsService {
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+    await this.projectsService.assertUserCanManageOrGranted(
+      project,
+      actingUser,
+      'canManageSprints',
+    );
     const sprint = await this.getActiveOrThrow(sprintId, projectId);
 
     if (sprint.status === SprintStatus.COMPLETED) {
@@ -118,7 +126,11 @@ export class SprintsService {
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+    await this.projectsService.assertUserCanManageOrGranted(
+      project,
+      actingUser,
+      'canManageSprints',
+    );
     const sprint = await this.getActiveOrThrow(sprintId, projectId);
 
     this.assertLegalTransition(sprint.status, SprintStatus.ACTIVE);
@@ -150,7 +162,11 @@ export class SprintsService {
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+    await this.projectsService.assertUserCanManageOrGranted(
+      project,
+      actingUser,
+      'canManageSprints',
+    );
     const sprint = await this.getActiveOrThrow(sprintId, projectId);
 
     this.assertLegalTransition(sprint.status, SprintStatus.COMPLETED);
@@ -180,7 +196,11 @@ export class SprintsService {
 
   async remove(projectId: string, sprintId: string, actingUser: AuthenticatedUser): Promise<void> {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+    await this.projectsService.assertUserCanManageOrGranted(
+      project,
+      actingUser,
+      'canManageSprints',
+    );
     const sprint = await this.getActiveOrThrow(sprintId, projectId);
 
     if (sprint.status !== SprintStatus.PLANNED) {

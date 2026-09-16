@@ -34,6 +34,7 @@ import {
   renderTemplate,
 } from '../projects/schemas/automation-rule.schema';
 import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
+import { SchemeAction } from '../../permission-schemes/schemas/permission-scheme.schema';
 import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { TasksRepository, RankScope } from './tasks.repository';
@@ -75,7 +76,7 @@ export class TasksService {
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
     const project = await this.projectsService.getActiveProjectOrThrow(dto.project);
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canCreateTask');
+    await this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canCreateTask');
 
     if (project.status === ProjectStatus.COMPLETED) {
       throw new ConflictException('Cannot create tasks in a Completed project');
@@ -191,7 +192,11 @@ export class TasksService {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     if (!automation?.bypassPermission) {
-      this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canEditAnyTask');
+      await this.projectsService.assertUserCanManageOrGranted(
+        project,
+        actingUser,
+        'canEditAnyTask',
+      );
     }
     this.assertValidComponents(project, dto.components);
     validateCustomFieldValues(project.customFields, dto.customFieldValues ?? {}, 'update');
@@ -261,12 +266,18 @@ export class TasksService {
       actingUser.id,
       'canChangeAnyTaskStatus',
     );
+    const hasSchemeGrant = await this.projectsService.hasSchemeGrant(
+      project,
+      actingUser,
+      SchemeAction.TRANSITION,
+    );
 
     if (
       !automation?.bypassPermission &&
       !isManagerOrAdmin &&
       !isAssignedDeveloper &&
-      !hasStatusGrant
+      !hasStatusGrant &&
+      !hasSchemeGrant
     ) {
       throw new ForbiddenException('You cannot change the status of this task');
     }
@@ -358,7 +369,7 @@ export class TasksService {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     if (!automation?.bypassPermission) {
-      this.projectsService.assertUserCanManage(project, actingUser);
+      await this.projectsService.assertUserCanAssignOrGranted(project, actingUser);
     }
 
     if (assignee) this.assertAssigneeEligible(project, assignee);
@@ -397,7 +408,11 @@ export class TasksService {
     const task = await this.getActiveOrThrow(id);
     const projectId = extractId(task.project);
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+    await this.projectsService.assertUserCanManageOrGranted(
+      project,
+      actingUser,
+      'canManageSprints',
+    );
 
     if (!this.isStandardIssue(task.issueType)) {
       throw new BadRequestException('Only Story/Task/Bug issues can be assigned to a sprint');
@@ -445,7 +460,11 @@ export class TasksService {
 
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canManageSprints');
+    await this.projectsService.assertUserCanManageOrGranted(
+      project,
+      actingUser,
+      'canManageSprints',
+    );
 
     const scope: RankScope = {
       project: new Types.ObjectId(extractId(task.project)),
@@ -479,7 +498,7 @@ export class TasksService {
   async softDelete(id: string, actingUser: AuthenticatedUser): Promise<void> {
     const task = await this.getActiveOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canDeleteTask');
+    await this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canDeleteTask');
 
     await this.tasksRepository.softDelete(id);
     await this.tasksRepository.logActivity(id, actingUser.id, TaskActivityAction.DELETED);

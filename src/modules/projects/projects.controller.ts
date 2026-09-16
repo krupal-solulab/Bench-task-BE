@@ -30,6 +30,7 @@ import { PatchMemberPermissionsDto } from './dto/patch-member-permissions.dto';
 import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
+import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
 
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -233,5 +234,16 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.updateAutomationRules(id, dto, user);
+  }
+
+  @Patch(':id/permission-scheme')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Assign (or, with null, unassign) a permission scheme to this project' })
+  async assignPermissionScheme(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PatchPermissionSchemeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.assignPermissionScheme(id, dto, user);
   }
 }
