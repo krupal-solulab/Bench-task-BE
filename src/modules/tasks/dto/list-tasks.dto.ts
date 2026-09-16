@@ -2,7 +2,6 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsEnum, IsISO8601, IsIn, IsOptional, IsString } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
-import { IssueType } from '../../../common/enums/issue-type.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
 import { IsObjectId } from '../../../common/validators/is-object-id.validator';
 
@@ -106,12 +105,12 @@ export class ListTasksDto extends PaginationQueryDto {
   @IsBoolean()
   unassignedSprint?: boolean;
 
-  @ApiPropertyOptional({ enum: IssueType, isArray: true })
+  @ApiPropertyOptional({ type: [String], description: "Filter by the project's issue type names" })
   @IsOptional()
   @Transform(toArray)
   @IsArray()
-  @IsEnum(IssueType, { each: true })
-  issueType?: IssueType[];
+  @IsString({ each: true })
+  issueType?: string[];
 
   @ApiPropertyOptional({ description: "An issue's parent (Epic-link or Sub-task's parent)" })
   @IsOptional()

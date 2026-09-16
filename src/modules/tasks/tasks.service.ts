@@ -16,7 +16,7 @@ import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
-import { IssueType, STANDARD_ISSUE_TYPES } from '../../common/enums/issue-type.enum';
+import { IssueType, IssueTypeLevel } from '../../common/enums/issue-type.enum';
 import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { NotificationsService } from '../../notifications/notifications.service';
@@ -24,6 +24,7 @@ import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { categoryOf, resolveWorkflow } from '../projects/schemas/workflow.schema';
+import { resolveIssueTypes } from '../projects/schemas/issue-type.schema';
 import { validateCustomFieldValues } from '../projects/schemas/custom-field.schema';
 import {
   AutomationAction,
@@ -87,7 +88,7 @@ export class TasksService {
     }
 
     const issueType = dto.issueType ?? IssueType.TASK;
-    const parent = await this.assertValidHierarchy(dto.project, issueType, dto.parent);
+    const parent = await this.assertValidHierarchy(project, issueType, dto.parent);
     this.assertValidComponents(project, dto.components);
     validateCustomFieldValues(project.customFields, dto.customFieldValues ?? {}, 'create');
 
@@ -95,7 +96,7 @@ export class TasksService {
     // rank order - this keeps task creation's validation surface entirely unchanged for anyone not
     // using sprints. Epics/Sub-tasks never appear in backlog ordering, so skip the extra query.
     let rank = 0;
-    if (this.isStandardIssue(issueType)) {
+    if (this.isStandardIssue(project, issueType)) {
       const backlogScope: RankScope = { project: new Types.ObjectId(dto.project), sprint: null };
       const maxRank = await this.tasksRepository.findMaxRank(backlogScope);
       rank = nextAppendRank(maxRank);
@@ -414,7 +415,7 @@ export class TasksService {
       'canManageSprints',
     );
 
-    if (!this.isStandardIssue(task.issueType)) {
+    if (!this.isStandardIssue(project, task.issueType)) {
       throw new BadRequestException('Only Story/Task/Bug issues can be assigned to a sprint');
     }
 
@@ -545,26 +546,42 @@ export class TasksService {
     }
   }
 
-  private isStandardIssue(issueType: IssueType): boolean {
-    return (STANDARD_ISSUE_TYPES as readonly IssueType[]).includes(issueType);
+  /** Whether `issueType` resolves to the project's Standard level - project-scoped (not a fixed
+   * 3-name list) so a custom Standard-level type an Admin added counts too. */
+  private isStandardIssue(project: ProjectDocument, issueType: string): boolean {
+    return (
+      resolveIssueTypes(project).find((t) => t.name === issueType)?.level ===
+      IssueTypeLevel.STANDARD
+    );
   }
 
   /**
-   * Enforces the fixed 2-level hierarchy: Epic (no parent) <- Story/Task/Bug (optional Epic-link)
-   * <- Sub-task (required Story/Task/Bug parent). Returns the validated parent id, or null.
+   * Enforces the 3-level hierarchy - Epic (no parent) <- Standard (optional Epic-link) <- Sub-task
+   * (required Standard parent) - driven by each type's resolved `level` rather than its literal
+   * name, so a project's custom Standard-level types (the BRD's "extensible" level) are enforced
+   * identically to the built-in Story/Task/Bug. Epic and Sub-task are still exactly one fixed name
+   * each (enforced at save time by ProjectsService.updateIssueTypes), so comparing against the
+   * literal `IssueType.EPIC`/`IssueType.SUBTASK` for those two levels is still safe and simpler
+   * than a second level lookup. Returns the validated parent id, or null.
    */
   private async assertValidHierarchy(
-    projectId: string,
-    issueType: IssueType,
+    project: ProjectDocument,
+    issueType: string,
     parentId: string | undefined,
   ): Promise<Types.ObjectId | null> {
-    if (issueType === IssueType.EPIC) {
+    const projectId = project.id;
+    const definition = resolveIssueTypes(project).find((t) => t.name === issueType);
+    if (!definition) {
+      throw new BadRequestException(`"${issueType}" is not an enabled issue type for this project`);
+    }
+
+    if (definition.level === IssueTypeLevel.EPIC) {
       if (parentId) throw new BadRequestException('An Epic cannot have a parent');
       return null;
     }
 
     if (!parentId) {
-      if (issueType === IssueType.SUBTASK) {
+      if (definition.level === IssueTypeLevel.SUBTASK) {
         throw new BadRequestException('A Sub-task requires a parent issue');
       }
       return null;
@@ -575,12 +592,14 @@ export class TasksService {
       throw new BadRequestException('parent must be an existing issue in the same project');
     }
 
-    if (issueType === IssueType.SUBTASK) {
-      if (!this.isStandardIssue(parentTask.issueType)) {
-        throw new BadRequestException("A Sub-task's parent must be a Story, Task, or Bug");
+    if (definition.level === IssueTypeLevel.SUBTASK) {
+      if (!this.isStandardIssue(project, parentTask.issueType)) {
+        throw new BadRequestException(
+          "A Sub-task's parent must be a Standard-level issue (e.g. Story, Task, or Bug)",
+        );
       }
     } else if (parentTask.issueType !== IssueType.EPIC) {
-      throw new BadRequestException('parent must be an Epic for a Story/Task/Bug');
+      throw new BadRequestException('parent must be an Epic for a Standard-level issue');
     }
 
     return new Types.ObjectId(parentId);

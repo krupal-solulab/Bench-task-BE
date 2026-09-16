@@ -1207,17 +1207,11 @@
             "name": "issueType",
             "required": false,
             "in": "query",
+            "description": "Filter by the project's issue type names",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Epic",
-                  "Story",
-                  "Task",
-                  "Bug",
-                  "Sub-task"
-                ]
+                "type": "string"
               }
             }
           },
@@ -1533,6 +1527,45 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PutComponentsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/issue-types": {
+      "put": {
+        "operationId": "ProjectsController_updateIssueTypes",
+        "summary": "Set/replace this project's issue types",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutIssueTypesDto"
               }
             }
           }
@@ -2138,17 +2171,11 @@
             "name": "issueType",
             "required": false,
             "in": "query",
+            "description": "Filter by the project's issue type names",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Epic",
-                  "Story",
-                  "Task",
-                  "Bug",
-                  "Sub-task"
-                ]
+                "type": "string"
               }
             }
           },
@@ -2374,17 +2401,11 @@
             "name": "issueType",
             "required": false,
             "in": "query",
+            "description": "Filter by the project's issue type names",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Epic",
-                  "Story",
-                  "Task",
-                  "Bug",
-                  "Sub-task"
-                ]
+                "type": "string"
               }
             }
           },
@@ -2610,17 +2631,11 @@
             "name": "issueType",
             "required": false,
             "in": "query",
+            "description": "Filter by the project's issue type names",
             "schema": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "Epic",
-                  "Story",
-                  "Task",
-                  "Bug",
-                  "Sub-task"
-                ]
+                "type": "string"
               }
             }
           },
@@ -4818,6 +4833,71 @@
           "names"
         ]
       },
+      "IssueTypeDefinitionDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Chore"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "epic",
+              "standard",
+              "subtask"
+            ]
+          },
+          "icon": {
+            "type": "string",
+            "enum": [
+              "Zap",
+              "Bookmark",
+              "CheckSquare",
+              "Bug",
+              "ListChecks",
+              "Flag",
+              "Star",
+              "AlertCircle",
+              "Layers",
+              "Wrench"
+            ]
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "slate",
+              "blue",
+              "green",
+              "amber",
+              "red",
+              "purple",
+              "pink",
+              "cyan"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "level",
+          "icon",
+          "color"
+        ]
+      },
+      "PutIssueTypesDto": {
+        "type": "object",
+        "properties": {
+          "issueTypes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IssueTypeDefinitionDto"
+            }
+          }
+        },
+        "required": [
+          "issueTypes"
+        ]
+      },
       "CustomFieldDefinitionDto": {
         "type": "object",
         "properties": {
@@ -5144,14 +5224,9 @@
           },
           "issueType": {
             "type": "string",
-            "enum": [
-              "Epic",
-              "Story",
-              "Task",
-              "Bug",
-              "Sub-task"
-            ],
-            "default": "Task"
+            "example": "Task",
+            "default": "Task",
+            "description": "One of the project's enabled issue types (the 5 built-ins, or a custom Standard-level type the Org Admin added) - validated against the project, not a fixed list."
           },
           "parent": {
             "type": "string",

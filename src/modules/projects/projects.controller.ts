@@ -31,6 +31,7 @@ import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
 import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
+import { PutIssueTypesDto } from './dto/put-issue-types.dto';
 
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -212,6 +213,17 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.updateComponents(id, dto, user);
+  }
+
+  @Put(':id/issue-types')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace this project's issue types" })
+  async updateIssueTypes(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutIssueTypesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateIssueTypes(id, dto, user);
   }
 
   @Put(':id/custom-fields')

@@ -48,10 +48,17 @@ export class CreateTaskDto {
   @IsISO8601()
   dueDate?: string | null;
 
-  @ApiPropertyOptional({ enum: IssueType, default: IssueType.TASK })
+  @ApiPropertyOptional({
+    example: IssueType.TASK,
+    default: IssueType.TASK,
+    description:
+      "One of the project's enabled issue types (the 5 built-ins, or a custom Standard-level " +
+      'type the Org Admin added) - validated against the project, not a fixed list.',
+  })
   @IsOptional()
-  @IsEnum(IssueType)
-  issueType?: IssueType;
+  @IsString()
+  @MaxLength(40)
+  issueType?: string;
 
   @ApiPropertyOptional({
     description: 'Epic-link (for Story/Task/Bug) or required parent (for Sub-task)',

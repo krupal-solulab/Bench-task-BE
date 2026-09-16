@@ -5,6 +5,7 @@ import { MemberPermissions, MemberPermissionsSchema } from './member-permissions
 import { CustomFieldDefinition, CustomFieldDefinitionSchema } from './custom-field.schema';
 import { AutomationRule, AutomationRuleSchema } from './automation-rule.schema';
 import { Workflow, WorkflowSchema } from './workflow.schema';
+import { IssueTypeDefinition, IssueTypeDefinitionSchema } from './issue-type.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
 
@@ -100,6 +101,13 @@ export class Project {
 
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId!: Types.ObjectId;
+
+  // Empty means "use the 5 built-in issue types" (see issue-type.schema.ts's resolveIssueTypes) -
+  // every existing project, and any new one that never opens the Issue Types settings, is
+  // completely unaffected by this feature until an Admin/owning Manager configures one via
+  // ProjectsService.updateIssueTypes().
+  @Prop({ type: [IssueTypeDefinitionSchema], default: [] })
+  issueTypes!: IssueTypeDefinition[];
 
   // Null means "use the legacy per-member permission flags" (see member-permissions.schema.ts) -
   // every existing project, and any new one that never opens the permission-scheme settings, is

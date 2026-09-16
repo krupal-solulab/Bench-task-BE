@@ -17,7 +17,7 @@ import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
 import { Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
-import { IssueType } from '../../common/enums/issue-type.enum';
+import { IssueType, IssueTypeLevel } from '../../common/enums/issue-type.enum';
 import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { UsersRepository } from '../users/users.repository';
@@ -41,6 +41,8 @@ import { PutWorkflowDto } from './dto/put-workflow.dto';
 import { CustomFieldDefinition } from './schemas/custom-field.schema';
 import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
+import { PutIssueTypesDto } from './dto/put-issue-types.dto';
+import { IssueTypeDefinition, resolveIssueTypes } from './schemas/issue-type.schema';
 import {
   AutomationActionType,
   AutomationConditionField,
@@ -79,6 +81,7 @@ export interface ProjectResponse {
   components: string[];
   customFields: CustomFieldDefinition[];
   automationRules: AutomationRule[];
+  issueTypes: IssueTypeDefinition[];
   permissionSchemeId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -600,6 +603,58 @@ export class ProjectsService {
     return this.toResponse(updated!);
   }
 
+  /**
+   * Sets/replaces this project's issue types. Epic and Sub-task are structurally fixed (exactly
+   * one of each, always named "Epic"/"Sub-task") since the rest of the app - hierarchy validation,
+   * epic-linking, sub-task creation - depends on those two exact names; only the Standard level is
+   * the BRD's "extensible" one, freely added/renamed/removed here.
+   */
+  async updateIssueTypes(
+    id: string,
+    dto: PutIssueTypesDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const types = dto.issueTypes;
+    const names = types.map((t) => t.name.trim());
+    if (new Set(names).size !== names.length) {
+      throw new BadRequestException('Issue type names must be unique');
+    }
+
+    const epicRows = types.filter((t) => t.level === IssueTypeLevel.EPIC);
+    const subtaskRows = types.filter((t) => t.level === IssueTypeLevel.SUBTASK);
+    const standardRows = types.filter((t) => t.level === IssueTypeLevel.STANDARD);
+    if (epicRows.length !== 1 || epicRows[0]!.name.trim() !== IssueType.EPIC) {
+      throw new BadRequestException(`There must be exactly one Epic-level type, named "Epic"`);
+    }
+    if (subtaskRows.length !== 1 || subtaskRows[0]!.name.trim() !== IssueType.SUBTASK) {
+      throw new BadRequestException(
+        `There must be exactly one Sub-task-level type, named "Sub-task"`,
+      );
+    }
+    if (standardRows.length === 0) {
+      throw new BadRequestException('There must be at least one Standard-level issue type');
+    }
+
+    const orphaned: string[] = await this.taskModel.distinct('issueType', {
+      project: project._id,
+      deletedAt: null,
+      issueType: { $nin: names },
+    });
+    if (orphaned.length > 0) {
+      throw new ConflictException(
+        `Cannot remove issue type(s) still in use by active tasks: ${orphaned.join(', ')}. Move those tasks to a different issue type first.`,
+      );
+    }
+
+    const updated = await this.projectsRepository.updateById(id, {
+      issueTypes: types.map((t) => ({ ...t, name: t.name.trim() })),
+    });
+    return this.toResponse(updated!);
+  }
+
   async updateCustomFields(
     id: string,
     dto: PutCustomFieldsDto,
@@ -727,7 +782,7 @@ export class ProjectsService {
     for (const condition of dto.conditions) {
       if (
         condition.field === AutomationConditionField.ISSUE_TYPE &&
-        !Object.values(IssueType).includes(condition.value as IssueType)
+        !resolveIssueTypes(project).some((t) => t.name === condition.value)
       ) {
         throw new BadRequestException(`"${condition.value}" is not a valid issue type`);
       }
@@ -1004,6 +1059,7 @@ export class ProjectsService {
       components: project.components,
       customFields: project.customFields,
       automationRules: project.automationRules,
+      issueTypes: resolveIssueTypes(project),
       permissionSchemeId: project.permissionSchemeId ? extractId(project.permissionSchemeId) : null,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,

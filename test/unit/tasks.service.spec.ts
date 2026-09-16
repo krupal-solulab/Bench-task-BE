@@ -538,6 +538,64 @@ describe('TasksService', () => {
       expect(tasksRepository.findMaxRank).not.toHaveBeenCalled();
       expect(tasksRepository.create).toHaveBeenCalledWith(expect.objectContaining({ rank: 0 }));
     });
+
+    it('rejects an issue type that is not enabled for this project', async () => {
+      await expect(
+        service.create(
+          {
+            title: 'x',
+            project: PROJECT_ID,
+            priority: 'P2',
+            issueType: 'Not A Real Type',
+          } as never,
+          makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("accepts a custom Standard-level issue type the project's Admin configured (extensible level)", async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          issueTypes: [
+            { name: 'Epic', level: 'epic', icon: 'Zap', color: 'purple' },
+            { name: 'Chore', level: 'standard', icon: 'Wrench', color: 'slate' },
+            { name: 'Sub-task', level: 'subtask', icon: 'ListChecks', color: 'slate' },
+          ],
+        }),
+      );
+      tasksRepository.create.mockResolvedValue(makeTask({ id: 'chore-1', issueType: 'Chore' }));
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ id: 'chore-1', issueType: 'Chore' }),
+      );
+
+      await service.create(
+        { title: 'x', project: PROJECT_ID, priority: 'P2', issueType: 'Chore' } as never,
+        makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+      );
+
+      expect(tasksRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ issueType: 'Chore' }),
+      );
+    });
+
+    it('rejects a built-in Standard type (Bug) that a project has customized away (disabled)', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          issueTypes: [
+            { name: 'Epic', level: 'epic', icon: 'Zap', color: 'purple' },
+            { name: 'Chore', level: 'standard', icon: 'Wrench', color: 'slate' },
+            { name: 'Sub-task', level: 'subtask', icon: 'ListChecks', color: 'slate' },
+          ],
+        }),
+      );
+
+      await expect(
+        service.create(
+          { title: 'x', project: PROJECT_ID, priority: 'P2', issueType: IssueType.BUG } as never,
+          makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('updateSprint - hierarchy guard', () => {

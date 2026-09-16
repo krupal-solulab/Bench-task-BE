@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { Model } from 'mongoose';
 import { Role } from 'src/common/enums/role.enum';
+import { IssueTypeLevel } from 'src/common/enums/issue-type.enum';
+import { IssueTypeDefinitionDto } from 'src/modules/projects/dto/put-issue-types.dto';
 import { ProjectStatus } from 'src/common/enums/project-status.enum';
 import { StatusCategory } from 'src/common/enums/status-category.enum';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
@@ -933,6 +935,105 @@ describe('ProjectsService', () => {
 
       expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
         components: ['Frontend', 'API'],
+      });
+    });
+  });
+
+  describe('updateIssueTypes', () => {
+    const validTypes: IssueTypeDefinitionDto[] = [
+      { name: 'Epic', level: IssueTypeLevel.EPIC, icon: 'Zap', color: 'purple' },
+      { name: 'Task', level: IssueTypeLevel.STANDARD, icon: 'CheckSquare', color: 'blue' },
+      { name: 'Chore', level: IssueTypeLevel.STANDARD, icon: 'Wrench', color: 'slate' },
+      { name: 'Sub-task', level: IssueTypeLevel.SUBTASK, icon: 'ListChecks', color: 'slate' },
+    ];
+
+    it('rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateIssueTypes(
+          'project-1',
+          { issueTypes: validTypes },
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects a list missing the Epic level', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      const withoutEpic = validTypes.filter((t) => t.level !== IssueTypeLevel.EPIC);
+      await expect(
+        service.updateIssueTypes(
+          'project-1',
+          { issueTypes: withoutEpic },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects renaming the Epic-level type away from "Epic"', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      const renamed = validTypes.map((t) =>
+        t.level === IssueTypeLevel.EPIC ? { ...t, name: 'Initiative' } : t,
+      );
+      await expect(
+        service.updateIssueTypes(
+          'project-1',
+          { issueTypes: renamed },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a list with no Standard-level type', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      const withoutStandard = validTypes.filter((t) => t.level !== IssueTypeLevel.STANDARD);
+      await expect(
+        service.updateIssueTypes(
+          'project-1',
+          { issueTypes: withoutStandard },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects duplicate names', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      const duplicated = [...validTypes, { ...validTypes[1]! }];
+      await expect(
+        service.updateIssueTypes(
+          'project-1',
+          { issueTypes: duplicated },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects removing a Standard-level type still used by an active task', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      taskModel.distinct.mockResolvedValue(['Bug']);
+      await expect(
+        service.updateIssueTypes(
+          'project-1',
+          { issueTypes: validTypes },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(ConflictException);
+      expect(projectsRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('saves a valid, customized issue type list (adds a Standard type, keeps Epic/Sub-task fixed)', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      taskModel.distinct.mockResolvedValue([]);
+      projectsRepository.updateById.mockResolvedValue(makeProject({ issueTypes: validTypes }));
+
+      await service.updateIssueTypes(
+        'project-1',
+        { issueTypes: validTypes },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        issueTypes: validTypes,
       });
     });
   });

@@ -82,9 +82,12 @@ export class Task {
   rank!: number;
 
   // Defaults to TASK so every pre-existing document (and every task created without specifying
-  // this) is completely unaffected - Epic/Story/Bug/Sub-task are opt-in.
-  @Prop({ type: String, enum: IssueType, default: IssueType.TASK })
-  issueType!: IssueType;
+  // this) is completely unaffected - Epic/Story/Bug/Sub-task are opt-in. Not a Mongoose `enum:` -
+  // a project can configure additional Standard-level issue type names (see
+  // projects/schemas/issue-type.schema.ts), so the allowed set is project-scoped and validated at
+  // the service layer (TasksService.assertValidHierarchy), not fixed at the schema level.
+  @Prop({ type: String, default: IssueType.TASK })
+  issueType!: string;
 
   // Self-referential: an Epic-link for Story/Task/Bug, or the required parent for Sub-task. Never
   // set for an Epic itself. See TasksService.create()'s hierarchy validation for the exact rules.
