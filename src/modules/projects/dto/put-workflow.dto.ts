@@ -1,15 +1,19 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  ArrayUnique,
   IsArray,
+  IsBoolean,
   IsEnum,
+  IsOptional,
   IsString,
   MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
 import { StatusCategory } from '../../../common/enums/status-category.enum';
+import { Role } from '../../../common/enums/role.enum';
 
 export class WorkflowStatusDto {
   @ApiProperty({ example: 'Blocked' })
@@ -35,6 +39,25 @@ export class WorkflowTransitionDto {
   @MinLength(1)
   @MaxLength(40)
   to!: string;
+
+  @ApiPropertyOptional({
+    enum: Role,
+    isArray: true,
+    description: 'Condition: who may trigger this transition. Omit/empty for "anyone" (default).',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsEnum(Role, { each: true })
+  allowedRoles?: Role[];
+
+  @ApiPropertyOptional({
+    description:
+      'Validator: the task must already have a comment before this transition is allowed.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  requireComment?: boolean;
 }
 
 export class PutWorkflowDto {

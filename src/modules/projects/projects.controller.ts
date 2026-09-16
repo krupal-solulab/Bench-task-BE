@@ -11,7 +11,7 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
@@ -167,32 +167,51 @@ export class ProjectsController {
 
   @Get(':id/workflow')
   @ApiOperation({ summary: "The project's effective workflow (custom, or the system default)" })
+  @ApiQuery({
+    name: 'issueType',
+    required: false,
+    description: "Get this specific issue type's workflow override, if configured",
+  })
   async getWorkflow(
     @Param('id', ParseObjectIdPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Query('issueType') issueType?: string,
   ) {
-    return this.projectsService.getWorkflow(id, user);
+    return this.projectsService.getWorkflow(id, user, issueType);
   }
 
   @Put(':id/workflow')
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: "Set/replace this project's custom workflow" })
+  @ApiQuery({
+    name: 'issueType',
+    required: false,
+    description: "Set this specific issue type's workflow override instead of the project default",
+  })
   async updateWorkflow(
     @Param('id', ParseObjectIdPipe) id: string,
     @Body() dto: PutWorkflowDto,
     @CurrentUser() user: AuthenticatedUser,
+    @Query('issueType') issueType?: string,
   ) {
-    return this.projectsService.updateWorkflow(id, dto, user);
+    return this.projectsService.updateWorkflow(id, dto, user, issueType);
   }
 
   @Delete(':id/workflow')
   @Roles(Role.ADMIN, Role.MANAGER)
-  @ApiOperation({ summary: 'Reset this project to the system default workflow' })
+  @ApiOperation({ summary: 'Reset this project (or one issue type) to its fallback workflow' })
+  @ApiQuery({
+    name: 'issueType',
+    required: false,
+    description:
+      "Remove this specific issue type's override instead of resetting the project default",
+  })
   async resetWorkflow(
     @Param('id', ParseObjectIdPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Query('issueType') issueType?: string,
   ) {
-    return this.projectsService.resetWorkflow(id, user);
+    return this.projectsService.resetWorkflow(id, user, issueType);
   }
 
   @Get(':id/labels')

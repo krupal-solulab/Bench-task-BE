@@ -73,6 +73,38 @@ describe('evaluateAutomationRules', () => {
       );
       expect(fired).toHaveLength(0);
     });
+
+    it('with no fromStatus set (every existing rule), fires regardless of the event fromStatus (regression)', () => {
+      const fired = evaluateAutomationRules(
+        [rule],
+        { type: AutomationTriggerType.STATUS_CHANGED, toStatus: 'Done', fromStatus: 'Review' },
+        BUG_TASK,
+      );
+      expect(fired).toHaveLength(1);
+    });
+
+    it('with fromStatus set, fires only when the event fromStatus matches (Workflow Engine v2 post-function scoping)', () => {
+      const scopedRule = makeRule({
+        trigger: {
+          type: AutomationTriggerType.STATUS_CHANGED,
+          toStatus: 'Done',
+          fromStatus: 'Review',
+        },
+      });
+      const matching = evaluateAutomationRules(
+        [scopedRule],
+        { type: AutomationTriggerType.STATUS_CHANGED, toStatus: 'Done', fromStatus: 'Review' },
+        BUG_TASK,
+      );
+      expect(matching).toHaveLength(1);
+
+      const nonMatching = evaluateAutomationRules(
+        [scopedRule],
+        { type: AutomationTriggerType.STATUS_CHANGED, toStatus: 'Done', fromStatus: 'Todo' },
+        BUG_TASK,
+      );
+      expect(nonMatching).toHaveLength(0);
+    });
   });
 
   describe('conditions (AND-combined)', () => {

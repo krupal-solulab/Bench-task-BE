@@ -105,7 +105,7 @@ export class TasksService {
     const keyPrefix = await this.projectsService.getOrAssignKey(project);
     const seq = await this.projectsService.nextIssueNumber(dto.project);
 
-    const workflow = resolveWorkflow(project);
+    const workflow = resolveWorkflow(project, issueType);
     const status = workflow.initialStatus;
     const statusCategory = categoryOf(workflow, status) ?? StatusCategory.TODO;
 
@@ -285,7 +285,7 @@ export class TasksService {
 
     if (task.status === status) return task;
 
-    const workflow = resolveWorkflow(project);
+    const workflow = resolveWorkflow(project, task.issueType);
     const newCategory = categoryOf(workflow, status);
     if (!newCategory) {
       throw new BadRequestException(
@@ -297,6 +297,29 @@ export class TasksService {
       throw new ConflictException(
         `Cannot transition from ${task.status} to ${status}. Allowed: ${legalTaskTransitions(workflow, task.status).join(', ') || 'none'}`,
       );
+    }
+
+    // Transition Conditions/Validators - additive to the permission gate above, and only ever
+    // narrow a transition further (never widen), so a transition with neither field set behaves
+    // exactly as before this feature existed. Automation-driven transitions bypass both, same as
+    // the permission gate above (the rule's Admin/Manager author already authorized this).
+    const transitionRule = workflow.transitions.find(
+      (t) => t.from === task.status && t.to === status,
+    );
+    if (
+      !automation?.bypassPermission &&
+      transitionRule?.allowedRoles?.length &&
+      !transitionRule.allowedRoles.includes(actingUser.role)
+    ) {
+      throw new ForbiddenException(
+        `Only ${transitionRule.allowedRoles.join('/')} can make this transition`,
+      );
+    }
+    if (!automation?.bypassPermission && transitionRule?.requireComment) {
+      const hasComment = await this.commentModel.exists({ task: task._id, deletedAt: null });
+      if (!hasComment) {
+        throw new BadRequestException('This transition requires a comment on the task first');
+      }
     }
 
     const previousCategory = categoryOf(workflow, task.status);
@@ -347,7 +370,7 @@ export class TasksService {
     if (!automation) {
       const changedByAutomation = await this.runAutomations(
         project,
-        { type: AutomationTriggerType.STATUS_CHANGED, toStatus: status },
+        { type: AutomationTriggerType.STATUS_CHANGED, toStatus: status, fromStatus: task.status },
         updated!,
         actingUser,
       );
@@ -647,7 +670,7 @@ export class TasksService {
    */
   private async runAutomations(
     project: ProjectDocument,
-    trigger: { type: AutomationTriggerType; toStatus?: string },
+    trigger: { type: AutomationTriggerType; toStatus?: string; fromStatus?: string },
     task: TaskDocument,
     actingUser: AuthenticatedUser,
   ): Promise<boolean> {
@@ -669,7 +692,7 @@ export class TasksService {
 
     for (const { ruleId, ruleName, action } of fired) {
       try {
-        await this.applyAutomationAction(task, action, actingUser, {
+        await this.applyAutomationAction(project, task, action, actingUser, {
           bypassPermission: true,
           viaRuleId: ruleId,
           viaRuleName: ruleName,
@@ -691,6 +714,7 @@ export class TasksService {
    * exactly as it would to a human-initiated call, so automation never needs to duplicate them.
    */
   private async applyAutomationAction(
+    project: ProjectDocument,
     task: TaskDocument,
     action: AutomationAction,
     actingUser: AuthenticatedUser,
@@ -718,6 +742,26 @@ export class TasksService {
       case AutomationActionType.ADD_COMMENT:
         await this.addAutomationComment(task, renderTemplate(action.value, task), actingUser);
         return;
+      case AutomationActionType.WEBHOOK:
+        // Logging stub - no webhook infrastructure exists in this codebase, and firing a real
+        // request to an admin-supplied URL would be an SSRF risk with no way to validate the
+        // target. Mirrors the WhatsApp notification channel's same logging-only treatment.
+        this.logger.log(
+          `Automation rule "${ctx.viaRuleName}" would POST to ${action.value} for task ${task.id} (webhook delivery not implemented - logging only)`,
+        );
+        return;
+      case AutomationActionType.NOTIFY_ROLE: {
+        const targets = await this.projectsService.membersWithRole(project, action.value as Role);
+        for (const target of targets) {
+          await this.notificationsService.notifyAutomationRole({
+            recipientId: target.id,
+            taskId: task.id,
+            taskTitle: task.title,
+            ruleName: ctx.viaRuleName,
+          });
+        }
+        return;
+      }
     }
   }
 

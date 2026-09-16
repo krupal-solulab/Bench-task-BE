@@ -11,6 +11,12 @@ export enum AutomationActionType {
   SET_ASSIGNEE = 'SetAssignee',
   ADD_LABELS = 'AddLabels',
   ADD_COMMENT = 'AddComment',
+  // The BRD's workflow "post-functions" are implemented as automation actions rather than a
+  // parallel mechanism (see the Workflow Engine v2 plan) - Webhook and NotifyRole close that gap;
+  // auto-assign and audit-trail are already covered by SetAssignee and the TaskActivity log every
+  // automation-fired change already writes.
+  WEBHOOK = 'Webhook',
+  NOTIFY_ROLE = 'NotifyRole',
 }
 
 export enum AutomationConditionField {
@@ -49,6 +55,13 @@ export class AutomationTrigger {
   // Only meaningful (and only ever set) for type === StatusChanged.
   @Prop({ type: String, default: null })
   toStatus!: string | null;
+
+  // Further scopes a StatusChanged trigger from "any status -> toStatus" to "fromStatus ->
+  // toStatus" - a workflow-transition-specific automation, the BRD's "post-function" attached to
+  // one edge. Null/unset (every existing rule, and every literal that predates this field) means
+  // "any status", identical to today.
+  @Prop({ type: String, default: null })
+  fromStatus?: string | null;
 }
 
 export const AutomationTriggerSchema = SchemaFactory.createForClass(AutomationTrigger);
@@ -89,6 +102,7 @@ export interface AutomationFiredAction {
 export interface AutomationTriggerEvent {
   type: AutomationTriggerType;
   toStatus?: string;
+  fromStatus?: string;
 }
 
 export interface AutomationTaskSnapshot {
@@ -116,6 +130,13 @@ export function evaluateAutomationRules(
     if (
       trigger.type === AutomationTriggerType.STATUS_CHANGED &&
       rule.trigger.toStatus !== trigger.toStatus
+    ) {
+      continue;
+    }
+    if (
+      trigger.type === AutomationTriggerType.STATUS_CHANGED &&
+      rule.trigger.fromStatus &&
+      rule.trigger.fromStatus !== trigger.fromStatus
     ) {
       continue;
     }

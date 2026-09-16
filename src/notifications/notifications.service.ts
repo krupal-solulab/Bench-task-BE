@@ -44,6 +44,13 @@ export interface CommentAddedNotification {
   commentAuthorName: string;
 }
 
+export interface AutomationRoleNotification {
+  taskId: string;
+  taskTitle: string;
+  recipientId: string;
+  ruleName: string;
+}
+
 /**
  * Every email-sending method here swallows its own failures (a bad assignee id, the email
  * transport throwing, ...) and logs a warning instead of rejecting - notifications are a
@@ -171,6 +178,29 @@ export class NotificationsService {
       NotificationType.COMMENT_ADDED,
       'New comment',
       `${notification.commentAuthorName} commented on "${notification.taskTitle}"`,
+      { taskId: notification.taskId },
+    );
+  }
+
+  /** Sent by an automation rule's NotifyRole post-function action (Workflow Engine v2) - in-app
+   * only, no email, since this is a new, lighter-weight notification kind. */
+  async notifyAutomationRole(notification: AutomationRoleNotification): Promise<void> {
+    let recipient: UserDocument | null = null;
+    try {
+      recipient = await this.usersRepository.findById(notification.recipientId);
+    } catch (err) {
+      this.logger.warn(
+        { err, taskId: notification.taskId },
+        'failed to look up recipient for an automation-role notification, ignoring',
+      );
+    }
+    if (!recipient) return;
+    await this.createInAppNotification(
+      notification.recipientId,
+      extractId(recipient.organizationId),
+      NotificationType.AUTOMATION,
+      'Automation notification',
+      `Automation rule "${notification.ruleName}" fired on "${notification.taskTitle}"`,
       { taskId: notification.taskId },
     );
   }

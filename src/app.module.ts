@@ -29,6 +29,7 @@ import { SavedFiltersModule } from './modules/saved-filters/saved-filters.module
 import { ApiLogsModule } from './modules/api-logs/api-logs.module';
 import { EventsModule } from './events/events.module';
 import { PermissionSchemesModule } from './permission-schemes/permission-schemes.module';
+import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates.module';
 
 @Module({
   imports: [
@@ -96,6 +97,7 @@ import { PermissionSchemesModule } from './permission-schemes/permission-schemes
     DashboardModule,
     SavedFiltersModule,
     PermissionSchemesModule,
+    WorkflowTemplatesModule,
     ApiLogsModule,
   ],
   providers: [

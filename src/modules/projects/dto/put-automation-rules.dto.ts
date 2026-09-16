@@ -59,6 +59,17 @@ export class AutomationTriggerDto {
   @MinLength(1)
   @MaxLength(40)
   toStatus?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Optional, only meaningful for StatusChanged - further scopes the trigger from "any ' +
+      'status -> toStatus" to "fromStatus -> toStatus" (a specific workflow transition edge)',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  fromStatus?: string;
 }
 
 export class AutomationRuleDto {

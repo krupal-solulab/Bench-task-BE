@@ -4,7 +4,7 @@ import { ProjectStatus } from '../../../common/enums/project-status.enum';
 import { MemberPermissions, MemberPermissionsSchema } from './member-permissions.schema';
 import { CustomFieldDefinition, CustomFieldDefinitionSchema } from './custom-field.schema';
 import { AutomationRule, AutomationRuleSchema } from './automation-rule.schema';
-import { Workflow, WorkflowSchema } from './workflow.schema';
+import { Workflow, WorkflowSchema, WorkflowByType, WorkflowByTypeSchema } from './workflow.schema';
 import { IssueTypeDefinition, IssueTypeDefinitionSchema } from './issue-type.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
@@ -81,6 +81,13 @@ export class Project {
   // settings, is completely unaffected by this feature until an Admin/owning Manager configures one.
   @Prop({ type: WorkflowSchema, default: null })
   workflow!: Workflow | null;
+
+  // Per-issue-type workflow overrides - empty for every existing project until an Admin/owning
+  // Manager configures one for a specific issue type via ProjectsService.updateWorkflow(id, dto,
+  // user, issueType). A type with no entry here falls back to `workflow` above (see
+  // workflow.schema.ts's resolveWorkflow).
+  @Prop({ type: [WorkflowByTypeSchema], default: [] })
+  workflowsByType!: WorkflowByType[];
 
   // Project-defined pick-list (e.g. "Frontend", "API") - names are the identity, same convention
   // as WorkflowStatus.name. Empty for every existing project until an Admin/owning Manager

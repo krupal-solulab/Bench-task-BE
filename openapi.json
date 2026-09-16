@@ -1397,6 +1397,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "description": "Get this specific issue type's workflow override, if configured",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1421,6 +1430,15 @@
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "description": "Set this specific issue type's workflow override instead of the project default",
             "schema": {
               "type": "string"
             }
@@ -1452,12 +1470,21 @@
       },
       "delete": {
         "operationId": "ProjectsController_resetWorkflow",
-        "summary": "Reset this project to the system default workflow",
+        "summary": "Reset this project (or one issue type) to its fallback workflow",
         "parameters": [
           {
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "description": "Remove this specific issue type's override instead of resetting the project default",
             "schema": {
               "type": "string"
             }
@@ -4332,6 +4359,120 @@
         ]
       }
     },
+    "/api/v1/workflow-templates": {
+      "get": {
+        "operationId": "WorkflowTemplatesController_list",
+        "summary": "List the Platform-Admin-maintained workflow template library (any authenticated user)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "workflow-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "WorkflowTemplatesController_create",
+        "summary": "Create a workflow template",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkflowTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "workflow-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/workflow-templates/{id}": {
+      "patch": {
+        "operationId": "WorkflowTemplatesController_update",
+        "summary": "Update a workflow template's name/description/workflow",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkflowTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "workflow-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "WorkflowTemplatesController_remove",
+        "summary": "Delete a workflow template",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "workflow-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/platform/logs": {
       "get": {
         "operationId": "ApiLogsController_list",
@@ -4782,6 +4923,23 @@
           "to": {
             "type": "string",
             "example": "Blocked"
+          },
+          "allowedRoles": {
+            "type": "array",
+            "description": "Condition: who may trigger this transition. Omit/empty for \"anyone\" (default).",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PlatformAdmin",
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          },
+          "requireComment": {
+            "type": "boolean",
+            "description": "Validator: the task must already have a comment before this transition is allowed."
           }
         },
         "required": [
@@ -4963,6 +5121,10 @@
           "toStatus": {
             "type": "string",
             "description": "Required, only meaningful, for StatusChanged"
+          },
+          "fromStatus": {
+            "type": "string",
+            "description": "Optional, only meaningful for StatusChanged - further scopes the trigger from \"any status -> toStatus\" to \"fromStatus -> toStatus\" (a specific workflow transition edge)"
           }
         },
         "required": [
@@ -5000,7 +5162,9 @@
               "SetPriority",
               "SetAssignee",
               "AddLabels",
-              "AddComment"
+              "AddComment",
+              "Webhook",
+              "NotifyRole"
             ]
           },
           "value": {
@@ -5411,7 +5575,8 @@
                 "TaskAssigned",
                 "StatusChanged",
                 "CommentAdded",
-                "DueSoon"
+                "DueSoon",
+                "Automation"
               ]
             }
           }
@@ -5509,6 +5674,42 @@
           "scope",
           "query"
         ]
+      },
+      "CreateWorkflowTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Bug Tracking"
+          },
+          "description": {
+            "type": "string",
+            "example": "Todo -> In Progress -> Needs QA -> Done"
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/PutWorkflowDto"
+          }
+        },
+        "required": [
+          "name",
+          "workflow"
+        ]
+      },
+      "UpdateWorkflowTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Bug Tracking"
+          },
+          "description": {
+            "type": "string",
+            "example": "Todo -> In Progress -> Needs QA -> Done"
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/PutWorkflowDto"
+          }
+        }
       }
     }
   }

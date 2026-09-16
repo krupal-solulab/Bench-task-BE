@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { Role } from 'src/common/enums/role.enum';
 import { ProjectStatus } from 'src/common/enums/project-status.enum';
 import { StatusCategory } from 'src/common/enums/status-category.enum';
@@ -109,17 +109,21 @@ describe('TasksService', () => {
       | 'getAccessibleProjectIds'
       | 'getOrAssignKey'
       | 'nextIssueNumber'
+      | 'membersWithRole'
     >
   >;
   let sprintsService: jest.Mocked<Pick<SprintsService, 'getActiveOrThrow'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
   let notificationsService: jest.Mocked<
-    Pick<NotificationsService, 'notifyTaskAssigned' | 'notifyStatusChanged'>
+    Pick<
+      NotificationsService,
+      'notifyTaskAssigned' | 'notifyStatusChanged' | 'notifyAutomationRole'
+    >
   >;
   let eventsGateway: jest.Mocked<
     Pick<EventsGateway, 'emitTaskStatusChanged' | 'emitCommentCreated'>
   >;
-  let commentModel: { create: jest.Mock };
+  let commentModel: { create: jest.Mock; exists: jest.Mock };
   let service: TasksService;
 
   beforeEach(() => {
@@ -146,15 +150,20 @@ describe('TasksService', () => {
       getAccessibleProjectIds: jest.fn(),
       getOrAssignKey: jest.fn().mockResolvedValue('PRJ'),
       nextIssueNumber: jest.fn().mockResolvedValue(1),
+      membersWithRole: jest.fn().mockResolvedValue([]),
     };
     sprintsService = { getActiveOrThrow: jest.fn() };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
     notificationsService = {
       notifyTaskAssigned: jest.fn().mockResolvedValue(undefined),
       notifyStatusChanged: jest.fn().mockResolvedValue(undefined),
+      notifyAutomationRole: jest.fn().mockResolvedValue(undefined),
     };
     eventsGateway = { emitTaskStatusChanged: jest.fn(), emitCommentCreated: jest.fn() };
-    commentModel = { create: jest.fn().mockResolvedValue({ id: 'comment-1' }) };
+    commentModel = {
+      create: jest.fn().mockResolvedValue({ id: 'comment-1' }),
+      exists: jest.fn().mockResolvedValue(null),
+    };
     service = new TasksService(
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
@@ -241,6 +250,43 @@ describe('TasksService', () => {
 
       await service.create(
         { title: 'x', project: PROJECT_ID, priority: 'P2' } as never,
+        makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+      );
+
+      expect(tasksRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'Backlog', statusCategory: StatusCategory.TODO }),
+      );
+    });
+
+    it('with no workflowsByType override for the created issueType, falls back to the project default (regression)', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ workflow: null, workflowsByType: [] }),
+      );
+      tasksRepository.create.mockResolvedValue(makeTask({ id: 'task-1' }));
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ id: 'task-1' }));
+
+      await service.create(
+        { title: 'x', project: PROJECT_ID, priority: 'P2', issueType: IssueType.BUG } as never,
+        makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+      );
+
+      expect(tasksRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ status: TaskStatus.TODO, statusCategory: StatusCategory.TODO }),
+      );
+    });
+
+    it("uses that issue type's workflowsByType override initial status when configured", async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          workflow: null,
+          workflowsByType: [{ issueType: IssueType.BUG, workflow: CUSTOM_WORKFLOW }],
+        }),
+      );
+      tasksRepository.create.mockResolvedValue(makeTask({ id: 'task-1' }));
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ id: 'task-1' }));
+
+      await service.create(
+        { title: 'x', project: PROJECT_ID, priority: 'P2', issueType: IssueType.BUG } as never,
         makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
       );
 
@@ -946,6 +992,161 @@ describe('TasksService', () => {
         }),
       );
     });
+
+    it("with an issueType override, resolves that type's own workflow (not the project default)", async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: 'Backlog', issueType: IssueType.BUG }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          workflow: null,
+          workflowsByType: [{ issueType: IssueType.BUG, workflow: CUSTOM_WORKFLOW }],
+        }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: 'Building' }));
+
+      await service.updateStatus('task-1', 'Building', makeUser({ role: Role.ADMIN }));
+
+      expect(tasksRepository.updateById).toHaveBeenCalledWith(
+        'task-1',
+        expect.objectContaining({ status: 'Building' }),
+      );
+    });
+
+    it('with no override for that issueType, falls back to the project default workflow (regression)', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.TODO, issueType: IssueType.STORY }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          workflow: null,
+          workflowsByType: [{ issueType: IssueType.BUG, workflow: CUSTOM_WORKFLOW }],
+        }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.IN_PROGRESS }));
+
+      await service.updateStatus('task-1', TaskStatus.IN_PROGRESS, makeUser({ role: Role.ADMIN }));
+
+      expect(tasksRepository.updateById).toHaveBeenCalledWith(
+        'task-1',
+        expect.objectContaining({ status: TaskStatus.IN_PROGRESS }),
+      );
+    });
+  });
+
+  describe('updateStatus - transition Conditions & Validators', () => {
+    const ROLE_GATED_WORKFLOW: Workflow = {
+      statuses: CUSTOM_WORKFLOW.statuses,
+      transitions: [
+        { from: 'Backlog', to: 'Building' },
+        { from: 'Building', to: 'Shipped', allowedRoles: [Role.ADMIN, Role.MANAGER] },
+      ],
+      initialStatus: 'Backlog',
+    };
+    const COMMENT_GATED_WORKFLOW: Workflow = {
+      statuses: CUSTOM_WORKFLOW.statuses,
+      transitions: [
+        { from: 'Backlog', to: 'Building' },
+        { from: 'Building', to: 'Shipped', requireComment: true },
+      ],
+      initialStatus: 'Backlog',
+    };
+
+    it('a transition with neither allowedRoles nor requireComment set behaves exactly as before (regression)', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ status: 'Building' }));
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ workflow: CUSTOM_WORKFLOW }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: 'Shipped' }));
+
+      await expect(
+        service.updateStatus('task-1', 'Shipped', makeUser({ role: Role.ADMIN })),
+      ).resolves.toBeDefined();
+      expect(commentModel.exists).not.toHaveBeenCalled();
+    });
+
+    it('Condition: rejects a transition when the acting role is not among allowedRoles', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: 'Building', assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ workflow: ROLE_GATED_WORKFLOW }),
+      );
+
+      await expect(
+        service.updateStatus('task-1', 'Shipped', makeUser({ id: DEV_ID, role: Role.DEVELOPER })),
+      ).rejects.toThrow(ForbiddenException);
+      expect(tasksRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('Condition: accepts a transition when the acting role is among allowedRoles', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ status: 'Building' }));
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ workflow: ROLE_GATED_WORKFLOW }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: 'Shipped' }));
+
+      await expect(
+        service.updateStatus('task-1', 'Shipped', makeUser({ role: Role.ADMIN })),
+      ).resolves.toBeDefined();
+    });
+
+    it('Validator: rejects a transition requiring a comment when the task has none', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ status: 'Building' }));
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ workflow: COMMENT_GATED_WORKFLOW }),
+      );
+      commentModel.exists.mockResolvedValue(null);
+
+      await expect(
+        service.updateStatus('task-1', 'Shipped', makeUser({ role: Role.ADMIN })),
+      ).rejects.toThrow(BadRequestException);
+      expect(tasksRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('Validator: accepts a transition requiring a comment when one already exists', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ status: 'Building' }));
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ workflow: COMMENT_GATED_WORKFLOW }),
+      );
+      commentModel.exists.mockResolvedValue({ _id: 'c-1' });
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: 'Shipped' }));
+
+      await expect(
+        service.updateStatus('task-1', 'Shipped', makeUser({ role: Role.ADMIN })),
+      ).resolves.toBeDefined();
+    });
+
+    it('an automation-driven transition bypasses both a role Condition and a comment Validator', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ status: 'Building' }));
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          workflow: {
+            statuses: CUSTOM_WORKFLOW.statuses,
+            transitions: [
+              { from: 'Backlog', to: 'Building' },
+              {
+                from: 'Building',
+                to: 'Shipped',
+                allowedRoles: [Role.ADMIN],
+                requireComment: true,
+              },
+            ],
+            initialStatus: 'Backlog',
+          },
+        }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: 'Shipped' }));
+
+      await expect(
+        service.updateStatus('task-1', 'Shipped', makeUser({ id: DEV_ID, role: Role.DEVELOPER }), {
+          bypassPermission: true,
+          viaRuleId: 'r-1',
+          viaRuleName: 'Auto-ship',
+        }),
+      ).resolves.toBeDefined();
+      expect(commentModel.exists).not.toHaveBeenCalled();
+    });
   });
 
   describe('updateAssignee', () => {
@@ -1186,6 +1387,122 @@ describe('TasksService', () => {
       // change = 2 updateById calls). If chaining were possible, rule 2 firing on the resulting
       // Review status would add a 3rd (AddLabels) update call.
       expect(tasksRepository.updateById).toHaveBeenCalledTimes(2);
+    });
+
+    it('a Webhook action logs the target URL and never makes a network call', async () => {
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+      const project = makeProject({
+        automationRules: [
+          {
+            id: 'r-1',
+            name: 'Notify external system',
+            enabled: true,
+            trigger: { type: AutomationTriggerType.STATUS_CHANGED, toStatus: TaskStatus.DONE },
+            conditions: [],
+            actions: [{ type: AutomationActionType.WEBHOOK, value: 'https://example.com/hook' }],
+          },
+        ],
+      });
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.REVIEW, assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.DONE }));
+
+      await service.updateStatus(
+        'task-1',
+        TaskStatus.DONE,
+        makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+      );
+
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('https://example.com/hook'));
+      // Only the human-initiated status change persisted - the webhook action never calls
+      // updateById (it never touches the task at all).
+      expect(tasksRepository.updateById).toHaveBeenCalledTimes(1);
+      logSpy.mockRestore();
+    });
+
+    it('a NotifyRole action in-app-notifies every project member holding that role', async () => {
+      const project = makeProject({
+        automationRules: [
+          {
+            id: 'r-1',
+            name: 'Ping managers on Done',
+            enabled: true,
+            trigger: { type: AutomationTriggerType.STATUS_CHANGED, toStatus: TaskStatus.DONE },
+            conditions: [],
+            actions: [{ type: AutomationActionType.NOTIFY_ROLE, value: Role.MANAGER }],
+          },
+        ],
+      });
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.REVIEW, assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      projectsService.membersWithRole.mockResolvedValue([
+        { id: MANAGER_ID } as never,
+        { id: OTHER_DEV_ID } as never,
+      ]);
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.DONE }));
+
+      await service.updateStatus(
+        'task-1',
+        TaskStatus.DONE,
+        makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+      );
+
+      expect(projectsService.membersWithRole).toHaveBeenCalledWith(project, Role.MANAGER);
+      expect(notificationsService.notifyAutomationRole).toHaveBeenCalledTimes(2);
+      expect(notificationsService.notifyAutomationRole).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: MANAGER_ID, ruleName: 'Ping managers on Done' }),
+      );
+      expect(notificationsService.notifyAutomationRole).toHaveBeenCalledWith(
+        expect.objectContaining({ recipientId: OTHER_DEV_ID }),
+      );
+    });
+
+    it('with fromStatus scoping, a StatusChanged rule only fires from the configured source status', async () => {
+      // Task jumps straight from Todo to Done via a custom workflow, bypassing Review - the rule
+      // must not fire since the event's fromStatus (Todo) doesn't match the rule's (Review).
+      const directWorkflow: Workflow = {
+        statuses: [
+          { name: TaskStatus.TODO, category: StatusCategory.TODO },
+          { name: TaskStatus.DONE, category: StatusCategory.DONE },
+        ],
+        transitions: [{ from: TaskStatus.TODO, to: TaskStatus.DONE }],
+        initialStatus: TaskStatus.TODO,
+      };
+      const project = makeProject({
+        workflow: directWorkflow,
+        automationRules: [
+          {
+            id: 'r-1',
+            name: 'Only from Review',
+            enabled: true,
+            trigger: {
+              type: AutomationTriggerType.STATUS_CHANGED,
+              toStatus: TaskStatus.DONE,
+              fromStatus: TaskStatus.REVIEW,
+            },
+            conditions: [],
+            actions: [{ type: AutomationActionType.ADD_LABELS, value: 'shipped' }],
+          },
+        ],
+      });
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.TODO, assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.DONE }));
+
+      await service.updateStatus(
+        'task-1',
+        TaskStatus.DONE,
+        makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
+      );
+
+      // Only the human-initiated status change persisted - the fromStatus-scoped rule never fired.
+      expect(tasksRepository.updateById).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -14,7 +14,7 @@ import { extractId } from '../../common/utils/mongo.util';
 import { requireOrgId } from '../../common/utils/auth-user.util';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
-import { Role } from '../../common/enums/role.enum';
+import { ORG_ROLES, OrgRole, Role } from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
 import { IssueType, IssueTypeLevel } from '../../common/enums/issue-type.enum';
@@ -31,7 +31,12 @@ import { ProjectsRepository } from './projects.repository';
 import { ProjectDocument } from './schemas/project.schema';
 import { ProjectActivityAction } from './schemas/project-activity.schema';
 import { isLegalProjectTransition, legalProjectTransitions } from './project-status.rules';
-import { DEFAULT_WORKFLOW, Workflow, resolveWorkflow } from './schemas/workflow.schema';
+import {
+  DEFAULT_WORKFLOW,
+  Workflow,
+  resolveWorkflow,
+  assertValidWorkflowShape,
+} from './schemas/workflow.schema';
 import {
   GrantableCapability,
   MemberPermissions,
@@ -519,17 +524,27 @@ export class ProjectsService {
     return this.projectsRepository.incrementIssueSeq(projectId);
   }
 
-  /** The project's effective workflow - its own custom one, or the system default. */
-  async getWorkflow(id: string, actingUser: AuthenticatedUser): Promise<Workflow> {
+  /**
+   * The project's effective workflow - its own custom one, or the system default. When
+   * `issueType` is given, returns that type's override if configured, else the same project-wide
+   * fallback. Omitting `issueType` (every call site that existed before per-issue-type workflows)
+   * is byte-identical to before this feature existed.
+   */
+  async getWorkflow(
+    id: string,
+    actingUser: AuthenticatedUser,
+    issueType?: string,
+  ): Promise<Workflow> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanView(project, actingUser);
-    return resolveWorkflow(project);
+    return resolveWorkflow(project, issueType);
   }
 
   async updateWorkflow(
     id: string,
     dto: PutWorkflowDto,
     actingUser: AuthenticatedUser,
+    issueType?: string,
   ): Promise<Workflow> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
@@ -543,17 +558,48 @@ export class ProjectsService {
     await this.assertNoOrphanedTaskStatuses(
       project,
       workflow.statuses.map((s) => s.name),
+      issueType,
     );
 
-    await this.projectsRepository.updateById(id, { workflow });
+    if (issueType) {
+      const workflowsByType = project.workflowsByType.filter((w) => w.issueType !== issueType);
+      workflowsByType.push({ issueType, workflow });
+      await this.projectsRepository.updateById(id, { workflowsByType });
+    } else {
+      await this.projectsRepository.updateById(id, { workflow });
+    }
     await this.invalidateDashboardCache();
     return workflow;
   }
 
-  /** Reverts a project to the system default workflow. */
-  async resetWorkflow(id: string, actingUser: AuthenticatedUser): Promise<Workflow> {
+  /**
+   * Reverts a project (or, with `issueType`, just that one issue type) to its fallback workflow -
+   * the system default for the project-wide case, or the project's own workflow (custom or
+   * default) for a per-type reset. Omitting `issueType` is byte-identical to before this feature.
+   */
+  async resetWorkflow(
+    id: string,
+    actingUser: AuthenticatedUser,
+    issueType?: string,
+  ): Promise<Workflow> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+
+    if (issueType) {
+      const hasOverride = project.workflowsByType.some((w) => w.issueType === issueType);
+      const fallback = resolveWorkflow(project);
+      if (!hasOverride) return fallback;
+
+      await this.assertNoOrphanedTaskStatuses(
+        project,
+        fallback.statuses.map((s) => s.name),
+        issueType,
+      );
+      const workflowsByType = project.workflowsByType.filter((w) => w.issueType !== issueType);
+      await this.projectsRepository.updateById(id, { workflowsByType });
+      await this.invalidateDashboardCache();
+      return fallback;
+    }
 
     if (!project.workflow) return DEFAULT_WORKFLOW;
 
@@ -777,6 +823,11 @@ export class ProjectsService {
           `"${dto.trigger.toStatus}" is not a status in this project's workflow`,
         );
       }
+      if (dto.trigger.fromStatus && !statusNames.includes(dto.trigger.fromStatus)) {
+        throw new BadRequestException(
+          `"${dto.trigger.fromStatus}" is not a status in this project's workflow`,
+        );
+      }
     }
 
     for (const condition of dto.conditions) {
@@ -819,27 +870,20 @@ export class ProjectsService {
       if (action.type === AutomationActionType.SET_ASSIGNEE && !memberIds.has(action.value)) {
         throw new BadRequestException(`"${action.value}" is not a member of this project`);
       }
+      if (
+        action.type === AutomationActionType.NOTIFY_ROLE &&
+        !ORG_ROLES.includes(action.value as OrgRole)
+      ) {
+        throw new BadRequestException(`"${action.value}" is not a valid role`);
+      }
+      if (action.type === AutomationActionType.WEBHOOK && !/^https?:\/\/.+/.test(action.value)) {
+        throw new BadRequestException('Webhook value must be a valid http(s) URL');
+      }
     }
   }
 
   private assertValidWorkflow(workflow: Workflow): void {
-    if (workflow.statuses.length === 0) {
-      throw new BadRequestException('A workflow needs at least one status');
-    }
-    const names = workflow.statuses.map((s) => s.name);
-    if (new Set(names).size !== names.length) {
-      throw new BadRequestException('Status names must be unique');
-    }
-    if (!names.includes(workflow.initialStatus)) {
-      throw new BadRequestException("initialStatus must be one of the workflow's statuses");
-    }
-    for (const t of workflow.transitions) {
-      if (!names.includes(t.from) || !names.includes(t.to)) {
-        throw new BadRequestException(
-          `Transition ${t.from} -> ${t.to} references a status that isn't in this workflow`,
-        );
-      }
-    }
+    assertValidWorkflowShape(workflow);
   }
 
   /**
@@ -849,11 +893,13 @@ export class ProjectsService {
   private async assertNoOrphanedTaskStatuses(
     project: ProjectDocument,
     validNames: string[],
+    issueType?: string,
   ): Promise<void> {
     const orphaned: string[] = await this.taskModel.distinct('status', {
       project: project._id,
       deletedAt: null,
       status: { $nin: validNames },
+      ...(issueType ? { issueType } : {}),
     });
     if (orphaned.length > 0) {
       throw new ConflictException(
@@ -957,6 +1003,18 @@ export class ProjectsService {
 
   isProjectMember(project: ProjectDocument, userId: string): boolean {
     return this.projectsRepository.isMember(project, userId);
+  }
+
+  /** Every project member (owner + members) whose global role matches - used by the automation
+   * engine's NotifyRole post-function action. An empty result (nobody currently holds that role)
+   * is a safe, silent no-op for the caller, not an error. */
+  async membersWithRole(project: ProjectDocument, role: Role): Promise<UserDocument[]> {
+    const memberIds = [extractId(project.owner), ...project.members.map((m) => extractId(m.user))];
+    const users = await this.usersRepository.findByIds(
+      memberIds,
+      extractId(project.organizationId),
+    );
+    return users.filter((u) => u.role === role);
   }
 
   private buildScopeFilter(actingUser: AuthenticatedUser) {

@@ -50,6 +50,7 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     components: [],
     customFields: [],
     automationRules: [],
+    workflowsByType: [],
     permissionSchemeId: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -558,6 +559,37 @@ describe('ProjectsService', () => {
 
       expect(workflow).toEqual(custom);
     });
+
+    it('with an issueType, returns the project default when that type has no override (regression)', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ workflow: null }));
+
+      const workflow = await service.getWorkflow(
+        'project-1',
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(workflow).toEqual(DEFAULT_WORKFLOW);
+    });
+
+    it("with an issueType, returns that type's own override when configured", async () => {
+      const bugWorkflow = {
+        statuses: [{ name: 'Triage', category: StatusCategory.TODO }],
+        transitions: [],
+        initialStatus: 'Triage',
+      };
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({ workflowsByType: [{ issueType: 'Bug', workflow: bugWorkflow }] }),
+      );
+
+      const workflow = await service.getWorkflow(
+        'project-1',
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(workflow).toEqual(bugWorkflow);
+    });
   });
 
   describe('updateWorkflow', () => {
@@ -641,6 +673,46 @@ describe('ProjectsService', () => {
         workflow: validDto,
       });
     });
+
+    it('with an issueType, saves into workflowsByType instead of the project-wide workflow', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ workflowsByType: [] }));
+      taskModel.distinct.mockResolvedValue([]);
+      projectsRepository.updateById.mockResolvedValue(
+        makeProject({ workflowsByType: [{ issueType: 'Bug', workflow: validDto }] }),
+      );
+
+      const result = await service.updateWorkflow(
+        'project-1',
+        validDto,
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(result).toEqual(validDto);
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        workflowsByType: [{ issueType: 'Bug', workflow: validDto }],
+      });
+      // Scopes the orphan check to that issue type only.
+      expect(taskModel.distinct).toHaveBeenCalledWith(
+        'status',
+        expect.objectContaining({ issueType: 'Bug' }),
+      );
+    });
+
+    it('with an issueType, replaces an existing override for that type rather than duplicating it', async () => {
+      const oldWorkflow = { statuses: [], transitions: [], initialStatus: 'Old' };
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({ workflowsByType: [{ issueType: 'Bug', workflow: oldWorkflow }] }),
+      );
+      taskModel.distinct.mockResolvedValue([]);
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateWorkflow('project-1', validDto, makeUser({ role: Role.ADMIN }), 'Bug');
+
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        workflowsByType: [{ issueType: 'Bug', workflow: validDto }],
+      });
+    });
   });
 
   describe('resetWorkflow', () => {
@@ -687,6 +759,44 @@ describe('ProjectsService', () => {
 
       expect(result).toEqual(DEFAULT_WORKFLOW);
       expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', { workflow: null });
+    });
+
+    it('with an issueType that has no override, is a no-op returning the project fallback', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({ workflow: null, workflowsByType: [] }),
+      );
+
+      const result = await service.resetWorkflow(
+        'project-1',
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(result).toEqual(DEFAULT_WORKFLOW);
+      expect(projectsRepository.updateById).not.toHaveBeenCalled();
+    });
+
+    it('with an issueType that has an override, removes just that entry and returns the fallback', async () => {
+      const bugWorkflow = { statuses: [], transitions: [], initialStatus: 'X' };
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          workflow: null,
+          workflowsByType: [{ issueType: 'Bug', workflow: bugWorkflow }],
+        }),
+      );
+      taskModel.distinct.mockResolvedValue([]);
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      const result = await service.resetWorkflow(
+        'project-1',
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(result).toEqual(DEFAULT_WORKFLOW);
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        workflowsByType: [],
+      });
     });
   });
 

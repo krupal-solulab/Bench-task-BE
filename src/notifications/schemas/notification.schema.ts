@@ -8,6 +8,8 @@ export enum NotificationType {
   STATUS_CHANGED = 'StatusChanged',
   COMMENT_ADDED = 'CommentAdded',
   DUE_SOON = 'DueSoon',
+  // Sent by an automation rule's NotifyRole post-function action (Workflow Engine v2).
+  AUTOMATION = 'Automation',
 }
 
 export const NOTIFICATION_TYPES = Object.values(NotificationType);
