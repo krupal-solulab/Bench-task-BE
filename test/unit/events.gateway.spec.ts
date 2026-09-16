@@ -169,7 +169,7 @@ describe('EventsGateway', () => {
   });
 
   describe('handleConnection', () => {
-    it('joins the org room for an authenticated user (auth already done by the middleware)', () => {
+    it('joins the org room and a personal room for an authenticated user (auth already done by the middleware)', () => {
       const client = makeSocket('valid-token');
       client.data.user = {
         id: 'user-1',
@@ -181,9 +181,10 @@ describe('EventsGateway', () => {
       gateway.handleConnection(client);
 
       expect(client.join).toHaveBeenCalledWith('org:org-1');
+      expect(client.join).toHaveBeenCalledWith('user:user-1');
     });
 
-    it('joins no org room for a PlatformAdmin (null organizationId)', () => {
+    it('joins no org room for a PlatformAdmin (null organizationId), but still joins their personal room', () => {
       const client = makeSocket('valid-token');
       client.data.user = {
         id: 'platform-1',
@@ -194,7 +195,8 @@ describe('EventsGateway', () => {
 
       gateway.handleConnection(client);
 
-      expect(client.join).not.toHaveBeenCalled();
+      expect(client.join).not.toHaveBeenCalledWith(expect.stringMatching(/^org:/));
+      expect(client.join).toHaveBeenCalledWith('user:platform-1');
     });
   });
 

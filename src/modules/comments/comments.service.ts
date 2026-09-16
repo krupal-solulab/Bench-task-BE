@@ -9,6 +9,7 @@ import { TasksRepository } from '../tasks/tasks.repository';
 import { TaskDocument } from '../tasks/schemas/task.schema';
 import { ProjectsService } from '../projects/projects.service';
 import { EventsGateway } from '../../events/events.gateway';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { CommentsRepository } from './comments.repository';
 import { CommentDocument } from './schemas/comment.schema';
 
@@ -19,6 +20,7 @@ export class CommentsService {
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
     private readonly eventsGateway: EventsGateway,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(
@@ -26,7 +28,7 @@ export class CommentsService {
     body: string,
     actingUser: AuthenticatedUser,
   ): Promise<CommentDocument> {
-    const { projectId } = await this.assertTaskMember(taskId, actingUser);
+    const { task, projectId } = await this.assertTaskMember(taskId, actingUser);
     const comment = await this.commentsRepository.create({
       task: new Types.ObjectId(taskId),
       author: new Types.ObjectId(actingUser.id),
@@ -43,6 +45,16 @@ export class CommentsService {
       });
     } catch {
       // Best-effort real-time push; a delivery failure here must never fail comment creation.
+    }
+
+    if (task.assignee) {
+      await this.notificationsService.notifyCommentAdded({
+        taskId,
+        taskTitle: task.title,
+        assigneeId: extractId(task.assignee),
+        actorId: actingUser.id,
+        commentAuthorName: actingUser.email,
+      });
     }
 
     return created;

@@ -6,6 +6,7 @@ import { CommentsRepository } from 'src/modules/comments/comments.repository';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
 import { ProjectsService } from 'src/modules/projects/projects.service';
 import { EventsGateway } from 'src/events/events.gateway';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 const ORG_A = 'org-a';
 const ORG_B = 'org-b';
@@ -59,6 +60,7 @@ describe('CommentsService', () => {
     Pick<ProjectsService, 'getActiveProjectOrThrow' | 'isProjectMember'>
   >;
   let eventsGateway: jest.Mocked<Pick<EventsGateway, 'emitCommentCreated'>>;
+  let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifyCommentAdded'>>;
   let service: CommentsService;
 
   beforeEach(() => {
@@ -72,11 +74,13 @@ describe('CommentsService', () => {
     tasksRepository = { findRawById: jest.fn() };
     projectsService = { getActiveProjectOrThrow: jest.fn(), isProjectMember: jest.fn() };
     eventsGateway = { emitCommentCreated: jest.fn() };
+    notificationsService = { notifyCommentAdded: jest.fn().mockResolvedValue(undefined) };
     service = new CommentsService(
       commentsRepository as unknown as CommentsRepository,
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
       eventsGateway as unknown as EventsGateway,
+      notificationsService as unknown as NotificationsService,
     );
   });
 
@@ -154,6 +158,41 @@ describe('CommentsService', () => {
 
       const result = await service.create(TASK_ID, 'hello', member);
       expect(result.id).toBe('comment-1');
+    });
+
+    it("notifies the task's assignee when someone else comments (new in this phase)", async () => {
+      const member = makeUser({ id: MEMBER_ID });
+      tasksRepository.findRawById.mockResolvedValue(
+        makeRawTask({ title: 'Fix the bug', assignee: { toString: () => 'assignee-1' } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue({ id: 'project-1' } as never);
+      projectsService.isProjectMember.mockReturnValue(true);
+      commentsRepository.create.mockResolvedValue({ id: 'comment-1' } as never);
+      commentsRepository.findByIdActive.mockResolvedValue(makeComment({ id: 'comment-1' }));
+
+      await service.create(TASK_ID, 'hello', member);
+
+      expect(notificationsService.notifyCommentAdded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          taskId: TASK_ID,
+          taskTitle: 'Fix the bug',
+          assigneeId: 'assignee-1',
+          actorId: MEMBER_ID,
+        }),
+      );
+    });
+
+    it('does not call notifyCommentAdded for an unassigned task (regression)', async () => {
+      const member = makeUser({ id: MEMBER_ID });
+      tasksRepository.findRawById.mockResolvedValue(makeRawTask());
+      projectsService.getActiveProjectOrThrow.mockResolvedValue({ id: 'project-1' } as never);
+      projectsService.isProjectMember.mockReturnValue(true);
+      commentsRepository.create.mockResolvedValue({ id: 'comment-1' } as never);
+      commentsRepository.findByIdActive.mockResolvedValue(makeComment({ id: 'comment-1' }));
+
+      await service.create(TASK_ID, 'hello', member);
+
+      expect(notificationsService.notifyCommentAdded).not.toHaveBeenCalled();
     });
   });
 

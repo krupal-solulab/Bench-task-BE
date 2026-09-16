@@ -112,7 +112,9 @@ describe('TasksService', () => {
   >;
   let sprintsService: jest.Mocked<Pick<SprintsService, 'getActiveOrThrow'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
-  let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifyTaskAssigned'>>;
+  let notificationsService: jest.Mocked<
+    Pick<NotificationsService, 'notifyTaskAssigned' | 'notifyStatusChanged'>
+  >;
   let eventsGateway: jest.Mocked<
     Pick<EventsGateway, 'emitTaskStatusChanged' | 'emitCommentCreated'>
   >;
@@ -145,7 +147,10 @@ describe('TasksService', () => {
     };
     sprintsService = { getActiveOrThrow: jest.fn() };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
-    notificationsService = { notifyTaskAssigned: jest.fn().mockResolvedValue(undefined) };
+    notificationsService = {
+      notifyTaskAssigned: jest.fn().mockResolvedValue(undefined),
+      notifyStatusChanged: jest.fn().mockResolvedValue(undefined),
+    };
     eventsGateway = { emitTaskStatusChanged: jest.fn(), emitCommentCreated: jest.fn() };
     commentModel = { create: jest.fn().mockResolvedValue({ id: 'comment-1' }) };
     service = new TasksService(

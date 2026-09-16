@@ -12,3 +12,8 @@ export interface CommentCreatedEvent {
   commentId: string;
   authorId: string;
 }
+
+export interface NotificationCreatedEvent {
+  recipientId: string;
+  notificationId: string;
+}

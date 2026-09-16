@@ -319,6 +319,17 @@ export class TasksService {
       // Best-effort real-time push; a delivery failure here must never fail the status update.
     }
 
+    if (task.assignee) {
+      await this.notificationsService.notifyStatusChanged({
+        taskId: id,
+        taskTitle: task.title,
+        assigneeId: extractId(task.assignee),
+        actorId: actingUser.id,
+        fromStatus: task.status,
+        toStatus: status,
+      });
+    }
+
     // Only a human-initiated status change fires automations - an automation's own status change
     // (automation is set) never re-evaluates rules, which is what makes chaining impossible.
     if (!automation) {

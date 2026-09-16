@@ -1,8 +1,17 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Types } from 'mongoose';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { extractId } from '../common/utils/mongo.util';
+import { buildPaginationMeta } from '../common/utils/pagination.util';
 import { UsersRepository } from '../modules/users/users.repository';
+import { UserDocument } from '../modules/users/schemas/user.schema';
+import { EventsGateway } from '../events/events.gateway';
 import { EMAIL_SERVICE } from './email.constants';
 import { IEmailService } from './email.interface';
+import { NotificationsRepository } from './notifications.repository';
+import { NotificationDocument, NotificationType } from './schemas/notification.schema';
+import { ListNotificationsDto } from './dto/list-notifications.dto';
+import { PutNotificationPreferenceDto } from './dto/put-notification-preference.dto';
 
 export interface TaskAssignedNotification {
   taskId: string;
@@ -18,22 +27,46 @@ export interface TaskDueSoonNotification {
   dueDate: Date;
 }
 
+export interface StatusChangedNotification {
+  taskId: string;
+  taskTitle: string;
+  assigneeId: string;
+  actorId: string;
+  fromStatus: string;
+  toStatus: string;
+}
+
+export interface CommentAddedNotification {
+  taskId: string;
+  taskTitle: string;
+  assigneeId: string;
+  actorId: string;
+  commentAuthorName: string;
+}
+
 /**
- * Every method here swallows its own failures (a bad assignee id, the email transport
- * throwing, ...) and logs a warning instead of rejecting - notifications are a courtesy, never
- * something that should break task creation/reassignment or the due-date reminder cron.
+ * Every email-sending method here swallows its own failures (a bad assignee id, the email
+ * transport throwing, ...) and logs a warning instead of rejecting - notifications are a
+ * courtesy, never something that should break task creation/reassignment or the due-date
+ * reminder cron. The in-app notification row each method now also writes follows the same
+ * contract: a failure to write it or to push it over the socket never fails the caller.
  */
 @Injectable()
 export class NotificationsService {
   constructor(
     @Inject(EMAIL_SERVICE) private readonly emailService: IEmailService,
     private readonly usersRepository: UsersRepository,
+    private readonly notificationsRepository: NotificationsRepository,
+    private readonly eventsGateway: EventsGateway,
     @InjectPinoLogger(NotificationsService.name) private readonly logger: PinoLogger,
   ) {}
 
   async notifyTaskAssigned(notification: TaskAssignedNotification): Promise<void> {
+    // The lookup + email send are wrapped exactly as before this phase - a failure anywhere in
+    // here (including the lookup itself) is swallowed, never breaking task creation/reassignment.
+    let assignee: UserDocument | null = null;
     try {
-      const assignee = await this.usersRepository.findById(notification.assigneeId);
+      assignee = await this.usersRepository.findById(notification.assigneeId);
       if (!assignee) return;
       await this.emailService.send({
         to: assignee.email,
@@ -52,11 +85,22 @@ export class NotificationsService {
         'failed to send task-assigned notification, ignoring',
       );
     }
+    if (!assignee) return;
+
+    await this.createInAppNotification(
+      notification.assigneeId,
+      extractId(assignee.organizationId),
+      NotificationType.TASK_ASSIGNED,
+      'Assigned to you',
+      `You were assigned "${notification.taskTitle}"`,
+      { taskId: notification.taskId },
+    );
   }
 
   async notifyTaskDueSoon(notification: TaskDueSoonNotification): Promise<void> {
+    let assignee: UserDocument | null = null;
     try {
-      const assignee = await this.usersRepository.findById(notification.assigneeId);
+      assignee = await this.usersRepository.findById(notification.assigneeId);
       if (!assignee) return;
       await this.emailService.send({
         to: assignee.email,
@@ -73,6 +117,150 @@ export class NotificationsService {
       this.logger.warn(
         { err, taskId: notification.taskId },
         'failed to send task-due-soon notification, ignoring',
+      );
+    }
+    if (!assignee) return;
+
+    await this.createInAppNotification(
+      notification.assigneeId,
+      extractId(assignee.organizationId),
+      NotificationType.DUE_SOON,
+      'Due soon',
+      `"${notification.taskTitle}" is due soon`,
+      { taskId: notification.taskId },
+    );
+  }
+
+  async notifyStatusChanged(notification: StatusChangedNotification): Promise<void> {
+    if (notification.assigneeId === notification.actorId) return;
+    let assignee: UserDocument | null = null;
+    try {
+      assignee = await this.usersRepository.findById(notification.assigneeId);
+    } catch (err) {
+      this.logger.warn(
+        { err, taskId: notification.taskId },
+        'failed to look up assignee for a status-changed notification, ignoring',
+      );
+    }
+    if (!assignee) return;
+    await this.createInAppNotification(
+      notification.assigneeId,
+      extractId(assignee.organizationId),
+      NotificationType.STATUS_CHANGED,
+      'Status changed',
+      `"${notification.taskTitle}" moved from ${notification.fromStatus} to ${notification.toStatus}`,
+      { taskId: notification.taskId },
+    );
+  }
+
+  async notifyCommentAdded(notification: CommentAddedNotification): Promise<void> {
+    if (notification.assigneeId === notification.actorId) return;
+    let assignee: UserDocument | null = null;
+    try {
+      assignee = await this.usersRepository.findById(notification.assigneeId);
+    } catch (err) {
+      this.logger.warn(
+        { err, taskId: notification.taskId },
+        'failed to look up assignee for a comment-added notification, ignoring',
+      );
+    }
+    if (!assignee) return;
+    await this.createInAppNotification(
+      notification.assigneeId,
+      extractId(assignee.organizationId),
+      NotificationType.COMMENT_ADDED,
+      'New comment',
+      `${notification.commentAuthorName} commented on "${notification.taskTitle}"`,
+      { taskId: notification.taskId },
+    );
+  }
+
+  async listMine(recipientId: string, query: ListNotificationsDto) {
+    const { data, total } = await this.notificationsRepository.paginate(
+      recipientId,
+      query.page,
+      query.limit,
+      !!query.unreadOnly,
+    );
+    return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
+  }
+
+  unreadCount(recipientId: string): Promise<number> {
+    return this.notificationsRepository.countUnread(recipientId);
+  }
+
+  async markRead(id: string, recipientId: string): Promise<void> {
+    const notification = await this.getOwnedOrThrow(id, recipientId);
+    if (notification.readAt) return;
+    await this.notificationsRepository.markRead(id);
+  }
+
+  async markAllRead(recipientId: string): Promise<void> {
+    await this.notificationsRepository.markAllRead(recipientId);
+  }
+
+  async getPreferences(ownerId: string): Promise<{ mutedTypes: NotificationType[] }> {
+    const preference = await this.notificationsRepository.findPreference(ownerId);
+    return { mutedTypes: preference?.mutedTypes ?? [] };
+  }
+
+  async updatePreferences(
+    ownerId: string,
+    organizationId: string,
+    dto: PutNotificationPreferenceDto,
+  ): Promise<{ mutedTypes: NotificationType[] }> {
+    const updated = await this.notificationsRepository.upsertPreference(
+      ownerId,
+      organizationId,
+      dto.mutedTypes,
+    );
+    return { mutedTypes: updated.mutedTypes };
+  }
+
+  private async getOwnedOrThrow(id: string, recipientId: string): Promise<NotificationDocument> {
+    const notification = await this.notificationsRepository.findById(id);
+    // Never distinguish "doesn't exist" from "exists but isn't yours" - same privacy convention
+    // as Saved Filters.
+    if (!notification || extractId(notification.recipient) !== recipientId) {
+      throw new NotFoundException('Notification not found');
+    }
+    return notification;
+  }
+
+  private async createInAppNotification(
+    recipientId: string,
+    organizationId: string,
+    type: NotificationType,
+    title: string,
+    message: string,
+    refs: { taskId?: string; projectId?: string },
+  ): Promise<void> {
+    try {
+      const preference = await this.notificationsRepository.findPreference(recipientId);
+      if (preference?.mutedTypes.includes(type)) return;
+
+      const created = await this.notificationsRepository.create({
+        recipient: new Types.ObjectId(recipientId),
+        organizationId: new Types.ObjectId(organizationId),
+        type,
+        title,
+        message,
+        taskId: refs.taskId ? new Types.ObjectId(refs.taskId) : null,
+        projectId: refs.projectId ? new Types.ObjectId(refs.projectId) : null,
+      });
+
+      try {
+        this.eventsGateway.emitNotificationCreated({
+          recipientId,
+          notificationId: created.id,
+        });
+      } catch {
+        // Best-effort real-time push; a delivery failure here must never fail notification creation.
+      }
+    } catch (err) {
+      this.logger.warn(
+        { err, recipientId, type },
+        'failed to create in-app notification, ignoring',
       );
     }
   }

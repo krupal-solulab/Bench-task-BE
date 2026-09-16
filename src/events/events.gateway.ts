@@ -14,7 +14,11 @@ import { AuthenticatedUser, JwtPayload } from '../common/interfaces/jwt-payload.
 import { UsersService } from '../modules/users/users.service';
 import { OrganizationsService } from '../modules/organizations/organizations.service';
 import { ProjectsService } from '../modules/projects/projects.service';
-import { CommentCreatedEvent, TaskStatusChangedEvent } from './events.types';
+import {
+  CommentCreatedEvent,
+  NotificationCreatedEvent,
+  TaskStatusChangedEvent,
+} from './events.types';
 
 export interface AuthenticatedSocket extends Socket {
   data: { user?: AuthenticatedUser };
@@ -87,6 +91,13 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
     if (organizationId) {
       void client.join(`org:${organizationId}`);
     }
+    // A personal room (unlike org:/project: rooms, joined unconditionally - no opt-in needed)
+    // so a notification can be pushed to exactly its recipient without broadcasting to, or
+    // leaking recipient identity toward, every other connection in the organization.
+    const userId = client.data.user?.id;
+    if (userId) {
+      void client.join(`user:${userId}`);
+    }
   }
 
   @SubscribeMessage('join:project')
@@ -120,5 +131,9 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
 
   emitCommentCreated(event: CommentCreatedEvent): void {
     this.server.to(`project:${event.projectId}`).emit('comment:created', event);
+  }
+
+  emitNotificationCreated(event: NotificationCreatedEvent): void {
+    this.server.to(`user:${event.recipientId}`).emit('notification:created', event);
   }
 }
