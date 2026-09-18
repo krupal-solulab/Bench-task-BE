@@ -43,9 +43,15 @@ import {
   resolveMemberPermissions,
 } from './schemas/member-permissions.schema';
 import { PutWorkflowDto } from './dto/put-workflow.dto';
-import { CustomFieldDefinition } from './schemas/custom-field.schema';
+import {
+  CustomFieldDefinition,
+  CustomFieldOverrideByType,
+  resolveCustomFields,
+  assertValidCustomFieldOverride,
+} from './schemas/custom-field.schema';
 import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
+import { PutCustomFieldOverrideDto } from './dto/put-custom-field-override.dto';
 import { PutIssueTypesDto } from './dto/put-issue-types.dto';
 import { IssueTypeDefinition, resolveIssueTypes } from './schemas/issue-type.schema';
 import {
@@ -757,8 +763,99 @@ export class ProjectsService {
       }
     }
 
-    const updated = await this.projectsRepository.updateById(id, { customFields: definitions });
+    // Drop any now-removed field ids from per-issue-type overrides too, so a later override GET
+    // never reflects a field id that no longer exists on the project.
+    const customFieldOverridesByType = project.customFieldOverridesByType.map((o) => ({
+      issueType: o.issueType,
+      hiddenFieldIds: o.hiddenFieldIds.filter((fid) => keptIds.has(fid)),
+      requiredFieldIds: o.requiredFieldIds.filter((fid) => keptIds.has(fid)),
+      optionalFieldIds: o.optionalFieldIds.filter((fid) => keptIds.has(fid)),
+    }));
+
+    const updated = await this.projectsRepository.updateById(id, {
+      customFields: definitions,
+      customFieldOverridesByType,
+    });
     return this.toResponse(updated!);
+  }
+
+  /**
+   * The effective custom fields for a project, optionally scoped to one issue type (Custom
+   * Fields v2's per-issue-type hidden/required overrides). Omitting `issueType` returns
+   * `project.customFields` untouched - byte-identical to before this feature existed.
+   */
+  async getEffectiveCustomFields(
+    id: string,
+    actingUser: AuthenticatedUser,
+    issueType?: string,
+  ): Promise<CustomFieldDefinition[]> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+    return resolveCustomFields(project, issueType);
+  }
+
+  /** One issue type's custom field override - empty lists if none has been configured. */
+  async getCustomFieldOverride(
+    id: string,
+    actingUser: AuthenticatedUser,
+    issueType: string,
+  ): Promise<CustomFieldOverrideByType> {
+    this.assertIssueTypeGiven(issueType);
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+    const existing = project.customFieldOverridesByType.find((o) => o.issueType === issueType);
+    return (
+      existing ?? { issueType, hiddenFieldIds: [], requiredFieldIds: [], optionalFieldIds: [] }
+    );
+  }
+
+  async updateCustomFieldOverride(
+    id: string,
+    dto: PutCustomFieldOverrideDto,
+    actingUser: AuthenticatedUser,
+    issueType: string,
+  ): Promise<CustomFieldOverrideByType> {
+    this.assertIssueTypeGiven(issueType);
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const override: CustomFieldOverrideByType = {
+      issueType,
+      hiddenFieldIds: dto.hiddenFieldIds ?? [],
+      requiredFieldIds: dto.requiredFieldIds ?? [],
+      optionalFieldIds: dto.optionalFieldIds ?? [],
+    };
+    assertValidCustomFieldOverride(project.customFields, override);
+
+    const customFieldOverridesByType = project.customFieldOverridesByType.filter(
+      (o) => o.issueType !== issueType,
+    );
+    customFieldOverridesByType.push(override);
+    await this.projectsRepository.updateById(id, { customFieldOverridesByType });
+    return override;
+  }
+
+  /** Removes one issue type's override, reverting that type to the project-wide custom fields. */
+  async resetCustomFieldOverride(
+    id: string,
+    actingUser: AuthenticatedUser,
+    issueType: string,
+  ): Promise<CustomFieldOverrideByType> {
+    this.assertIssueTypeGiven(issueType);
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const customFieldOverridesByType = project.customFieldOverridesByType.filter(
+      (o) => o.issueType !== issueType,
+    );
+    await this.projectsRepository.updateById(id, { customFieldOverridesByType });
+    return { issueType, hiddenFieldIds: [], requiredFieldIds: [], optionalFieldIds: [] };
+  }
+
+  private assertIssueTypeGiven(issueType: string): void {
+    if (!issueType) {
+      throw new BadRequestException('issueType query parameter is required');
+    }
   }
 
   async updateAutomationRules(

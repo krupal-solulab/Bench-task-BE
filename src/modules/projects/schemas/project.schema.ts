@@ -2,7 +2,12 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { ProjectStatus } from '../../../common/enums/project-status.enum';
 import { MemberPermissions, MemberPermissionsSchema } from './member-permissions.schema';
-import { CustomFieldDefinition, CustomFieldDefinitionSchema } from './custom-field.schema';
+import {
+  CustomFieldDefinition,
+  CustomFieldDefinitionSchema,
+  CustomFieldOverrideByType,
+  CustomFieldOverrideByTypeSchema,
+} from './custom-field.schema';
 import { AutomationRule, AutomationRuleSchema } from './automation-rule.schema';
 import { Workflow, WorkflowSchema, WorkflowByType, WorkflowByTypeSchema } from './workflow.schema';
 import { IssueTypeDefinition, IssueTypeDefinitionSchema } from './issue-type.schema';
@@ -101,6 +106,13 @@ export class Project {
   // ProjectsService.updateCustomFields(). See custom-field.schema.ts.
   @Prop({ type: [CustomFieldDefinitionSchema], default: [] })
   customFields!: CustomFieldDefinition[];
+
+  // Per-issue-type overrides of which custom fields are hidden, or forced required/optional.
+  // Empty for every existing project until an Admin/owning Manager configures one for a specific
+  // issue type via ProjectsService.updateCustomFieldOverride(). See
+  // custom-field.schema.ts's resolveCustomFields.
+  @Prop({ type: [CustomFieldOverrideByTypeSchema], default: [] })
+  customFieldOverridesByType!: CustomFieldOverrideByType[];
 
   // Project-scoped "WHEN trigger [IF conditions] THEN actions" rules. Empty for every existing
   // project until configured via ProjectsService.updateAutomationRules(). See automation-rule.schema.ts.

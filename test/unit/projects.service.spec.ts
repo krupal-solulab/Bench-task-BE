@@ -53,6 +53,7 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     dueDate: null,
     components: [],
     customFields: [],
+    customFieldOverridesByType: [],
     automationRules: [],
     workflowsByType: [],
     permissionSchemeId: null,
@@ -1292,7 +1293,10 @@ describe('ProjectsService', () => {
       await expect(
         service.updateCustomFields('project-1', { fields: [] }, makeUser({ role: Role.ADMIN })),
       ).resolves.toBeDefined();
-      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', { customFields: [] });
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        customFields: [],
+        customFieldOverridesByType: [],
+      });
     });
 
     it("preserves an existing field's id when only its name/required is edited", async () => {
@@ -1328,6 +1332,214 @@ describe('ProjectsService', () => {
         name: 'Severity Level',
         required: true,
       });
+    });
+
+    it('prunes a removed field id from every per-issue-type override', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: [
+            {
+              id: 'f-1',
+              name: 'Severity',
+              type: CustomFieldType.TEXT,
+              required: false,
+              options: null,
+            },
+            {
+              id: 'f-2',
+              name: 'Root Cause',
+              type: CustomFieldType.TEXT,
+              required: false,
+              options: null,
+            },
+          ],
+          customFieldOverridesByType: [
+            {
+              issueType: 'Bug',
+              hiddenFieldIds: ['f-1'],
+              requiredFieldIds: ['f-2'],
+              optionalFieldIds: [],
+            },
+          ],
+        }),
+      );
+      taskModel.countDocuments.mockResolvedValue(0);
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateCustomFields(
+        'project-1',
+        {
+          fields: [{ id: 'f-2', name: 'Root Cause', type: CustomFieldType.TEXT, required: false }],
+        },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.customFieldOverridesByType).toEqual([
+        { issueType: 'Bug', hiddenFieldIds: [], requiredFieldIds: ['f-2'], optionalFieldIds: [] },
+      ]);
+    });
+  });
+
+  describe('getEffectiveCustomFields', () => {
+    const FIELDS = [
+      { id: 'f-1', name: 'Severity', type: CustomFieldType.TEXT, required: false, options: null },
+      { id: 'f-2', name: 'Root Cause', type: CustomFieldType.TEXT, required: false, options: null },
+    ];
+
+    it('returns customFields untouched when issueType is omitted (regression)', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: FIELDS }));
+
+      const result = await service.getEffectiveCustomFields(
+        'project-1',
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      expect(result).toEqual(FIELDS);
+    });
+
+    it('applies a configured override for the given issueType', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: FIELDS,
+          customFieldOverridesByType: [
+            {
+              issueType: 'Bug',
+              hiddenFieldIds: ['f-1'],
+              requiredFieldIds: [],
+              optionalFieldIds: [],
+            },
+          ],
+        }),
+      );
+
+      const result = await service.getEffectiveCustomFields(
+        'project-1',
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(result.map((f) => f.id)).toEqual(['f-2']);
+    });
+  });
+
+  describe('customFieldOverride CRUD', () => {
+    const FIELDS = [
+      { id: 'f-1', name: 'Severity', type: CustomFieldType.TEXT, required: false, options: null },
+    ];
+
+    it('getCustomFieldOverride returns empty lists when nothing is configured', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: FIELDS }));
+
+      const result = await service.getCustomFieldOverride(
+        'project-1',
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(result).toEqual({
+        issueType: 'Bug',
+        hiddenFieldIds: [],
+        requiredFieldIds: [],
+        optionalFieldIds: [],
+      });
+    });
+
+    it('updateCustomFieldOverride rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: FIELDS }));
+
+      await expect(
+        service.updateCustomFieldOverride(
+          'project-1',
+          { hiddenFieldIds: ['f-1'] },
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+          'Bug',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('updateCustomFieldOverride rejects an unknown field id', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: FIELDS }));
+
+      await expect(
+        service.updateCustomFieldOverride(
+          'project-1',
+          { hiddenFieldIds: ['does-not-exist'] },
+          makeUser({ role: Role.ADMIN }),
+          'Bug',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('updateCustomFieldOverride rejects a field forced both required and optional', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject({ customFields: FIELDS }));
+
+      await expect(
+        service.updateCustomFieldOverride(
+          'project-1',
+          { requiredFieldIds: ['f-1'], optionalFieldIds: ['f-1'] },
+          makeUser({ role: Role.ADMIN }),
+          'Bug',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('updateCustomFieldOverride saves a valid override, replacing any prior one for that type', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: FIELDS,
+          customFieldOverridesByType: [
+            { issueType: 'Bug', hiddenFieldIds: [], requiredFieldIds: [], optionalFieldIds: [] },
+          ],
+        }),
+      );
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      const result = await service.updateCustomFieldOverride(
+        'project-1',
+        { hiddenFieldIds: ['f-1'] },
+        makeUser({ role: Role.ADMIN }),
+        'Bug',
+      );
+
+      expect(result).toEqual({
+        issueType: 'Bug',
+        hiddenFieldIds: ['f-1'],
+        requiredFieldIds: [],
+        optionalFieldIds: [],
+      });
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.customFieldOverridesByType).toEqual([result]);
+    });
+
+    it('resetCustomFieldOverride removes the override for that issueType only', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(
+        makeProject({
+          customFields: FIELDS,
+          customFieldOverridesByType: [
+            {
+              issueType: 'Bug',
+              hiddenFieldIds: ['f-1'],
+              requiredFieldIds: [],
+              optionalFieldIds: [],
+            },
+            {
+              issueType: 'Story',
+              hiddenFieldIds: [],
+              requiredFieldIds: ['f-1'],
+              optionalFieldIds: [],
+            },
+          ],
+        }),
+      );
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.resetCustomFieldOverride('project-1', makeUser({ role: Role.ADMIN }), 'Bug');
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.customFieldOverridesByType).toEqual([
+        { issueType: 'Story', hiddenFieldIds: [], requiredFieldIds: ['f-1'], optionalFieldIds: [] },
+      ]);
     });
   });
 

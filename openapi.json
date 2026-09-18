@@ -1651,6 +1651,161 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/custom-fields/effective": {
+      "get": {
+        "operationId": "ProjectsController_getEffectiveCustomFields",
+        "summary": "The project's effective custom fields, optionally scoped to one issue type",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "description": "Apply this issue type's hidden/required overrides, if any are configured",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/custom-field-overrides": {
+      "get": {
+        "operationId": "ProjectsController_getCustomFieldOverride",
+        "summary": "One issue type's custom field hidden/required override",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "ProjectsController_updateCustomFieldOverride",
+        "summary": "Set/replace one issue type's custom field hidden/required override",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutCustomFieldOverrideDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ProjectsController_resetCustomFieldOverride",
+        "summary": "Remove one issue type's custom field override",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{id}/automation-rules": {
       "put": {
         "operationId": "ProjectsController_updateAutomationRules",
@@ -5179,14 +5334,16 @@
               "Number",
               "Date",
               "Dropdown",
-              "Checkbox"
+              "Checkbox",
+              "MultiSelect",
+              "UserPicker"
             ]
           },
           "required": {
             "type": "boolean"
           },
           "options": {
-            "description": "Required, non-empty, only for Dropdown",
+            "description": "Required, non-empty, only for Dropdown/MultiSelect",
             "type": "array",
             "items": {
               "type": "string"
@@ -5212,6 +5369,32 @@
         "required": [
           "fields"
         ]
+      },
+      "PutCustomFieldOverrideDto": {
+        "type": "object",
+        "properties": {
+          "hiddenFieldIds": {
+            "description": "Custom field ids to hide entirely for this issue type",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requiredFieldIds": {
+            "description": "Custom field ids to force required=true for this issue type",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "optionalFieldIds": {
+            "description": "Custom field ids to force required=false for this issue type",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "AutomationTriggerDto": {
         "type": "object",

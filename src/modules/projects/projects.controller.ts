@@ -29,6 +29,7 @@ import { PutWorkflowDto } from './dto/put-workflow.dto';
 import { PatchMemberPermissionsDto } from './dto/patch-member-permissions.dto';
 import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
+import { PutCustomFieldOverrideDto } from './dto/put-custom-field-override.dto';
 import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
 import { PutNotificationSchemeDto } from './dto/put-notification-scheme.dto';
 import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
@@ -255,6 +256,59 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.updateCustomFields(id, dto, user);
+  }
+
+  @Get(':id/custom-fields/effective')
+  @ApiOperation({
+    summary: "The project's effective custom fields, optionally scoped to one issue type",
+  })
+  @ApiQuery({
+    name: 'issueType',
+    required: false,
+    description: "Apply this issue type's hidden/required overrides, if any are configured",
+  })
+  async getEffectiveCustomFields(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('issueType') issueType?: string,
+  ) {
+    return this.projectsService.getEffectiveCustomFields(id, user, issueType);
+  }
+
+  @Get(':id/custom-field-overrides')
+  @ApiOperation({ summary: "One issue type's custom field hidden/required override" })
+  @ApiQuery({ name: 'issueType', required: true })
+  async getCustomFieldOverride(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('issueType') issueType: string,
+  ) {
+    return this.projectsService.getCustomFieldOverride(id, user, issueType);
+  }
+
+  @Put(':id/custom-field-overrides')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace one issue type's custom field hidden/required override" })
+  @ApiQuery({ name: 'issueType', required: true })
+  async updateCustomFieldOverride(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutCustomFieldOverrideDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('issueType') issueType: string,
+  ) {
+    return this.projectsService.updateCustomFieldOverride(id, dto, user, issueType);
+  }
+
+  @Delete(':id/custom-field-overrides')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Remove one issue type's custom field override" })
+  @ApiQuery({ name: 'issueType', required: true })
+  async resetCustomFieldOverride(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('issueType') issueType: string,
+  ) {
+    return this.projectsService.resetCustomFieldOverride(id, user, issueType);
   }
 
   @Put(':id/automation-rules')

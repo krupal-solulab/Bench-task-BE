@@ -39,8 +39,14 @@ export class CustomFieldDefinitionDto {
   @IsBoolean()
   required!: boolean;
 
-  @ApiPropertyOptional({ type: [String], description: 'Required, non-empty, only for Dropdown' })
-  @ValidateIf((dto: CustomFieldDefinitionDto) => dto.type === CustomFieldType.DROPDOWN)
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Required, non-empty, only for Dropdown/MultiSelect',
+  })
+  @ValidateIf(
+    (dto: CustomFieldDefinitionDto) =>
+      dto.type === CustomFieldType.DROPDOWN || dto.type === CustomFieldType.MULTI_SELECT,
+  )
   @IsArray()
   @ArrayMinSize(1)
   @IsString({ each: true })

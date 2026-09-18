@@ -410,6 +410,137 @@ describe('TasksService', () => {
         expect.objectContaining({ customFieldValues: { 'f-1': 'updated', 'f-2': 'b' } }),
       );
     });
+
+    it('create() applies a per-issue-type override hiding a field for that issue type', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          customFields: [REQUIRED_FIELD],
+          customFieldOverridesByType: [
+            {
+              issueType: IssueType.BUG,
+              hiddenFieldIds: [REQUIRED_FIELD.id],
+              requiredFieldIds: [],
+              optionalFieldIds: [],
+            },
+          ],
+        }),
+      );
+      tasksRepository.create.mockResolvedValue(makeTask({ id: 'task-1' }));
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ id: 'task-1' }));
+
+      await expect(
+        service.create(
+          { title: 'x', project: PROJECT_ID, priority: 'P2', issueType: IssueType.BUG } as never,
+          makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+        ),
+      ).resolves.toBeDefined();
+    });
+
+    it('create() still enforces a required field for an issue type with no override (regression)', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ customFields: [REQUIRED_FIELD] }),
+      );
+
+      await expect(
+        service.create(
+          { title: 'x', project: PROJECT_ID, priority: 'P2', issueType: IssueType.BUG } as never,
+          makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("update() resolves custom fields against the task's own issue type", async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ issueType: IssueType.BUG, customFieldValues: {} }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          customFields: [REQUIRED_FIELD],
+          customFieldOverridesByType: [
+            {
+              issueType: IssueType.BUG,
+              hiddenFieldIds: [],
+              requiredFieldIds: [],
+              optionalFieldIds: [REQUIRED_FIELD.id],
+            },
+          ],
+        }),
+      );
+      tasksRepository.updateById.mockResolvedValue(makeTask());
+
+      // REQUIRED_FIELD is globally required, but forced optional for Bug - update() only
+      // validates supplied keys anyway (partial-patch), so this mainly proves the resolved
+      // (overridden) definitions - not the raw project-wide ones - are what gets used.
+      await expect(
+        service.update('task-1', { title: 'Renamed' } as never, makeUser({ role: Role.ADMIN })),
+      ).resolves.toBeDefined();
+    });
+
+    describe('User-picker fields', () => {
+      const REVIEWER_FIELD = {
+        id: 'f-reviewer',
+        name: 'Reviewer',
+        type: CustomFieldType.USER_PICKER,
+        required: false,
+        options: null,
+      };
+
+      it('create() accepts a User-picker value that is a project member', async () => {
+        projectsService.getActiveProjectOrThrow.mockResolvedValue(
+          makeProject({ customFields: [REVIEWER_FIELD] }),
+        );
+        projectsService.isProjectMember.mockReturnValue(true);
+        tasksRepository.create.mockResolvedValue(makeTask({ id: 'task-1' }));
+        tasksRepository.findByIdActive.mockResolvedValue(makeTask({ id: 'task-1' }));
+
+        await expect(
+          service.create(
+            {
+              title: 'x',
+              project: PROJECT_ID,
+              priority: 'P2',
+              customFieldValues: { [REVIEWER_FIELD.id]: 'user-1' },
+            } as never,
+            makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it('create() rejects a User-picker value that is not a project member', async () => {
+        projectsService.getActiveProjectOrThrow.mockResolvedValue(
+          makeProject({ customFields: [REVIEWER_FIELD] }),
+        );
+        projectsService.isProjectMember.mockReturnValue(false);
+
+        await expect(
+          service.create(
+            {
+              title: 'x',
+              project: PROJECT_ID,
+              priority: 'P2',
+              customFieldValues: { [REVIEWER_FIELD.id]: 'not-a-member' },
+            } as never,
+            makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+
+      it('update() rejects a User-picker value that is not a project member', async () => {
+        tasksRepository.findByIdActive.mockResolvedValue(makeTask({ customFieldValues: {} }));
+        projectsService.getActiveProjectOrThrow.mockResolvedValue(
+          makeProject({ customFields: [REVIEWER_FIELD] }),
+        );
+        projectsService.isProjectMember.mockReturnValue(false);
+
+        await expect(
+          service.update(
+            'task-1',
+            { customFieldValues: { [REVIEWER_FIELD.id]: 'not-a-member' } } as never,
+            makeUser({ role: Role.ADMIN }),
+          ),
+        ).rejects.toThrow(BadRequestException);
+      });
+    });
   });
 
   describe('create - issue hierarchy validation', () => {

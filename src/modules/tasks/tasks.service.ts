@@ -29,7 +29,12 @@ import {
   resolveNotificationSchemeRule,
 } from '../projects/schemas/notification-scheme.schema';
 import { resolveIssueTypes } from '../projects/schemas/issue-type.schema';
-import { validateCustomFieldValues } from '../projects/schemas/custom-field.schema';
+import {
+  CustomFieldDefinition,
+  CustomFieldType,
+  resolveCustomFields,
+  validateCustomFieldValues,
+} from '../projects/schemas/custom-field.schema';
 import {
   AutomationAction,
   AutomationActionType,
@@ -94,7 +99,13 @@ export class TasksService {
     const issueType = dto.issueType ?? IssueType.TASK;
     const parent = await this.assertValidHierarchy(project, issueType, dto.parent);
     this.assertValidComponents(project, dto.components);
-    validateCustomFieldValues(project.customFields, dto.customFieldValues ?? {}, 'create');
+    const effectiveCustomFields = resolveCustomFields(project, issueType);
+    validateCustomFieldValues(effectiveCustomFields, dto.customFieldValues ?? {}, 'create');
+    this.assertUserPickerFieldsEligible(
+      project,
+      effectiveCustomFields,
+      dto.customFieldValues ?? {},
+    );
 
     // Every new Story/Task/Bug starts in the backlog (sprint: null), appended to the end of its
     // rank order - this keeps task creation's validation surface entirely unchanged for anyone not
@@ -205,7 +216,13 @@ export class TasksService {
       );
     }
     this.assertValidComponents(project, dto.components);
-    validateCustomFieldValues(project.customFields, dto.customFieldValues ?? {}, 'update');
+    const effectiveCustomFields = resolveCustomFields(project, task.issueType);
+    validateCustomFieldValues(effectiveCustomFields, dto.customFieldValues ?? {}, 'update');
+    this.assertUserPickerFieldsEligible(
+      project,
+      effectiveCustomFields,
+      dto.customFieldValues ?? {},
+    );
 
     const activities: Array<[TaskActivityAction, string | null, string | null]> = [];
     if (dto.priority && dto.priority !== task.priority) {
@@ -567,6 +584,27 @@ export class TasksService {
   private assertAssigneeEligible(project: ProjectDocument, assignee: string): void {
     if (!this.projectsService.isProjectMember(project, assignee)) {
       throw new BadRequestException('Assignee must be the project owner or a member');
+    }
+  }
+
+  /**
+   * A User-picker custom field's value must be a project member, the same eligibility check
+   * assertAssigneeEligible already applies to the `assignee` field. Kept separate from
+   * validateCustomFieldValues (which stays a pure, DB-free function) since this needs the
+   * project's owner/member list.
+   */
+  private assertUserPickerFieldsEligible(
+    project: ProjectDocument,
+    definitions: CustomFieldDefinition[],
+    values: Record<string, unknown>,
+  ): void {
+    for (const def of definitions) {
+      if (def.type !== CustomFieldType.USER_PICKER) continue;
+      const value = values[def.id];
+      if (value === undefined || value === null || value === '') continue;
+      if (typeof value !== 'string' || !this.projectsService.isProjectMember(project, value)) {
+        throw new BadRequestException(`"${def.name}" must be the project owner or a member`);
+      }
     }
   }
 
