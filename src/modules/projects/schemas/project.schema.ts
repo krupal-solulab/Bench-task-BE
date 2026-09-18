@@ -6,6 +6,7 @@ import { CustomFieldDefinition, CustomFieldDefinitionSchema } from './custom-fie
 import { AutomationRule, AutomationRuleSchema } from './automation-rule.schema';
 import { Workflow, WorkflowSchema, WorkflowByType, WorkflowByTypeSchema } from './workflow.schema';
 import { IssueTypeDefinition, IssueTypeDefinitionSchema } from './issue-type.schema';
+import { NotificationSchemeRule, NotificationSchemeRuleSchema } from './notification-scheme.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
 
@@ -122,6 +123,12 @@ export class Project {
   // ProjectsService.assignPermissionScheme(). See permission-schemes/schemas/permission-scheme.schema.ts.
   @Prop({ type: Types.ObjectId, ref: 'PermissionScheme', default: null })
   permissionSchemeId!: Types.ObjectId | null;
+
+  // Additive on top of today's hardcoded assignee-targeted notifications - an empty list (every
+  // existing project) means no extra recipients for any event, identical to today. See
+  // notification-scheme.schema.ts.
+  @Prop({ type: [NotificationSchemeRuleSchema], default: [] })
+  notificationScheme!: NotificationSchemeRule[];
 
   createdAt!: Date;
   updatedAt!: Date;

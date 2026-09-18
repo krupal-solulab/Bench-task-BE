@@ -21,6 +21,10 @@ import {
   AutomationConditionField,
   AutomationTriggerType,
 } from 'src/modules/projects/schemas/automation-rule.schema';
+import {
+  NotificationChannel,
+  NotificationSchemeEvent,
+} from 'src/modules/projects/schemas/notification-scheme.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { PermissionSchemesService } from 'src/permission-schemes/permission-schemes.service';
 import { CacheService } from 'src/redis/cache.service';
@@ -1514,6 +1518,133 @@ describe('ProjectsService', () => {
 
       const [, patch] = projectsRepository.updateById.mock.calls[0]!;
       expect(patch.automationRules![0]).toMatchObject({ id: 'r-1', name: 'Auto-label bugs v2' });
+    });
+
+    it("persists a StatusChanged trigger's fromStatus onto the saved rule (regression: it was validated but silently dropped)", async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateAutomationRules(
+        'project-1',
+        {
+          rules: [
+            {
+              ...VALID_RULE,
+              trigger: {
+                type: AutomationTriggerType.STATUS_CHANGED,
+                toStatus: 'Done',
+                fromStatus: 'Review',
+              },
+            },
+          ],
+        },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.automationRules![0]!.trigger).toMatchObject({
+        toStatus: 'Done',
+        fromStatus: 'Review',
+      });
+    });
+  });
+
+  describe('updateNotificationScheme', () => {
+    it('rejects a non-owning, non-Admin caller', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateNotificationScheme(
+          'project-1',
+          { rules: [] },
+          makeUser({ id: OTHER_DEV_ID, role: Role.MANAGER }),
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('saves an empty scheme (regression: every existing project has no scheme)', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateNotificationScheme(
+        'project-1',
+        { rules: [] },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
+        notificationScheme: [],
+      });
+    });
+
+    it('saves a valid rule targeting a role over a channel', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      projectsRepository.updateById.mockResolvedValue(makeProject());
+
+      await service.updateNotificationScheme(
+        'project-1',
+        {
+          rules: [
+            {
+              event: NotificationSchemeEvent.COMMENTED,
+              notifyRoles: [Role.MANAGER],
+              channels: [NotificationChannel.IN_APP],
+            },
+          ],
+        },
+        makeUser({ role: Role.ADMIN }),
+      );
+
+      const [, patch] = projectsRepository.updateById.mock.calls[0]!;
+      expect(patch.notificationScheme).toEqual([
+        {
+          event: NotificationSchemeEvent.COMMENTED,
+          notifyRoles: [Role.MANAGER],
+          channels: [NotificationChannel.IN_APP],
+        },
+      ]);
+    });
+
+    it('rejects a duplicate entry for the same event', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateNotificationScheme(
+          'project-1',
+          {
+            rules: [
+              {
+                event: NotificationSchemeEvent.ASSIGNED,
+                notifyRoles: [Role.MANAGER],
+                channels: [NotificationChannel.IN_APP],
+              },
+              {
+                event: NotificationSchemeEvent.ASSIGNED,
+                notifyRoles: [Role.ADMIN],
+                channels: [NotificationChannel.EMAIL],
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects roles selected with zero channels', async () => {
+      projectsRepository.findByIdActive.mockResolvedValue(makeProject());
+      await expect(
+        service.updateNotificationScheme(
+          'project-1',
+          {
+            rules: [
+              {
+                event: NotificationSchemeEvent.SPRINT_STARTED,
+                notifyRoles: [Role.MANAGER],
+                channels: [],
+              },
+            ],
+          },
+          makeUser({ role: Role.ADMIN }),
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });

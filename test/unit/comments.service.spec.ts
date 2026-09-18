@@ -57,10 +57,12 @@ describe('CommentsService', () => {
   >;
   let tasksRepository: jest.Mocked<Pick<TasksRepository, 'findRawById'>>;
   let projectsService: jest.Mocked<
-    Pick<ProjectsService, 'getActiveProjectOrThrow' | 'isProjectMember'>
+    Pick<ProjectsService, 'getActiveProjectOrThrow' | 'isProjectMember' | 'membersWithRole'>
   >;
   let eventsGateway: jest.Mocked<Pick<EventsGateway, 'emitCommentCreated'>>;
-  let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifyCommentAdded'>>;
+  let notificationsService: jest.Mocked<
+    Pick<NotificationsService, 'notifyCommentAdded' | 'notifySchemeEvent'>
+  >;
   let service: CommentsService;
 
   beforeEach(() => {
@@ -72,9 +74,16 @@ describe('CommentsService', () => {
       softDelete: jest.fn(),
     };
     tasksRepository = { findRawById: jest.fn() };
-    projectsService = { getActiveProjectOrThrow: jest.fn(), isProjectMember: jest.fn() };
+    projectsService = {
+      getActiveProjectOrThrow: jest.fn(),
+      isProjectMember: jest.fn(),
+      membersWithRole: jest.fn().mockResolvedValue([]),
+    };
     eventsGateway = { emitCommentCreated: jest.fn() };
-    notificationsService = { notifyCommentAdded: jest.fn().mockResolvedValue(undefined) };
+    notificationsService = {
+      notifyCommentAdded: jest.fn().mockResolvedValue(undefined),
+      notifySchemeEvent: jest.fn().mockResolvedValue(undefined),
+    };
     service = new CommentsService(
       commentsRepository as unknown as CommentsRepository,
       tasksRepository as unknown as TasksRepository,
@@ -122,12 +131,19 @@ describe('CommentsService', () => {
     it('lets a same-organization Admin comment without a membership check', async () => {
       const admin = makeUser({ id: ADMIN_A_ID, role: Role.ADMIN, organizationId: ORG_A });
       tasksRepository.findRawById.mockResolvedValue(makeRawTask());
+      // Notification Schemes v2 fetches the project unconditionally (even on the Admin-bypass
+      // path) to check for a configured Commented-event scheme - isProjectMember is still never
+      // called for this path, which is the actual membership-bypass property being protected.
+      projectsService.getActiveProjectOrThrow.mockResolvedValue({
+        id: 'project-1',
+        notificationScheme: [],
+      } as never);
       commentsRepository.create.mockResolvedValue({ id: 'comment-1' } as never);
       commentsRepository.findByIdActive.mockResolvedValue(makeComment());
 
       await service.create(TASK_ID, 'hello', admin);
 
-      expect(projectsService.getActiveProjectOrThrow).not.toHaveBeenCalled();
+      expect(projectsService.isProjectMember).not.toHaveBeenCalled();
       expect(commentsRepository.create).toHaveBeenCalled();
     });
 
@@ -193,6 +209,59 @@ describe('CommentsService', () => {
       await service.create(TASK_ID, 'hello', member);
 
       expect(notificationsService.notifyCommentAdded).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notification scheme (Notification Schemes v2)', () => {
+    it('a project with no notification scheme behaves identically to before this feature (regression)', async () => {
+      const member = makeUser({ id: MEMBER_ID });
+      tasksRepository.findRawById.mockResolvedValue(makeRawTask());
+      projectsService.getActiveProjectOrThrow.mockResolvedValue({
+        id: 'project-1',
+        notificationScheme: [],
+      } as never);
+      projectsService.isProjectMember.mockReturnValue(true);
+      commentsRepository.create.mockResolvedValue({ id: 'comment-1' } as never);
+      commentsRepository.findByIdActive.mockResolvedValue(makeComment({ id: 'comment-1' }));
+
+      await service.create(TASK_ID, 'hello', member);
+
+      expect(notificationsService.notifySchemeEvent).not.toHaveBeenCalled();
+    });
+
+    it('additionally notifies a scheme-configured role on Commented, on top of the hardcoded assignee notification', async () => {
+      const member = makeUser({ id: MEMBER_ID });
+      tasksRepository.findRawById.mockResolvedValue(
+        makeRawTask({ title: 'Fix the bug', assignee: { toString: () => 'assignee-1' } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue({
+        id: 'project-1',
+        organizationId: { toString: () => ORG_A },
+        notificationScheme: [
+          { event: 'Commented', notifyRoles: [Role.MANAGER], channels: ['InApp'] },
+        ],
+      } as never);
+      projectsService.isProjectMember.mockReturnValue(true);
+      projectsService.membersWithRole.mockResolvedValue([
+        { id: 'manager-1', email: 'manager@a.com' } as never,
+      ]);
+      commentsRepository.create.mockResolvedValue({ id: 'comment-1' } as never);
+      commentsRepository.findByIdActive.mockResolvedValue(makeComment({ id: 'comment-1' }));
+
+      await service.create(TASK_ID, 'hello', member);
+
+      expect(notificationsService.notifyCommentAdded).toHaveBeenCalled();
+      expect(projectsService.membersWithRole).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'project-1' }),
+        Role.MANAGER,
+      );
+      expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: expect.objectContaining({ id: 'manager-1' }),
+          event: 'Commented',
+          channels: ['InApp'],
+        }),
+      );
     });
   });
 

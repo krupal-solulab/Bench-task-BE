@@ -55,6 +55,11 @@ import {
   AutomationTriggerType,
 } from './schemas/automation-rule.schema';
 import { AutomationRuleDto, PutAutomationRulesDto } from './dto/put-automation-rules.dto';
+import {
+  NotificationSchemeRule,
+  assertValidNotificationScheme,
+} from './schemas/notification-scheme.schema';
+import { PutNotificationSchemeDto } from './dto/put-notification-scheme.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
@@ -88,6 +93,7 @@ export interface ProjectResponse {
   automationRules: AutomationRule[];
   issueTypes: IssueTypeDefinition[];
   permissionSchemeId: string | null;
+  notificationScheme: NotificationSchemeRule[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -773,7 +779,11 @@ export class ProjectsService {
         id: r.id ?? new Types.ObjectId().toString(),
         name: r.name.trim(),
         enabled: r.enabled,
-        trigger: { type: r.trigger.type, toStatus: r.trigger.toStatus ?? null },
+        trigger: {
+          type: r.trigger.type,
+          toStatus: r.trigger.toStatus ?? null,
+          fromStatus: r.trigger.fromStatus ?? null,
+        },
         conditions: r.conditions.map((c) => ({ field: c.field, value: c.value.trim() })),
         actions: r.actions.map((a) => ({ type: a.type, value: a.value.trim() })),
       };
@@ -785,6 +795,29 @@ export class ProjectsService {
     }
 
     const updated = await this.projectsRepository.updateById(id, { automationRules: rules });
+    return this.toResponse(updated!);
+  }
+
+  /** Replaces the project's whole Notification Scheme (additive on top of the existing hardcoded
+   * assignee-targeted notifications - see notification-scheme.schema.ts). Admin/owning-Manager
+   * only, same as automation rules and permission-scheme assignment - this is whole-project
+   * configuration, not a per-member-grantable capability. */
+  async updateNotificationScheme(
+    id: string,
+    dto: PutNotificationSchemeDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const rules: NotificationSchemeRule[] = dto.rules.map((r) => ({
+      event: r.event,
+      notifyRoles: r.notifyRoles,
+      channels: r.channels,
+    }));
+    assertValidNotificationScheme(rules);
+
+    const updated = await this.projectsRepository.updateById(id, { notificationScheme: rules });
     return this.toResponse(updated!);
   }
 
@@ -1119,6 +1152,7 @@ export class ProjectsService {
       automationRules: project.automationRules,
       issueTypes: resolveIssueTypes(project),
       permissionSchemeId: project.permissionSchemeId ? extractId(project.permissionSchemeId) : null,
+      notificationScheme: project.notificationScheme,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };

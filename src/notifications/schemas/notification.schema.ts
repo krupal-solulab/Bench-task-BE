@@ -10,6 +10,10 @@ export enum NotificationType {
   DUE_SOON = 'DueSoon',
   // Sent by an automation rule's NotifyRole post-function action (Workflow Engine v2).
   AUTOMATION = 'Automation',
+  // Sent by a project's admin-configured Notification Scheme (Notification Schemes v2) - kept
+  // distinct from AUTOMATION so the notification list/mute UI can tell "someone's automation
+  // rule pinged me" apart from "my project's notification scheme pinged me".
+  SCHEME = 'Scheme',
 }
 
 export const NOTIFICATION_TYPES = Object.values(NotificationType);

@@ -7,6 +7,7 @@ import { SprintsService } from 'src/modules/sprints/sprints.service';
 import { SprintsRepository } from 'src/modules/sprints/sprints.repository';
 import { SprintActivityAction } from 'src/modules/sprints/schemas/sprint-activity.schema';
 import { ProjectsService } from 'src/modules/projects/projects.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 const ORG_A = 'org-a';
 const PROJECT_ID = '507f1f77bcf86cd799439010';
@@ -64,8 +65,10 @@ describe('SprintsService', () => {
       | 'assertUserCanManage'
       | 'assertUserCanManageOrGranted'
       | 'assertUserCanView'
+      | 'membersWithRole'
     >
   >;
+  let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifySchemeEvent'>>;
   let taskModel: { updateMany: jest.Mock };
   let service: SprintsService;
 
@@ -86,7 +89,9 @@ describe('SprintsService', () => {
       assertUserCanManage: jest.fn(),
       assertUserCanManageOrGranted: jest.fn(),
       assertUserCanView: jest.fn(),
+      membersWithRole: jest.fn().mockResolvedValue([]),
     };
+    notificationsService = { notifySchemeEvent: jest.fn().mockResolvedValue(undefined) };
     taskModel = {
       updateMany: jest
         .fn()
@@ -95,6 +100,7 @@ describe('SprintsService', () => {
     service = new SprintsService(
       sprintsRepository as unknown as SprintsRepository,
       projectsService as unknown as ProjectsService,
+      notificationsService as unknown as NotificationsService,
       taskModel as never,
     );
   });
@@ -232,6 +238,43 @@ describe('SprintsService', () => {
         'canManageSprints',
       );
     });
+
+    it('a project with no notification scheme fires no notification at all (regression: sprint start fires zero notifications today)', async () => {
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(makeSprint());
+      sprintsRepository.findActiveSprintForProject.mockResolvedValue(null);
+      sprintsRepository.updateById.mockResolvedValue(makeSprint({ status: SprintStatus.ACTIVE }));
+
+      await service.start(PROJECT_ID, SPRINT_ID, makeUser());
+
+      expect(notificationsService.notifySchemeEvent).not.toHaveBeenCalled();
+    });
+
+    it('notifies a scheme-configured role on SprintStarted', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          notificationScheme: [
+            { event: 'SprintStarted', notifyRoles: [Role.MANAGER], channels: ['InApp'] },
+          ],
+        }),
+      );
+      projectsService.membersWithRole.mockResolvedValue([
+        { id: MANAGER_ID, email: 'manager@a.com' } as never,
+      ]);
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(makeSprint());
+      sprintsRepository.findActiveSprintForProject.mockResolvedValue(null);
+      sprintsRepository.updateById.mockResolvedValue(makeSprint({ status: SprintStatus.ACTIVE }));
+
+      await service.start(PROJECT_ID, SPRINT_ID, makeUser());
+
+      expect(projectsService.membersWithRole).toHaveBeenCalledWith(expect.anything(), Role.MANAGER);
+      expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: expect.objectContaining({ id: MANAGER_ID }),
+          event: 'SprintStarted',
+          channels: ['InApp'],
+        }),
+      );
+    });
   });
 
   describe('complete', () => {
@@ -269,6 +312,31 @@ describe('SprintsService', () => {
       expect(sprintsRepository.updateById).toHaveBeenCalledWith(
         SPRINT_ID,
         expect.objectContaining({ status: SprintStatus.COMPLETED, completedAt: expect.any(Date) }),
+      );
+    });
+
+    it('notifies a scheme-configured role on SprintCompleted', async () => {
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          notificationScheme: [
+            { event: 'SprintCompleted', notifyRoles: [Role.MANAGER], channels: ['Email'] },
+          ],
+        }),
+      );
+      projectsService.membersWithRole.mockResolvedValue([
+        { id: MANAGER_ID, email: 'manager@a.com' } as never,
+      ]);
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(
+        makeSprint({ status: SprintStatus.ACTIVE }),
+      );
+      sprintsRepository.updateById.mockResolvedValue(
+        makeSprint({ status: SprintStatus.COMPLETED }),
+      );
+
+      await service.complete(PROJECT_ID, SPRINT_ID, makeUser());
+
+      expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'SprintCompleted', channels: ['Email'] }),
       );
     });
   });

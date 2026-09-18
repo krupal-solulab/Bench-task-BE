@@ -12,6 +12,10 @@ import { NotificationsRepository } from './notifications.repository';
 import { NotificationDocument, NotificationType } from './schemas/notification.schema';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
 import { PutNotificationPreferenceDto } from './dto/put-notification-preference.dto';
+import {
+  NotificationChannel,
+  NotificationSchemeEvent,
+} from '../modules/projects/schemas/notification-scheme.schema';
 
 export interface TaskAssignedNotification {
   taskId: string;
@@ -49,6 +53,15 @@ export interface AutomationRoleNotification {
   taskTitle: string;
   recipientId: string;
   ruleName: string;
+}
+
+export interface SchemeEventNotification {
+  recipient: { id: string; email: string; organizationId: string };
+  event: NotificationSchemeEvent;
+  channels: NotificationChannel[];
+  title: string;
+  message: string;
+  taskId?: string;
 }
 
 /**
@@ -203,6 +216,51 @@ export class NotificationsService {
       `Automation rule "${notification.ruleName}" fired on "${notification.taskTitle}"`,
       { taskId: notification.taskId },
     );
+  }
+
+  /**
+   * Fires a project's admin-configured Notification Scheme entry for one recipient (called once
+   * per role-matched project member, by the caller resolving `ProjectsService.membersWithRole`).
+   * Additive on top of whatever hardcoded notification the triggering event already sends -
+   * never called for a project/event with no scheme configured (see
+   * `resolveNotificationSchemeRule`), so an unconfigured project is entirely unaffected.
+   * WhatsApp has no provider configured anywhere in this codebase - selecting it only logs a
+   * "would send" line, mirroring the Webhook automation action's own stub treatment.
+   */
+  async notifySchemeEvent(notification: SchemeEventNotification): Promise<void> {
+    if (notification.channels.includes(NotificationChannel.IN_APP)) {
+      await this.createInAppNotification(
+        notification.recipient.id,
+        notification.recipient.organizationId,
+        NotificationType.SCHEME,
+        notification.title,
+        notification.message,
+        { taskId: notification.taskId },
+      );
+    }
+
+    if (notification.channels.includes(NotificationChannel.EMAIL)) {
+      try {
+        await this.emailService.send({
+          to: notification.recipient.email,
+          subject: notification.title,
+          template: 'notification-scheme',
+          data: { message: notification.message, event: notification.event },
+        });
+      } catch (err) {
+        this.logger.warn(
+          { err, event: notification.event, recipientId: notification.recipient.id },
+          'failed to send a notification-scheme email, ignoring',
+        );
+      }
+    }
+
+    if (notification.channels.includes(NotificationChannel.WHATSAPP)) {
+      this.logger.info(
+        `Would send WhatsApp to ${notification.recipient.email}: "${notification.title}" ` +
+          '(no WhatsApp provider configured - logging only)',
+      );
+    }
   }
 
   async listMine(recipientId: string, query: ListNotificationsDto) {

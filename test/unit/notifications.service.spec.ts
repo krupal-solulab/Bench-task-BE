@@ -4,6 +4,10 @@ import { IEmailService } from 'src/notifications/email.interface';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { NotificationsRepository } from 'src/notifications/notifications.repository';
 import { NotificationType } from 'src/notifications/schemas/notification.schema';
+import {
+  NotificationChannel,
+  NotificationSchemeEvent,
+} from 'src/modules/projects/schemas/notification-scheme.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { EventsGateway } from 'src/events/events.gateway';
 
@@ -14,7 +18,7 @@ const ASSIGNEE_ID = '507f1f77bcf86cd799439001';
 const TASK_ID = '507f1f77bcf86cd799439010';
 
 function makeLogger(): PinoLogger {
-  return { warn: jest.fn() } as unknown as PinoLogger;
+  return { warn: jest.fn(), info: jest.fn() } as unknown as PinoLogger;
 }
 
 function makeAssignee(overrides: Partial<Record<string, unknown>> = {}) {
@@ -302,6 +306,106 @@ describe('NotificationsService', () => {
       });
 
       expect(notificationsRepository.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('notifySchemeEvent', () => {
+    const RECIPIENT = { id: ASSIGNEE_ID, email: 'dana@example.com', organizationId: ORG_A };
+
+    it('creates an in-app notification when InApp is among the selected channels', async () => {
+      await service.notifySchemeEvent({
+        recipient: RECIPIENT,
+        event: NotificationSchemeEvent.COMMENTED,
+        channels: [NotificationChannel.IN_APP],
+        title: 'title',
+        message: 'message',
+        taskId: TASK_ID,
+      });
+
+      expect(notificationsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: NotificationType.SCHEME,
+          title: 'title',
+          message: 'message',
+        }),
+      );
+      expect(emailService.send).not.toHaveBeenCalled();
+    });
+
+    it('sends an email when Email is among the selected channels', async () => {
+      await service.notifySchemeEvent({
+        recipient: RECIPIENT,
+        event: NotificationSchemeEvent.SPRINT_STARTED,
+        channels: [NotificationChannel.EMAIL],
+        title: 'Sprint 1 started',
+        message: 'message',
+      });
+
+      expect(emailService.send).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'dana@example.com', subject: 'Sprint 1 started' }),
+      );
+      expect(notificationsRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('logs a "would send" line for WhatsApp instead of attempting real delivery (no provider configured)', async () => {
+      await service.notifySchemeEvent({
+        recipient: RECIPIENT,
+        event: NotificationSchemeEvent.TRANSITIONED,
+        channels: [NotificationChannel.WHATSAPP],
+        title: 'Moved to Done',
+        message: 'message',
+      });
+
+      expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('dana@example.com'));
+      expect(emailService.send).not.toHaveBeenCalled();
+      expect(notificationsRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('fires every selected channel when more than one is configured', async () => {
+      await service.notifySchemeEvent({
+        recipient: RECIPIENT,
+        event: NotificationSchemeEvent.ASSIGNED,
+        channels: [
+          NotificationChannel.IN_APP,
+          NotificationChannel.EMAIL,
+          NotificationChannel.WHATSAPP,
+        ],
+        title: 'title',
+        message: 'message',
+      });
+
+      expect(notificationsRepository.create).toHaveBeenCalled();
+      expect(emailService.send).toHaveBeenCalled();
+      expect(logger.info).toHaveBeenCalled();
+    });
+
+    it('does nothing when no channel is selected', async () => {
+      await service.notifySchemeEvent({
+        recipient: RECIPIENT,
+        event: NotificationSchemeEvent.ASSIGNED,
+        channels: [],
+        title: 'title',
+        message: 'message',
+      });
+
+      expect(notificationsRepository.create).not.toHaveBeenCalled();
+      expect(emailService.send).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('swallows an email transport failure instead of throwing (consistent with every other email-sending method)', async () => {
+      emailService.send.mockRejectedValue(new Error('smtp unavailable'));
+
+      await expect(
+        service.notifySchemeEvent({
+          recipient: RECIPIENT,
+          event: NotificationSchemeEvent.SPRINT_COMPLETED,
+          channels: [NotificationChannel.EMAIL],
+          title: 'title',
+          message: 'message',
+        }),
+      ).resolves.toBeUndefined();
+      expect(logger.warn).toHaveBeenCalled();
     });
   });
 

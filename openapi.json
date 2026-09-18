@@ -1690,6 +1690,45 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/notification-scheme": {
+      "put": {
+        "operationId": "ProjectsController_updateNotificationScheme",
+        "summary": "Set/replace this project's notification scheme",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutNotificationSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{id}/permission-scheme": {
       "patch": {
         "operationId": "ProjectsController_assignPermissionScheme",
@@ -5230,6 +5269,62 @@
           "rules"
         ]
       },
+      "NotificationSchemeRuleDto": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "Assigned",
+              "Commented",
+              "Transitioned",
+              "SprintStarted",
+              "SprintCompleted"
+            ]
+          },
+          "notifyRoles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "InApp",
+                "Email",
+                "WhatsApp"
+              ]
+            }
+          }
+        },
+        "required": [
+          "event",
+          "notifyRoles",
+          "channels"
+        ]
+      },
+      "PutNotificationSchemeDto": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationSchemeRuleDto"
+            }
+          }
+        },
+        "required": [
+          "rules"
+        ]
+      },
       "PatchPermissionSchemeDto": {
         "type": "object",
         "properties": {
@@ -5576,7 +5671,8 @@
                 "StatusChanged",
                 "CommentAdded",
                 "DueSoon",
-                "Automation"
+                "Automation",
+                "Scheme"
               ]
             }
           }

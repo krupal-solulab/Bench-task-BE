@@ -217,4 +217,77 @@ describe('automation engine (integration)', () => {
     expect(statusChange.status).toBe(200);
     expect(statusChange.body.data.status).toBe('In Progress');
   });
+
+  it("persists a StatusChanged rule's fromStatus and only fires it from that source status (regression: fromStatus was validated on save but silently dropped, so it always matched any source)", async () => {
+    const { manager } = await seedManager();
+    const project = await createProject(app, manager.accessToken, { name: 'FromStatus Project' });
+
+    await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/workflow`)
+      .set(...authHeader(manager.accessToken))
+      .send({
+        statuses: [
+          { name: 'Todo', category: 'To Do' },
+          { name: 'InProgress', category: 'In Progress' },
+          { name: 'Blocked', category: 'In Progress' },
+          { name: 'Done', category: 'Done' },
+        ],
+        transitions: [
+          { from: 'Todo', to: 'InProgress' },
+          { from: 'Todo', to: 'Blocked' },
+          { from: 'InProgress', to: 'Done' },
+          { from: 'Blocked', to: 'Done' },
+        ],
+        initialStatus: 'Todo',
+      });
+
+    await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/automation-rules`)
+      .set(...authHeader(manager.accessToken))
+      .send({
+        rules: [
+          {
+            name: 'Only from InProgress',
+            enabled: true,
+            trigger: {
+              type: AutomationTriggerType.STATUS_CHANGED,
+              toStatus: 'Done',
+              fromStatus: 'InProgress',
+            },
+            conditions: [],
+            actions: [{ type: AutomationActionType.ADD_LABELS, value: 'from-in-progress' }],
+          },
+        ],
+      });
+
+    const viaInProgress = await createTask(app, manager.accessToken, {
+      title: 'Via InProgress',
+      project: project.id,
+      priority: TaskPriority.P2,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${viaInProgress.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: 'InProgress' });
+    const doneViaInProgress = await api(app)
+      .patch(`/${API_PREFIX}/tasks/${viaInProgress.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: 'Done' });
+    expect(doneViaInProgress.body.data.labels).toContain('from-in-progress');
+
+    const viaBlocked = await createTask(app, manager.accessToken, {
+      title: 'Via Blocked',
+      project: project.id,
+      priority: TaskPriority.P2,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${viaBlocked.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: 'Blocked' });
+    const doneViaBlocked = await api(app)
+      .patch(`/${API_PREFIX}/tasks/${viaBlocked.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: 'Done' });
+    expect(doneViaBlocked.body.data.labels).not.toContain('from-in-progress');
+  });
 });

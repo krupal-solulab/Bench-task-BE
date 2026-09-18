@@ -24,6 +24,10 @@ import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { categoryOf, resolveWorkflow } from '../projects/schemas/workflow.schema';
+import {
+  NotificationSchemeEvent,
+  resolveNotificationSchemeRule,
+} from '../projects/schemas/notification-scheme.schema';
 import { resolveIssueTypes } from '../projects/schemas/issue-type.schema';
 import { validateCustomFieldValues } from '../projects/schemas/custom-field.schema';
 import {
@@ -142,6 +146,7 @@ export class TasksService {
         assigneeId: dto.assignee,
         actorEmail: actingUser.email,
       });
+      await this.notifyScheme(project, NotificationSchemeEvent.ASSIGNED, task.id, task.title);
     }
 
     const created = (await this.tasksRepository.findByIdActive(task.id)) as TaskDocument;
@@ -364,6 +369,10 @@ export class TasksService {
         toStatus: status,
       });
     }
+    // Unconditional on assignee (unlike the hardcoded notification above) - a role subscriber to
+    // the Transitioned event cares about every status change on the project, not just tasks that
+    // happen to be assigned.
+    await this.notifyScheme(project, NotificationSchemeEvent.TRANSITIONED, id, task.title);
 
     // Only a human-initiated status change fires automations - an automation's own status change
     // (automation is set) never re-evaluates rules, which is what makes chaining impossible.
@@ -419,6 +428,7 @@ export class TasksService {
         assigneeId: assignee,
         actorEmail: actingUser.email,
       });
+      await this.notifyScheme(project, NotificationSchemeEvent.ASSIGNED, id, task.title);
     }
 
     return updated!;
@@ -557,6 +567,40 @@ export class TasksService {
   private assertAssigneeEligible(project: ProjectDocument, assignee: string): void {
     if (!this.projectsService.isProjectMember(project, assignee)) {
       throw new BadRequestException('Assignee must be the project owner or a member');
+    }
+  }
+
+  /**
+   * Fires the project's admin-configured Notification Scheme entry for `event`, if one is
+   * configured (Notification Schemes v2) - additive on top of whatever hardcoded notification the
+   * caller already sent. A no-op for any project that hasn't configured a scheme for this event,
+   * which is every existing project by default.
+   */
+  private async notifyScheme(
+    project: ProjectDocument,
+    event: NotificationSchemeEvent,
+    taskId: string,
+    taskTitle: string,
+  ): Promise<void> {
+    const rule = resolveNotificationSchemeRule(project, event);
+    if (!rule) return;
+
+    for (const role of rule.notifyRoles) {
+      const members = await this.projectsService.membersWithRole(project, role);
+      for (const member of members) {
+        await this.notificationsService.notifySchemeEvent({
+          recipient: {
+            id: member.id,
+            email: member.email,
+            organizationId: extractId(project.organizationId),
+          },
+          event,
+          channels: rule.channels,
+          title: `[${event}] ${taskTitle}`,
+          message: `Your project's notification scheme flagged "${taskTitle}" for the ${event} event`,
+          taskId,
+        });
+      }
     }
   }
 

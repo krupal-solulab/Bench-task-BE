@@ -7,11 +7,18 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
+import { extractId } from '../../common/utils/mongo.util';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { ProjectsService } from '../projects/projects.service';
+import { ProjectDocument } from '../projects/schemas/project.schema';
+import {
+  NotificationSchemeEvent,
+  resolveNotificationSchemeRule,
+} from '../projects/schemas/notification-scheme.schema';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { SprintsRepository } from './sprints.repository';
 import { SprintDocument } from './schemas/sprint.schema';
 import { SprintActivityAction } from './schemas/sprint-activity.schema';
@@ -25,6 +32,7 @@ export class SprintsService {
   constructor(
     private readonly sprintsRepository: SprintsRepository,
     private readonly projectsService: ProjectsService,
+    private readonly notificationsService: NotificationsService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
   ) {}
 
@@ -153,6 +161,7 @@ export class SprintsService {
       sprint.status,
       SprintStatus.ACTIVE,
     );
+    await this.notifyScheme(project, NotificationSchemeEvent.SPRINT_STARTED, sprint.name);
     return updated!;
   }
 
@@ -191,6 +200,7 @@ export class SprintsService {
       sprint.status,
       `${modifiedCount} task(s) moved to backlog`,
     );
+    await this.notifyScheme(project, NotificationSchemeEvent.SPRINT_COMPLETED, sprint.name);
     return updated!;
   }
 
@@ -244,6 +254,36 @@ export class SprintsService {
   private assertValidDateRange(startDate: Date, endDate: Date): void {
     if (endDate < startDate) {
       throw new BadRequestException('endDate must be on or after startDate');
+    }
+  }
+
+  /** Fires the project's admin-configured Notification Scheme entry for `event`, if one is
+   * configured (Notification Schemes v2). Sprint start/complete fire zero notifications of any
+   * kind today, so this is the only source of notifications for these two events - a no-op for
+   * any project that hasn't configured a scheme for them, which is every existing project. */
+  private async notifyScheme(
+    project: ProjectDocument,
+    event: NotificationSchemeEvent,
+    sprintName: string,
+  ): Promise<void> {
+    const rule = resolveNotificationSchemeRule(project, event);
+    if (!rule) return;
+
+    for (const role of rule.notifyRoles) {
+      const members = await this.projectsService.membersWithRole(project, role);
+      for (const member of members) {
+        await this.notificationsService.notifySchemeEvent({
+          recipient: {
+            id: member.id,
+            email: member.email,
+            organizationId: extractId(project.organizationId),
+          },
+          event,
+          channels: rule.channels,
+          title: `[${event}] ${sprintName}`,
+          message: `Your project's notification scheme flagged sprint "${sprintName}" for the ${event} event`,
+        });
+      }
     }
   }
 }

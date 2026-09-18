@@ -30,6 +30,7 @@ import { PatchMemberPermissionsDto } from './dto/patch-member-permissions.dto';
 import { PutComponentsDto } from './dto/put-components.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
+import { PutNotificationSchemeDto } from './dto/put-notification-scheme.dto';
 import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
 import { PutIssueTypesDto } from './dto/put-issue-types.dto';
 
@@ -265,6 +266,17 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.updateAutomationRules(id, dto, user);
+  }
+
+  @Put(':id/notification-scheme')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace this project's notification scheme" })
+  async updateNotificationScheme(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutNotificationSchemeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateNotificationScheme(id, dto, user);
   }
 
   @Patch(':id/permission-scheme')

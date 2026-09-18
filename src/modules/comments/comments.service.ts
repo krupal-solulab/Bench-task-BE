@@ -10,6 +10,11 @@ import { TaskDocument } from '../tasks/schemas/task.schema';
 import { ProjectsService } from '../projects/projects.service';
 import { EventsGateway } from '../../events/events.gateway';
 import { NotificationsService } from '../../notifications/notifications.service';
+import {
+  NotificationSchemeEvent,
+  resolveNotificationSchemeRule,
+} from '../projects/schemas/notification-scheme.schema';
+import { ProjectDocument } from '../projects/schemas/project.schema';
 import { CommentsRepository } from './comments.repository';
 import { CommentDocument } from './schemas/comment.schema';
 
@@ -56,6 +61,8 @@ export class CommentsService {
         commentAuthorName: actingUser.email,
       });
     }
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    await this.notifyScheme(project, NotificationSchemeEvent.COMMENTED, taskId, task.title);
 
     return created;
   }
@@ -135,5 +142,36 @@ export class CommentsService {
     const comment = await this.commentsRepository.findByIdActive(id);
     if (!comment) throw new NotFoundException('Comment not found');
     return comment;
+  }
+
+  /** Fires the project's admin-configured Notification Scheme entry for `event`, if one is
+   * configured (Notification Schemes v2) - additive on top of the hardcoded assignee notification
+   * above. A no-op for any project that hasn't configured a scheme for this event. */
+  private async notifyScheme(
+    project: ProjectDocument,
+    event: NotificationSchemeEvent,
+    taskId: string,
+    taskTitle: string,
+  ): Promise<void> {
+    const rule = resolveNotificationSchemeRule(project, event);
+    if (!rule) return;
+
+    for (const role of rule.notifyRoles) {
+      const members = await this.projectsService.membersWithRole(project, role);
+      for (const member of members) {
+        await this.notificationsService.notifySchemeEvent({
+          recipient: {
+            id: member.id,
+            email: member.email,
+            organizationId: extractId(project.organizationId),
+          },
+          event,
+          channels: rule.channels,
+          title: `[${event}] ${taskTitle}`,
+          message: `Your project's notification scheme flagged "${taskTitle}" for the ${event} event`,
+          taskId,
+        });
+      }
+    }
   }
 }

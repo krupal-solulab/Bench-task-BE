@@ -117,7 +117,7 @@ describe('TasksService', () => {
   let notificationsService: jest.Mocked<
     Pick<
       NotificationsService,
-      'notifyTaskAssigned' | 'notifyStatusChanged' | 'notifyAutomationRole'
+      'notifyTaskAssigned' | 'notifyStatusChanged' | 'notifyAutomationRole' | 'notifySchemeEvent'
     >
   >;
   let eventsGateway: jest.Mocked<
@@ -158,6 +158,7 @@ describe('TasksService', () => {
       notifyTaskAssigned: jest.fn().mockResolvedValue(undefined),
       notifyStatusChanged: jest.fn().mockResolvedValue(undefined),
       notifyAutomationRole: jest.fn().mockResolvedValue(undefined),
+      notifySchemeEvent: jest.fn().mockResolvedValue(undefined),
     };
     eventsGateway = { emitTaskStatusChanged: jest.fn(), emitCommentCreated: jest.fn() };
     commentModel = {
@@ -1201,6 +1202,102 @@ describe('TasksService', () => {
 
       await expect(service.updateAssignee('task-1', OTHER_DEV_ID, makeUser())).rejects.toThrow(
         BadRequestException,
+      );
+    });
+  });
+
+  describe('notification scheme (Notification Schemes v2)', () => {
+    const SCHEME_MANAGER = { id: MANAGER_ID, email: 'manager@a.com' };
+
+    it('a project with no notification scheme behaves identically to before this feature (regression)', async () => {
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ id: 'task-1', assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ notificationScheme: [] }),
+      );
+      projectsService.isProjectMember.mockReturnValue(true);
+      tasksRepository.updateById.mockResolvedValue(
+        makeTask({ assignee: { toString: () => ASSIGNEE_ID } }),
+      );
+
+      await service.updateAssignee('task-1', ASSIGNEE_ID, makeUser({ email: 'admin@a.com' }));
+
+      expect(notificationsService.notifySchemeEvent).not.toHaveBeenCalled();
+    });
+
+    it('create() additionally notifies a scheme-configured role on Assigned, without affecting the hardcoded assignee notification', async () => {
+      const project = makeProject({
+        notificationScheme: [
+          { event: 'Assigned', notifyRoles: [Role.MANAGER], channels: ['InApp'] },
+        ],
+      });
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      projectsService.isProjectMember.mockReturnValue(true);
+      projectsService.membersWithRole.mockResolvedValue([SCHEME_MANAGER as never]);
+      tasksRepository.create.mockResolvedValue(makeTask({ id: 'task-1' }));
+      tasksRepository.findByIdActive.mockResolvedValue(makeTask({ id: 'task-1' }));
+
+      await service.create(
+        { title: 'x', project: PROJECT_ID, priority: 'P2', assignee: DEV_ID } as never,
+        makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
+      );
+
+      expect(notificationsService.notifyTaskAssigned).toHaveBeenCalled();
+      expect(projectsService.membersWithRole).toHaveBeenCalledWith(project, Role.MANAGER);
+      expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipient: expect.objectContaining({ id: MANAGER_ID }),
+          event: 'Assigned',
+          channels: ['InApp'],
+        }),
+      );
+    });
+
+    it('updateAssignee() additionally notifies a scheme-configured role on Assigned', async () => {
+      const project = makeProject({
+        notificationScheme: [
+          { event: 'Assigned', notifyRoles: [Role.MANAGER], channels: ['Email'] },
+        ],
+      });
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ assignee: { toString: () => DEV_ID } }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      projectsService.isProjectMember.mockReturnValue(true);
+      projectsService.membersWithRole.mockResolvedValue([SCHEME_MANAGER as never]);
+      tasksRepository.updateById.mockResolvedValue(
+        makeTask({ assignee: { toString: () => ASSIGNEE_ID } }),
+      );
+
+      await service.updateAssignee('task-1', ASSIGNEE_ID, makeUser({ email: 'admin@a.com' }));
+
+      expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'Assigned', channels: ['Email'] }),
+      );
+    });
+
+    it('updateStatus() notifies a scheme-configured role on Transitioned even for an unassigned task', async () => {
+      const project = makeProject({
+        workflow: null,
+        notificationScheme: [
+          { event: 'Transitioned', notifyRoles: [Role.MANAGER], channels: ['InApp'] },
+        ],
+      });
+      tasksRepository.findByIdActive.mockResolvedValue(
+        makeTask({ status: TaskStatus.TODO, assignee: null }),
+      );
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
+      projectsService.membersWithRole.mockResolvedValue([SCHEME_MANAGER as never]);
+      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.IN_PROGRESS }));
+
+      await service.updateStatus('task-1', TaskStatus.IN_PROGRESS, makeUser({ role: Role.ADMIN }));
+
+      // The hardcoded notification is skipped (no assignee) but the scheme-based one still fires -
+      // a role subscriber cares about every transition, not just assigned tasks.
+      expect(notificationsService.notifyStatusChanged).not.toHaveBeenCalled();
+      expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'Transitioned' }),
       );
     });
   });
