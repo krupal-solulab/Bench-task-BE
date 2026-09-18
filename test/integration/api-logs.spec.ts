@@ -202,4 +202,88 @@ describe('api logs (integration)', () => {
       res.body.data.every((e: { path: string }) => e.path.toLowerCase().includes('dashboard')),
     ).toBe(true);
   });
+
+  describe('Audit Log payload capture (Role-surface polish)', () => {
+    it("a login request's password is redacted, never appears in the persisted/returned log", async () => {
+      const platformAdmin = await seedPlatformAdmin('audit-platform-admin-1@example.com');
+      const org = await seedOrganization(app, { name: 'Audit Org' });
+      await seedUserAndLogin(app, {
+        email: 'audit-user@example.com',
+        password: 'Password123',
+        role: Role.ADMIN,
+        organizationId: org.id,
+      });
+
+      await api(app)
+        .post(`/${API_PREFIX}/auth/login`)
+        .send({ email: 'audit-user@example.com', password: 'Password123' });
+      await flushApiLogWrites();
+
+      const list = await api(app)
+        .get(`/${API_PREFIX}/platform/logs`)
+        .query({ path: 'auth/login' })
+        .set(...authHeader(platformAdmin.accessToken));
+      const entry = list.body.data.find(
+        (e: { path: string; method: string }) => e.method === 'POST',
+      );
+      expect(entry).toBeDefined();
+      // The list endpoint never includes payload fields at all - detail-only.
+      expect(entry.requestBody).toBeUndefined();
+      expect(entry.responseBody).toBeUndefined();
+
+      const detail = await api(app)
+        .get(`/${API_PREFIX}/platform/logs/${entry.id}`)
+        .set(...authHeader(platformAdmin.accessToken));
+      expect(detail.status).toBe(200);
+      expect(detail.body.data.requestBody).toEqual({
+        email: 'audit-user@example.com',
+        password: '[REDACTED]',
+      });
+      expect(JSON.stringify(detail.body.data)).not.toContain('Password123');
+      // The real access token issued by a successful login must never be persisted either.
+      expect(detail.body.data.responseBody.accessToken).toBe('[REDACTED]');
+      // Regression: login's raw controller return value is `{ ...tokens, user }` where `user`
+      // is a live Mongoose document, not a plain object literal. `User`'s own schema-level
+      // `toJSON` transform deletes `passwordHash` entirely - this only actually runs (turning
+      // `user` into a plain object at all) because sanitizeForLog flattens via JSON.stringify
+      // before redacting; confirm the bcrypt hash never reaches the persisted log either way.
+      expect(detail.body.data.responseBody.user.passwordHash).toBeUndefined();
+      expect(JSON.stringify(detail.body.data)).not.toContain('$2b$');
+    });
+
+    it('rejects an ordinary org role from fetching a log detail (403)', async () => {
+      const platformAdmin = await seedPlatformAdmin('audit-platform-admin-2@example.com');
+      const org = await seedOrganization(app);
+      const admin = await seedUserAndLogin(app, {
+        email: 'audit-detail-admin@example.com',
+        password: 'Password123',
+        role: Role.ADMIN,
+        organizationId: org.id,
+      });
+
+      await api(app)
+        .get(`/${API_PREFIX}/projects`)
+        .set(...authHeader(admin.accessToken));
+      await flushApiLogWrites();
+
+      const list = await api(app)
+        .get(`/${API_PREFIX}/platform/logs`)
+        .set(...authHeader(platformAdmin.accessToken));
+      const entry = list.body.data[0];
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/platform/logs/${entry.id}`)
+        .set(...authHeader(admin.accessToken));
+      expect(res.status).toBe(403);
+    });
+
+    it('404s for a well-formed id that does not exist', async () => {
+      const platformAdmin = await seedPlatformAdmin('audit-platform-admin-3@example.com');
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/platform/logs/000000000000000000000000`)
+        .set(...authHeader(platformAdmin.accessToken));
+      expect(res.status).toBe(404);
+    });
+  });
 });

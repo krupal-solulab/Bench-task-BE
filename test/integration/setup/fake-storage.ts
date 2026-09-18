@@ -19,6 +19,10 @@ export class FakeStorageService implements IStorageService {
     this.store.delete(key);
   }
 
+  async healthCheck(): Promise<boolean> {
+    return true;
+  }
+
   has(key: string): boolean {
     return this.store.has(key);
   }

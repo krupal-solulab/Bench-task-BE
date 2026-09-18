@@ -77,6 +77,44 @@ describe('platform admin boundary and API (integration)', () => {
         totalUserCount: expect.any(Number),
       });
     });
+
+    it('200 on GET /platform/integrations/health, reporting a real status per integration (Role-surface polish)', async () => {
+      const platformAdmin = await seedPlatformAdmin('boundary-platform-admin-3@example.com');
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/platform/integrations/health`)
+        .set(...authHeader(platformAdmin.accessToken));
+      expect(res.status).toBe(200);
+
+      const byName = Object.fromEntries(
+        res.body.data.map((e: { name: string; status: string }) => [e.name, e.status]),
+      );
+      // Mongo is genuinely connected in the test environment (this suite already ran queries).
+      expect(byName['MongoDB']).toBe('ok');
+      // Email is always a fixed stub status, regardless of environment.
+      expect(byName['Email']).toBe('stub');
+      // Redis/S3 are backed by in-memory fakes in the test app (see setup/test-app.ts) - both
+      // report healthy here, but the real assertion that matters is that every entry is one of
+      // the three valid statuses, since a real deployment's Redis/S3 may legitimately be down.
+      for (const entry of res.body.data) {
+        expect(['ok', 'error', 'stub']).toContain(entry.status);
+      }
+    });
+
+    it('403 for an ordinary org role on GET /platform/integrations/health', async () => {
+      const org = await seedOrganization(app);
+      const admin = await seedUserAndLogin(app, {
+        email: 'boundary-integrations-admin@example.com',
+        password: 'Password123',
+        role: Role.ADMIN,
+        organizationId: org.id,
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/platform/integrations/health`)
+        .set(...authHeader(admin.accessToken));
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('an ordinary org role can never reach the Platform Admin API', () => {

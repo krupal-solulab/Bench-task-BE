@@ -69,4 +69,14 @@ export class S3StorageService implements IStorageService, OnModuleInit {
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
+
+  async healthCheck(): Promise<boolean> {
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return true;
+    } catch (err) {
+      this.logger.warn(`Storage health check failed for bucket "${this.bucket}"`, err);
+      return false;
+    }
+  }
 }

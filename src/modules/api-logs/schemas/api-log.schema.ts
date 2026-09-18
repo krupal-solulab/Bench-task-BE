@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type ApiLogDocument = HydratedDocument<ApiLog>;
 
@@ -56,6 +56,16 @@ export class ApiLog {
 
   @Prop({ type: String, default: null })
   errorMessage!: string | null;
+
+  // Role-surface polish (Audit Log): redacted + size-capped by ApiLogInterceptor before this is
+  // ever persisted - see redact.util.ts. Null for every row logged before this feature, and for
+  // any request with no body (e.g. a GET). Excluded from the list endpoint's projection (detail-
+  // only), so the existing table's response payload is unaffected.
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  requestBody!: unknown;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  responseBody!: unknown;
 
   createdAt!: Date;
 }

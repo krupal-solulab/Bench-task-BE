@@ -107,4 +107,70 @@ describe('ApiLogInterceptor', () => {
       expect.objectContaining({ organizationId: null, userId: null, userEmail: null }),
     );
   });
+
+  describe('Audit Log payload capture (Role-surface polish)', () => {
+    it('redacts a password field in the request body before persisting', async () => {
+      const request = {
+        path: '/api/v1/auth/login',
+        method: 'POST',
+        headers: {},
+        body: { email: 'a@a.com', password: 'hunter2' },
+      };
+      const context = makeContext(request, { statusCode: 200 });
+
+      await firstValueFrom(interceptor.intercept(context, { handle: () => of({ ok: true }) }));
+      await flush();
+
+      expect(apiLogsService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestBody: { email: 'a@a.com', password: '[REDACTED]' },
+        }),
+      );
+    });
+
+    it('captures the (redacted) success response body', async () => {
+      const request = { path: '/api/v1/projects', method: 'GET', headers: {} };
+      const context = makeContext(request, { statusCode: 200 });
+
+      await firstValueFrom(
+        interceptor.intercept(context, {
+          handle: () => of({ accessToken: 'secret-token', name: 'Project A' }),
+        }),
+      );
+      await flush();
+
+      expect(apiLogsService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          responseBody: { accessToken: '[REDACTED]', name: 'Project A' },
+        }),
+      );
+    });
+
+    it('records a null responseBody on the error path (no successful response to capture)', async () => {
+      const request = { path: '/api/v1/projects/x', method: 'DELETE', headers: {} };
+      const context = makeContext(request);
+      const error = new ForbiddenException('nope');
+
+      await expect(
+        firstValueFrom(interceptor.intercept(context, { handle: () => throwError(() => error) })),
+      ).rejects.toBe(error);
+      await flush();
+
+      expect(apiLogsService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ responseBody: null }),
+      );
+    });
+
+    it('records an empty requestBody for a bodyless GET request (no `.body` on the request)', async () => {
+      const request = { path: '/api/v1/projects', method: 'GET', headers: {} };
+      const context = makeContext(request, { statusCode: 200 });
+
+      await firstValueFrom(interceptor.intercept(context, { handle: () => of({ data: [] }) }));
+      await flush();
+
+      expect(apiLogsService.record).toHaveBeenCalledWith(
+        expect.objectContaining({ requestBody: undefined }),
+      );
+    });
+  });
 });

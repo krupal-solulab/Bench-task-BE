@@ -81,6 +81,7 @@ describe('AttachmentsService', () => {
       upload: jest.fn().mockResolvedValue(undefined),
       getDownloadUrl: jest.fn().mockResolvedValue('https://fake-storage.test/signed-url'),
       delete: jest.fn().mockResolvedValue(undefined),
+      healthCheck: jest.fn().mockResolvedValue(true),
     };
     service = new AttachmentsService(
       attachmentsRepository as unknown as AttachmentsRepository,

@@ -27,6 +27,8 @@ import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SavedFiltersModule } from './modules/saved-filters/saved-filters.module';
 import { ApiLogsModule } from './modules/api-logs/api-logs.module';
+import { IntegrationHealthModule } from './modules/integration-health/integration-health.module';
+import { CannedResponsesModule } from './modules/canned-responses/canned-responses.module';
 import { EventsModule } from './events/events.module';
 import { PermissionSchemesModule } from './permission-schemes/permission-schemes.module';
 import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates.module';
@@ -99,6 +101,8 @@ import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates
     PermissionSchemesModule,
     WorkflowTemplatesModule,
     ApiLogsModule,
+    IntegrationHealthModule,
+    CannedResponsesModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

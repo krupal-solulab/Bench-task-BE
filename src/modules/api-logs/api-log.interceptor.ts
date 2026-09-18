@@ -11,6 +11,7 @@ import { Observable, throwError } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { ApiLogsService } from './api-logs.service';
+import { sanitizeForLog } from './redact.util';
 
 type RequestWithUser = Request & { user?: AuthenticatedUser };
 
@@ -34,15 +35,17 @@ export class ApiLogInterceptor implements NestInterceptor {
     const startedAt = Date.now();
 
     return next.handle().pipe(
-      tap(() => {
+      tap((body) => {
         const response = context.switchToHttp().getResponse<Response>();
-        void this.persist(request, response.statusCode, startedAt, null);
+        void this.persist(request, response.statusCode, startedAt, null, body);
       }),
       catchError((err: unknown) => {
         const statusCode =
           err instanceof HttpException ? err.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        void this.persist(request, statusCode, startedAt, errorMessage);
+        // No successful response body to capture on the error path - the error itself is already
+        // recorded via errorMessage.
+        void this.persist(request, statusCode, startedAt, errorMessage, undefined);
         return throwError(() => err);
       }),
     );
@@ -53,6 +56,7 @@ export class ApiLogInterceptor implements NestInterceptor {
     statusCode: number,
     startedAt: number,
     errorMessage: string | null,
+    responseBody: unknown,
   ): Promise<void> {
     await this.apiLogsService.record({
       method: request.method,
@@ -65,6 +69,11 @@ export class ApiLogInterceptor implements NestInterceptor {
       ip: request.ip ?? null,
       userAgent: this.firstHeaderValue(request.headers['user-agent']),
       errorMessage,
+      // Audit Log payload inspection (Role-surface polish) - redacted and size-capped before
+      // persistence, never stored raw. request.body is undefined/{} for a bodyless GET, which
+      // sanitizeForLog passes through unchanged.
+      requestBody: sanitizeForLog(request.body),
+      responseBody: responseBody === undefined ? null : sanitizeForLog(responseBody),
     });
   }
 

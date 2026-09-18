@@ -17,6 +17,8 @@ export interface CreateApiLogData {
   ip: string | null;
   userAgent: string | null;
   errorMessage: string | null;
+  requestBody: unknown;
+  responseBody: unknown;
 }
 
 @Injectable()
@@ -31,6 +33,10 @@ export class ApiLogsRepository {
     });
   }
 
+  findById(id: string): Promise<ApiLogDocument | null> {
+    return this.model.findById(id).populate('organizationId', ORGANIZATION_POPULATE).exec();
+  }
+
   async paginate(query: ListApiLogsDto): Promise<{ data: ApiLogDocument[]; total: number }> {
     const filter = this.buildFilter(query);
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
@@ -39,6 +45,9 @@ export class ApiLogsRepository {
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
+        // Bodies are detail-only (GET .../:id) - excluded here so the list endpoint's response
+        // size is unaffected by this feature, matching every existing consumer's expectations.
+        .select('-requestBody -responseBody')
         .populate('organizationId', ORGANIZATION_POPULATE)
         .sort({ createdAt: sortOrder })
         .skip(skip)

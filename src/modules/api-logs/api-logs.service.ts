@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { ApiLogsRepository, CreateApiLogData } from './api-logs.repository';
+import { ApiLogDocument } from './schemas/api-log.schema';
 import { ListApiLogsDto } from './dto/list-api-logs.dto';
 
 @Injectable()
@@ -27,5 +28,13 @@ export class ApiLogsService {
   async paginate(query: ListApiLogsDto) {
     const { data, total } = await this.apiLogsRepository.paginate(query);
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
+  }
+
+  /** The one detail view that includes requestBody/responseBody (Audit Log payload inspection -
+   * Role-surface polish) - never returned by paginate(). */
+  async getById(id: string): Promise<ApiLogDocument> {
+    const entry = await this.apiLogsRepository.findById(id);
+    if (!entry) throw new NotFoundException('API log entry not found');
+    return entry;
   }
 }

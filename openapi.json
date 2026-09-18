@@ -5109,6 +5109,169 @@
           }
         ]
       }
+    },
+    "/api/v1/platform/logs/{id}": {
+      "get": {
+        "operationId": "ApiLogsController_getOne",
+        "summary": "One API log entry with its (redacted, size-capped) request/response payload",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/platform/integrations/health": {
+      "get": {
+        "operationId": "IntegrationHealthController_health",
+        "summary": "Live status of every integration wired into this app",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/canned-responses": {
+      "post": {
+        "operationId": "CannedResponsesController_create",
+        "summary": "Create a canned response, shared with the caller's whole organization",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCannedResponseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "canned-responses"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "CannedResponsesController_list",
+        "summary": "Every canned response in the caller's organization",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "canned-responses"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/canned-responses/{id}": {
+      "patch": {
+        "operationId": "CannedResponsesController_update",
+        "summary": "Update a canned response (any org member may edit any entry)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCannedResponseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "canned-responses"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CannedResponsesController_remove",
+        "summary": "Delete a canned response (any org member may delete any entry)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "canned-responses"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -6347,6 +6510,34 @@
           },
           "workflow": {
             "$ref": "#/components/schemas/PutWorkflowDto"
+          }
+        }
+      },
+      "CreateCannedResponseDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "example": "Investigating"
+          },
+          "body": {
+            "type": "string",
+            "example": "Thanks for reporting this - we're looking into it now."
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "UpdateCannedResponseDto": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
           }
         }
       }

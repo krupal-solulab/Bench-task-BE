@@ -1,9 +1,10 @@
 /**
  * Minimal in-memory stand-in for the ioredis client, supporting only the exact method
  * signatures `CacheService` (src/redis/cache.service.ts) actually calls: `get`, `set` with
- * `'EX', ttl`, `del` with spread keys, and `scan` with cursor/MATCH/COUNT returning
- * `[nextCursor, keys]`. Backed by a plain Map so state persists across calls within a test,
- * which is what lets dashboard.spec.ts assert a real cache MISS -> HIT transition.
+ * `'EX', ttl`, `del` with spread keys, `scan` with cursor/MATCH/COUNT returning
+ * `[nextCursor, keys]`, and `ping` (always resolves 'PONG' - this fake is always "healthy").
+ * Backed by a plain Map so state persists across calls within a test, which is what lets
+ * dashboard.spec.ts assert a real cache MISS -> HIT transition.
  */
 export class FakeRedis {
   private readonly store = new Map<string, string>();
@@ -36,6 +37,10 @@ export class FakeRedis {
     const keys = [...this.store.keys()].filter((key) => regex.test(key));
     // Everything is scanned in one pass, so we always report cursor '0' (scan complete).
     return ['0', keys];
+  }
+
+  async ping(): Promise<'PONG'> {
+    return 'PONG';
   }
 
   clear(): void {

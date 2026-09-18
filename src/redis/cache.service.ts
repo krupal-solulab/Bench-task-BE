@@ -67,4 +67,16 @@ export class CacheService {
       return 0;
     }
   }
+
+  /** Integration Health (Role-surface polish) - never throws, so a down Redis surfaces as a
+   * clean `false` on the health page rather than an error. */
+  async ping(): Promise<boolean> {
+    try {
+      await this.redis.ping();
+      return true;
+    } catch (err) {
+      this.logger.warn({ err }, 'redis ping failed');
+      return false;
+    }
+  }
 }
