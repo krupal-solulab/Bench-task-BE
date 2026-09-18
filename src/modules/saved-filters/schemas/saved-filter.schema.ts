@@ -8,6 +8,15 @@ export enum SavedFilterScope {
   MY_TASKS = 'myTasks',
 }
 
+// Sharing (Search/Dashboards v2) - only meaningful for scope === PROJECT (a MY_TASKS filter has
+// no natural audience to share with and stays personal by definition). Every existing filter has
+// no `visibility` field at all, which this schema default resolves to PRIVATE - byte-identical
+// to today's owner-only behavior for every saved filter that exists before this feature.
+export enum SavedFilterVisibility {
+  PRIVATE = 'private',
+  SHARED = 'shared',
+}
+
 @Schema({
   timestamps: true,
   toJSON: {
@@ -39,6 +48,11 @@ export class SavedFilter {
   // Required (and only meaningful) when scope === PROJECT.
   @Prop({ type: Types.ObjectId, ref: 'Project', default: null })
   projectId!: Types.ObjectId | null;
+
+  // See SavedFilterVisibility above. Only ever SHARED when scope === PROJECT (enforced in
+  // SavedFiltersService.create()).
+  @Prop({ type: String, enum: SavedFilterVisibility, default: SavedFilterVisibility.PRIVATE })
+  visibility!: SavedFilterVisibility;
 
   // The raw TaskListQuery (minus `page`) this filter replays - validated once already when the
   // frontend built it, and only ever re-applied through the real, fully-validated list endpoints,

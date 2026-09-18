@@ -32,6 +32,7 @@ import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 import { PutCustomFieldOverrideDto } from './dto/put-custom-field-override.dto';
 import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
 import { PutNotificationSchemeDto } from './dto/put-notification-scheme.dto';
+import { PutSlaPolicyDto } from './dto/put-sla-policy.dto';
 import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
 import { PutIssueTypesDto } from './dto/put-issue-types.dto';
 
@@ -155,6 +156,15 @@ export class ProjectsController {
   @ApiOperation({ summary: 'Per-project task aggregation for the detail page' })
   async stats(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.projectsService.statsForProject(id, user);
+  }
+
+  @Get(':id/reports/epic-progress')
+  @ApiOperation({ summary: 'Every Epic in this project with its linked-issue completion %' })
+  async epicProgressReport(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.epicProgressReport(id, user);
   }
 
   @Get(':id/activity')
@@ -331,6 +341,26 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.updateNotificationScheme(id, dto, user);
+  }
+
+  @Get(':id/sla-policy')
+  @ApiOperation({ summary: "The project's effective SLA resolution-time targets" })
+  async getSlaPolicy(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.getSlaPolicy(id, user);
+  }
+
+  @Put(':id/sla-policy')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Set/replace this project's SLA policy (empty resets to the default)" })
+  async updateSlaPolicy(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PutSlaPolicyDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateSlaPolicy(id, dto, user);
   }
 
   @Patch(':id/permission-scheme')

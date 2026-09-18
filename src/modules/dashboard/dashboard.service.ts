@@ -11,10 +11,20 @@ import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
 import { TaskPriority } from '../../common/enums/task-priority.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { extractId } from '../../common/utils/mongo.util';
+import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { Project, ProjectDocument } from '../projects/schemas/project.schema';
 import { DEFAULT_WORKFLOW, resolveWorkflow } from '../projects/schemas/workflow.schema';
+import {
+  DEFAULT_SLA_POLICY,
+  isBreached,
+  resolutionHoursOf,
+  resolveSlaPolicy,
+} from '../projects/schemas/sla-policy.schema';
 import { ProjectsService } from '../projects/projects.service';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
+import { Sprint, SprintDocument } from '../sprints/schemas/sprint.schema';
+import { computeBurndown } from '../sprints/sprint-reports.util';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { DeveloperWorkloadQueryDto } from './dto/dashboard-scope.dto';
 import { PutDashboardPreferenceDto } from './dto/put-dashboard-preference.dto';
@@ -36,6 +46,7 @@ export class DashboardService {
     private readonly configService: ConfigService<AppConfig, true>,
     @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
+    @InjectModel(Sprint.name) private readonly sprintModel: Model<SprintDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(DashboardPreference.name)
     private readonly dashboardPreferenceModel: Model<DashboardPreferenceDocument>,
@@ -328,6 +339,237 @@ export class DashboardService {
       }
       return points;
     });
+  }
+
+  /**
+   * SLA compliance and average resolution time per priority (Search/Dashboards v2), for
+   * accessible, non-deleted tasks created in the last 90 days - a pragmatic bound, since a
+   * dashboard is a recent-activity view rather than a full historical scan. Computed via a
+   * bounded in-memory reduction rather than a single `$group` pipeline: each task's SLA target
+   * depends on *its own project's* resolved policy, which a plain aggregation can't apply
+   * per-document without an unnecessary `$lookup`+`$expr` join for what is, at dashboard scale,
+   * a small dataset.
+   */
+  async slaCompliance(projectId: string | undefined, actingUser: AuthenticatedUser) {
+    return this.cached(
+      'sla-compliance',
+      actingUser,
+      { projectId },
+      this.ttlDashboard(),
+      async () => {
+        const { taskFilter } = await this.resolveScope(actingUser, projectId);
+        const since = new Date();
+        since.setDate(since.getDate() - 90);
+
+        const tasks = await this.taskModel
+          .find(
+            { ...taskFilter, createdAt: { $gte: since } },
+            { priority: 1, project: 1, createdAt: 1, completedAt: 1 },
+          )
+          .lean();
+
+        const projectIds = [...new Set(tasks.map((t) => extractId(t.project)))].map(
+          (id) => new Types.ObjectId(id),
+        );
+        const projects = await this.projectModel
+          .find({ _id: { $in: projectIds } }, { slaPolicy: 1 })
+          .lean();
+        const policyByProject = new Map(
+          projects.map((p) => [p._id.toString(), resolveSlaPolicy(p)]),
+        );
+
+        const now = new Date();
+        const byPriority = new Map(
+          Object.values(TaskPriority).map((priority) => [
+            priority,
+            { total: 0, compliant: 0, breached: 0, resolutionHoursSum: 0, resolutionHoursCount: 0 },
+          ]),
+        );
+
+        for (const task of tasks) {
+          const policy = policyByProject.get(extractId(task.project)) ?? DEFAULT_SLA_POLICY;
+          const snapshot = {
+            priority: task.priority,
+            createdAt: task.createdAt,
+            completedAt: task.completedAt,
+          };
+          const row = byPriority.get(task.priority)!;
+          row.total += 1;
+          if (isBreached(snapshot, policy, now)) row.breached += 1;
+          else row.compliant += 1;
+          const hours = resolutionHoursOf(snapshot);
+          if (hours != null) {
+            row.resolutionHoursSum += hours;
+            row.resolutionHoursCount += 1;
+          }
+        }
+
+        return Object.values(TaskPriority).map((priority) => {
+          const row = byPriority.get(priority)!;
+          return {
+            priority,
+            total: row.total,
+            compliant: row.compliant,
+            breached: row.breached,
+            avgResolutionHours:
+              row.resolutionHoursCount > 0
+                ? Math.round(row.resolutionHoursSum / row.resolutionHoursCount)
+                : null,
+          };
+        });
+      },
+    );
+  }
+
+  /** Story points (or issue count, when no task in range has story points) completed per rolling
+   * 7-day window over the last 8 windows, across accessible projects - mirrors taskTrend's own
+   * day-bucket aggregation + JS zero-fill, just re-bucketed into weeks. */
+  async velocityTrend(projectId: string | undefined, actingUser: AuthenticatedUser) {
+    return this.cached(
+      'velocity-trend',
+      actingUser,
+      { projectId },
+      this.ttlDashboard(),
+      async () => {
+        const { taskFilter } = await this.resolveScope(actingUser, projectId);
+        const WEEKS = 8;
+        const since = new Date();
+        since.setDate(since.getDate() - WEEKS * 7);
+
+        const dayRows: { _id: string; points: number; count: number }[] =
+          await this.taskModel.aggregate([
+            {
+              $match: {
+                ...taskFilter,
+                statusCategory: StatusCategory.DONE,
+                completedAt: { $gte: since, $ne: null },
+              },
+            },
+            {
+              $group: {
+                _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
+                points: { $sum: { $ifNull: ['$storyPoints', 0] } },
+                count: { $sum: 1 },
+              },
+            },
+          ]);
+        const byDay = new Map(dayRows.map((r) => [r._id, r]));
+
+        const points: { weekStart: string; completedPoints: number; completedCount: number }[] = [];
+        for (let w = WEEKS - 1; w >= 0; w--) {
+          const bucketEnd = new Date();
+          bucketEnd.setDate(bucketEnd.getDate() - w * 7);
+          const bucketStart = new Date(bucketEnd);
+          bucketStart.setDate(bucketStart.getDate() - 6);
+
+          let completedPoints = 0;
+          let completedCount = 0;
+          for (let d = 0; d < 7; d++) {
+            const day = new Date(bucketStart);
+            day.setDate(day.getDate() + d);
+            const row = byDay.get(day.toISOString().slice(0, 10));
+            completedPoints += row?.points ?? 0;
+            completedCount += row?.count ?? 0;
+          }
+          points.push({
+            weekStart: bucketStart.toISOString().slice(0, 10),
+            completedPoints,
+            completedCount,
+          });
+        }
+
+        return { points, hasStoryPoints: points.some((p) => p.completedPoints > 0) };
+      },
+    );
+  }
+
+  /**
+   * "Burndown" at dashboard scope, reframed as a list of currently-Active sprints ordered
+   * "most behind schedule first" (Search/Dashboards v2) - an overlaid multi-sprint burndown line
+   * doesn't mean anything across projects with different sprint date ranges. Reuses the existing,
+   * already-tested `computeBurndown` pure function directly, taking each sprint's final (today's)
+   * point rather than the whole day-by-day series.
+   */
+  async activeSprintsHealth(projectId: string | undefined, actingUser: AuthenticatedUser) {
+    return this.cached(
+      'active-sprints-health',
+      actingUser,
+      { projectId },
+      this.ttlDashboard(),
+      async () => {
+        const { projectFilter } = await this.resolveScope(actingUser, projectId);
+        const accessibleProjectIds = (
+          await this.projectModel.find(projectFilter, { _id: 1 }).lean()
+        ).map((p) => p._id);
+
+        const sprints = await this.sprintModel
+          .find({
+            project: { $in: accessibleProjectIds },
+            status: SprintStatus.ACTIVE,
+            deletedAt: null,
+          })
+          .populate('project', 'name')
+          .exec();
+        if (sprints.length === 0) return [];
+
+        const now = new Date();
+        const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+        const rows = await Promise.all(
+          sprints.map(async (sprint) => {
+            const tasks = await this.taskModel
+              .find({ sprint: sprint._id, deletedAt: null }, { storyPoints: 1, completedAt: 1 })
+              .lean();
+            const { points, hasStoryPoints } = computeBurndown(
+              tasks,
+              sprint.startedAt!,
+              sprint.endDate,
+              null,
+              now,
+            );
+            const last = points[points.length - 1]!;
+
+            const totalDays = Math.max(
+              1,
+              Math.round((sprint.endDate.getTime() - sprint.startedAt!.getTime()) / MS_PER_DAY),
+            );
+            const daysElapsed = Math.min(
+              totalDays,
+              Math.max(0, Math.round((now.getTime() - sprint.startedAt!.getTime()) / MS_PER_DAY)),
+            );
+            const percentTimeElapsed = Math.round((daysElapsed / totalDays) * 100);
+
+            const totalWork = hasStoryPoints
+              ? tasks.reduce((sum, t) => sum + (t.storyPoints ?? 0), 0)
+              : tasks.length;
+            const remaining = hasStoryPoints ? last.remainingPoints : last.remainingCount;
+            const percentWorkRemaining =
+              totalWork > 0 ? Math.round((remaining / totalWork) * 100) : 0;
+
+            const project = sprint.project as unknown as { id: string; name: string };
+            return {
+              sprintId: sprint.id,
+              sprintName: sprint.name,
+              projectId: project.id,
+              projectName: project.name,
+              percentTimeElapsed,
+              percentWorkRemaining,
+              remainingPoints: last.remainingPoints,
+              remainingCount: last.remainingCount,
+              hasStoryPoints,
+            };
+          }),
+        );
+
+        // Most behind schedule first: work remaining outpacing time remaining by the widest margin.
+        return rows.sort(
+          (a, b) =>
+            b.percentWorkRemaining -
+            (100 - b.percentTimeElapsed) -
+            (a.percentWorkRemaining - (100 - a.percentTimeElapsed)),
+        );
+      },
+    );
   }
 
   private zeroFillProjectStatus(

@@ -159,4 +159,117 @@ describe('advanced search (integration)', () => {
     expect(res.body.data).toHaveLength(1);
     expect(res.body.data[0].id).toBe(task.id);
   });
+
+  describe('GET /tasks/search (JQL-lite, Search/Dashboards v2)', () => {
+    it('a multi-clause AND/OR query with ORDER BY returns the correct, correctly-ordered set', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'JQL Project' });
+
+      const bugP1 = await createTask(app, manager.accessToken, {
+        title: 'Bug P1',
+        project: project.id,
+        priority: TaskPriority.P1,
+        issueType: 'Bug',
+      });
+      const bugP3 = await createTask(app, manager.accessToken, {
+        title: 'Bug P3',
+        project: project.id,
+        priority: TaskPriority.P3,
+        issueType: 'Bug',
+      });
+      await createTask(app, manager.accessToken, {
+        title: 'Story P1',
+        project: project.id,
+        priority: TaskPriority.P1,
+        issueType: 'Story',
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({
+          jql: `project = "${project.id}" AND issueType = Bug ORDER BY priority ASC`,
+        })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([bugP1.id, bugP3.id]);
+    });
+
+    it('resolves currentUser() to the caller and only matches their own tasks', async () => {
+      const { org, manager } = await seedManager();
+      const dev = await seedUserAndLogin(app, {
+        email: 'jql-dev@example.com',
+        password: 'Password123',
+        role: Role.DEVELOPER,
+        organizationId: org.id,
+      });
+      const project = await createProject(app, manager.accessToken, {
+        name: 'CurrentUser Project',
+      });
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/members`)
+        .set(...authHeader(manager.accessToken))
+        .send({ userIds: [dev.userDoc.id] });
+
+      const mine = await createTask(app, manager.accessToken, {
+        title: 'Assigned to dev',
+        project: project.id,
+        priority: TaskPriority.P2,
+        assignee: dev.userDoc.id,
+      });
+      await createTask(app, manager.accessToken, {
+        title: 'Unassigned',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: 'assignee = currentUser()' })
+        .set(...authHeader(dev.accessToken));
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0].id).toBe(mine.id);
+    });
+
+    it('rejects a syntactically invalid query with 400', async () => {
+      const { manager } = await seedManager();
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: 'not a valid query (((' })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects an unknown field with 400', async () => {
+      const { manager } = await seedManager();
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: 'bogus = 1' })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(400);
+    });
+
+    it("never returns a task from a project outside the caller's accessible scope", async () => {
+      const { org, manager } = await seedManager();
+      const other = await seedUserAndLogin(app, {
+        email: 'jql-outsider@example.com',
+        password: 'Password123',
+        role: Role.MANAGER,
+        organizationId: org.id,
+      });
+      const project = await createProject(app, manager.accessToken, { name: 'Private Project' });
+      await createTask(app, manager.accessToken, {
+        title: 'Private task',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: `project = "${project.id}"` })
+        .set(...authHeader(other.accessToken));
+      expect(res.body.data).toHaveLength(0);
+    });
+  });
 });

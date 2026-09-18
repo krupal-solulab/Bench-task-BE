@@ -91,6 +91,7 @@ describe('TasksService', () => {
       | 'logActivity'
       | 'softDelete'
       | 'paginate'
+      | 'paginateWithFilter'
       | 'findMaxRank'
       | 'findRankInScope'
       | 'renumberScope'
@@ -135,6 +136,7 @@ describe('TasksService', () => {
       logActivity: jest.fn(),
       softDelete: jest.fn(),
       paginate: jest.fn(),
+      paginateWithFilter: jest.fn(),
       findMaxRank: jest.fn().mockResolvedValue(null),
       findRankInScope: jest.fn(),
       renumberScope: jest.fn().mockResolvedValue(undefined),
@@ -773,6 +775,90 @@ describe('TasksService', () => {
           makeUser({ id: MANAGER_ID, role: Role.MANAGER }),
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('search (JQL-lite, Search/Dashboards v2)', () => {
+    // buildScope() casts organizationId through `new Types.ObjectId(...)`, which requires a real
+    // hex string - unlike most task/project mocks elsewhere in this file, which only ever pass
+    // organizationId through extractId()'s `.toString()` and so tolerate a plain label like ORG_A.
+    const VALID_ORG_ID = '507f1f77bcf86cd799439099';
+
+    beforeEach(() => {
+      projectsService.getAccessibleProjectIds.mockResolvedValue([PROJECT_ID]);
+      tasksRepository.paginateWithFilter.mockResolvedValue({ data: [], total: 0 });
+    });
+
+    it('rejects an invalid query with a BadRequestException', async () => {
+      await expect(
+        service.search(
+          { jql: 'bogus = 1', page: 1, limit: 20 } as never,
+          makeUser({ organizationId: VALID_ORG_ID }),
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(tasksRepository.paginateWithFilter).not.toHaveBeenCalled();
+    });
+
+    it("ANDs the compiled query with the caller's accessible-project/org scope", async () => {
+      await service.search(
+        { jql: 'status = Done', page: 1, limit: 20 } as never,
+        makeUser({ id: ADMIN_ID, organizationId: VALID_ORG_ID }),
+      );
+
+      const [filter] = tasksRepository.paginateWithFilter.mock.calls[0]!;
+      expect(filter).toEqual({
+        $and: [
+          {
+            deletedAt: null,
+            project: { $in: [expect.any(Object)] },
+            organizationId: expect.any(Object),
+          },
+          { status: 'Done' },
+        ],
+      });
+    });
+
+    it('defaults to createdAt desc when the query has no ORDER BY', async () => {
+      await service.search(
+        { jql: 'status = Done', page: 1, limit: 20 } as never,
+        makeUser({ organizationId: VALID_ORG_ID }),
+      );
+
+      const [, sort] = tasksRepository.paginateWithFilter.mock.calls[0]!;
+      expect(sort).toEqual({ createdAt: -1 });
+    });
+
+    it('sorts by the ORDER BY field/direction when given', async () => {
+      await service.search(
+        { jql: 'status = Done ORDER BY priority ASC', page: 1, limit: 20 } as never,
+        makeUser({ organizationId: VALID_ORG_ID }),
+      );
+
+      const [, sort] = tasksRepository.paginateWithFilter.mock.calls[0]!;
+      expect(sort).toEqual({ priority: 1, createdAt: 1 });
+    });
+
+    it('resolves currentUser() against the acting user', async () => {
+      await service.search(
+        { jql: 'assignee = currentUser()', page: 1, limit: 20 } as never,
+        makeUser({ id: DEV_ID, organizationId: VALID_ORG_ID }),
+      );
+
+      const [filter] = tasksRepository.paginateWithFilter.mock.calls[0]!;
+      const compiled = (filter as { $and: [unknown, { assignee: { toString(): string } }] })
+        .$and[1];
+      expect(compiled.assignee.toString()).toBe(DEV_ID);
+    });
+
+    it('paginates using the requested page/limit', async () => {
+      await service.search(
+        { jql: 'status = Done', page: 3, limit: 10 } as never,
+        makeUser({ organizationId: VALID_ORG_ID }),
+      );
+
+      const [, , page, limit] = tasksRepository.paginateWithFilter.mock.calls[0]!;
+      expect(page).toBe(3);
+      expect(limit).toBe(10);
     });
   });
 

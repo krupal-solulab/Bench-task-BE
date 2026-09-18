@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { FilterQuery, Model, Types } from 'mongoose';
 import { CacheService } from '../../redis/cache.service';
 import { dashboardCachePattern } from '../../common/utils/cache-key.util';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
@@ -52,11 +52,14 @@ import { TaskDocument } from './schemas/task.schema';
 import { TaskActivityAction } from './schemas/task-activity.schema';
 import { isLegalTaskTransition, legalTaskTransitions } from './task-status.rules';
 import { midpointRank, needsRenumber, nextAppendRank } from './utils/rank.util';
+import { buildTaskListSort } from './utils/task-filter.util';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
 import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
+import { SearchTasksDto } from './dto/search-tasks.dto';
+import { assertValidJqlOrderBy, compileJqlAst, parseJql } from './search/jql.util';
 
 /**
  * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
@@ -192,6 +195,33 @@ export class TasksService {
     const scope = await this.buildScope(actingUser);
     const { data, total } = await this.tasksRepository.paginate({ ...query, overdue: true }, scope);
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
+  }
+
+  /**
+   * JQL-lite compound search (Search/Dashboards v2) - additive alongside `paginate()`'s
+   * fixed-shape `GET /tasks` filtering, which this does not touch. The parsed query is compiled
+   * to a Mongo filter and ANDed with the same org/accessible-project scope every other list
+   * endpoint already enforces.
+   */
+  async search(dto: SearchTasksDto, actingUser: AuthenticatedUser) {
+    const { ast, orderBy } = parseJql(dto.jql);
+    assertValidJqlOrderBy(orderBy);
+    const compiled = compileJqlAst(ast, actingUser);
+    const scope = await this.buildScope(actingUser);
+
+    const filter: FilterQuery<TaskDocument> = {
+      $and: [{ deletedAt: null, ...scope }, compiled],
+    };
+    const sortOrder: 1 | -1 = orderBy?.direction === 'asc' ? 1 : -1;
+    const sort = buildTaskListSort(orderBy?.field ?? 'createdAt', orderBy ? sortOrder : -1);
+
+    const { data, total } = await this.tasksRepository.paginateWithFilter(
+      filter,
+      sort,
+      dto.page,
+      dto.limit,
+    );
+    return { data, meta: buildPaginationMeta(total, dto.page, dto.limit) };
   }
 
   async findOneScoped(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {

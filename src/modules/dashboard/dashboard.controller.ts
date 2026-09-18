@@ -108,6 +108,42 @@ export class DashboardController {
     return data;
   }
 
+  @Get('sla-compliance')
+  @ApiOperation({ summary: 'SLA compliance and avg resolution time per priority, last 90 days' })
+  async slaCompliance(
+    @Query() query: DashboardScopeDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { data, hit } = await this.dashboardService.slaCompliance(query.projectId, user);
+    this.setCacheHeader(res, hit);
+    return data;
+  }
+
+  @Get('velocity-trend')
+  @ApiOperation({ summary: 'Story points (or issue count) completed per week, last 8 weeks' })
+  async velocityTrend(
+    @Query() query: DashboardScopeDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { data, hit } = await this.dashboardService.velocityTrend(query.projectId, user);
+    this.setCacheHeader(res, hit);
+    return data;
+  }
+
+  @Get('active-sprints-health')
+  @ApiOperation({ summary: 'Currently-Active sprints, most behind schedule first' })
+  async activeSprintsHealth(
+    @Query() query: DashboardScopeDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { data, hit } = await this.dashboardService.activeSprintsHealth(query.projectId, user);
+    this.setCacheHeader(res, hit);
+    return data;
+  }
+
   @Get('preferences')
   @ApiOperation({ summary: "The caller's saved widget visibility/order (defaults if never set)" })
   async getPreferences(@CurrentUser() user: AuthenticatedUser) {

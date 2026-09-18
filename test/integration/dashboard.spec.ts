@@ -11,7 +11,7 @@ import {
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
-import { api, createProject, createTask } from './setup/fixtures';
+import { api, createProject, createSprint, createTask } from './setup/fixtures';
 
 describe('dashboard (integration)', () => {
   let app: INestApplication;
@@ -199,5 +199,174 @@ describe('dashboard (integration)', () => {
     // (MISS again) and reflect the new task.
     expect(afterChange.headers['x-cache']).toBe('MISS');
     expect(afterChange.body.data.totalTasks).toBe(5);
+  });
+
+  describe('SLA policy + compliance widget (Search/Dashboards v2)', () => {
+    async function seedManager(email = 'sla-manager@example.com') {
+      const org = await seedOrganization(app);
+      const manager = await seedUserAndLogin(app, {
+        email,
+        password: 'Password123',
+        role: Role.MANAGER,
+        organizationId: org.id,
+      });
+      return { org, manager };
+    }
+
+    it('defaults to the system policy until a project configures its own', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'SLA Project' });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/sla-policy`)
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([
+        { priority: 'P1', resolutionHours: 8 },
+        { priority: 'P2', resolutionHours: 24 },
+        { priority: 'P3', resolutionHours: 72 },
+      ]);
+    });
+
+    it('accepts a custom override, and rejects a duplicate priority', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'Custom SLA Project' });
+
+      const put = await api(app)
+        .put(`/${API_PREFIX}/projects/${project.id}/sla-policy`)
+        .set(...authHeader(manager.accessToken))
+        .send({ entries: [{ priority: 'P1', resolutionHours: 4 }] });
+      expect(put.status).toBe(200);
+      expect(put.body.data).toEqual([{ priority: 'P1', resolutionHours: 4 }]);
+
+      const getAfter = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/sla-policy`)
+        .set(...authHeader(manager.accessToken));
+      expect(getAfter.body.data).toEqual([{ priority: 'P1', resolutionHours: 4 }]);
+
+      const dup = await api(app)
+        .put(`/${API_PREFIX}/projects/${project.id}/sla-policy`)
+        .set(...authHeader(manager.accessToken))
+        .send({
+          entries: [
+            { priority: 'P1', resolutionHours: 4 },
+            { priority: 'P1', resolutionHours: 5 },
+          ],
+        });
+      expect(dup.status).toBe(400);
+    });
+
+    it("the sla-compliance widget reports per-priority totals using each project's resolved policy", async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'Compliance Project' });
+      await createTask(app, manager.accessToken, {
+        title: 'Fresh P1',
+        project: project.id,
+        priority: TaskPriority.P1,
+      });
+      await createTask(app, manager.accessToken, {
+        title: 'Fresh P2',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/dashboard/sla-compliance`)
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      const byPriority = Object.fromEntries(
+        res.body.data.map((r: { priority: string }) => [r.priority, r]),
+      );
+      // Both tasks were just created, so well within any target - neither has breached yet.
+      expect(byPriority.P1).toMatchObject({ total: 1, compliant: 1, breached: 0 });
+      expect(byPriority.P2).toMatchObject({ total: 1, compliant: 1, breached: 0 });
+      expect(byPriority.P3).toMatchObject({ total: 0, compliant: 0, breached: 0 });
+    });
+  });
+
+  describe('velocity-trend widget (Search/Dashboards v2)', () => {
+    it('counts a task completed this week in the most recent bucket', async () => {
+      const { manager } = await seedDashboardFixture();
+      const project = await createProject(app, manager.accessToken, { name: 'Velocity Project' });
+      const task = await createTask(app, manager.accessToken, {
+        title: 'Completed with points',
+        project: project.id,
+        priority: TaskPriority.P2,
+        storyPoints: 5,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.IN_PROGRESS });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.REVIEW });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.DONE });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/dashboard/velocity-trend`)
+        .query({ projectId: project.id })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data.hasStoryPoints).toBe(true);
+      const lastPoint = res.body.data.points[res.body.data.points.length - 1];
+      expect(lastPoint.completedPoints).toBe(5);
+      expect(lastPoint.completedCount).toBe(1);
+    });
+  });
+
+  describe('active-sprints-health widget (Search/Dashboards v2)', () => {
+    it('lists a currently-Active sprint with its remaining work', async () => {
+      const { manager } = await seedDashboardFixture();
+      const project = await createProject(app, manager.accessToken, { name: 'Health Project' });
+      const startDate = new Date();
+      const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const sprint = await createSprint(app, manager.accessToken, project.id, {
+        name: 'Sprint 1',
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+      });
+      const task = await createTask(app, manager.accessToken, {
+        title: 'In the sprint',
+        project: project.id,
+        priority: TaskPriority.P2,
+        storyPoints: 8,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/sprint`)
+        .set(...authHeader(manager.accessToken))
+        .send({ sprintId: sprint.id });
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/start`)
+        .set(...authHeader(manager.accessToken));
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/dashboard/active-sprints-health`)
+        .query({ projectId: project.id })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({
+        sprintId: sprint.id,
+        sprintName: 'Sprint 1',
+        projectId: project.id,
+        hasStoryPoints: true,
+        remainingPoints: 8,
+      });
+      expect(res.body.data[0].percentTimeElapsed).toBeLessThanOrEqual(5);
+    });
+
+    it('returns an empty list when there are no Active sprints (regression)', async () => {
+      const { manager } = await seedDashboardFixture();
+      const res = await api(app)
+        .get(`/${API_PREFIX}/dashboard/active-sprints-health`)
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    });
   });
 });

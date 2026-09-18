@@ -25,6 +25,7 @@ import { UpdateTaskAssigneeDto } from './dto/update-task-assignee.dto';
 import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
 import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
+import { SearchTasksDto } from './dto/search-tasks.dto';
 
 @ApiTags('tasks')
 @ApiBearerAuth()
@@ -55,6 +56,14 @@ export class TasksController {
   @ApiOperation({ summary: 'Tasks assigned to the current user' })
   async myTasks(@Query() query: ListTasksDto, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.myTasks(query, user);
+  }
+
+  // Registered before GET :id - a literal path segment ("search") must precede a :id sibling or
+  // Express/Nest would swallow it as the route param (same gotcha fixed for sprints' /velocity).
+  @Get('search')
+  @ApiOperation({ summary: 'JQL-lite compound search (Search/Dashboards v2)' })
+  async search(@Query() query: SearchTasksDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.search(query, user);
   }
 
   @Get(':id')

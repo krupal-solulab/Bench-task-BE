@@ -30,9 +30,12 @@ export class SavedFiltersController {
   }
 
   @Get()
-  @ApiOperation({ summary: "List the caller's own saved filters" })
+  @ApiOperation({
+    summary:
+      "The caller's own saved filters, plus any filter shared for the given project (Search/Dashboards v2)",
+  })
   async list(@Query() query: ListSavedFiltersDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.savedFiltersService.listMine(query, user);
+    return this.savedFiltersService.list(query, user);
   }
 
   @Delete(':id')

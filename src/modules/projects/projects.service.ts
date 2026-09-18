@@ -66,6 +66,8 @@ import {
   assertValidNotificationScheme,
 } from './schemas/notification-scheme.schema';
 import { PutNotificationSchemeDto } from './dto/put-notification-scheme.dto';
+import { SlaPolicyEntry, resolveSlaPolicy } from './schemas/sla-policy.schema';
+import { PutSlaPolicyDto } from './dto/put-sla-policy.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ListProjectsDto } from './dto/list-projects.dto';
@@ -435,6 +437,42 @@ export class ProjectsService {
     ]);
 
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
+  }
+
+  /**
+   * Every Epic in this project with its linked-issue completion (Search/Dashboards v2's
+   * "epic-progress report" gap) - a bulk wrapper around the same direct-linked-issue counting
+   * TasksService.epicProgress() already does for one Epic at a time. Duplicated here (rather than
+   * injecting TasksRepository) because TasksModule already imports ProjectsModule, so the reverse
+   * import would be a circular dependency - this is a small, self-contained count, the same
+   * "duplicate a tiny helper across modules to avoid a cycle" trade-off used elsewhere.
+   */
+  async epicProgressReport(id: string, actingUser: AuthenticatedUser) {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+
+    const epics = await this.taskModel
+      .find({ project: project._id, issueType: IssueType.EPIC, deletedAt: null })
+      .select('title issueKey')
+      .exec();
+
+    return Promise.all(
+      epics.map(async (epic) => {
+        const linkedFilter = { parent: epic._id, deletedAt: null };
+        const [linkedIssueCount, doneCount] = await Promise.all([
+          this.taskModel.countDocuments(linkedFilter),
+          this.taskModel.countDocuments({ ...linkedFilter, statusCategory: StatusCategory.DONE }),
+        ]);
+        return {
+          epicId: epic.id,
+          issueKey: epic.issueKey,
+          title: epic.title,
+          linkedIssueCount,
+          doneCount,
+          progress: linkedIssueCount > 0 ? Math.round((doneCount / linkedIssueCount) * 100) : 0,
+        };
+      }),
+    );
   }
 
   async statsForProject(id: string, actingUser: AuthenticatedUser) {
@@ -916,6 +954,38 @@ export class ProjectsService {
 
     const updated = await this.projectsRepository.updateById(id, { notificationScheme: rules });
     return this.toResponse(updated!);
+  }
+
+  /** The project's effective SLA resolution-time targets - its own custom policy, or the system
+   * default (Search/Dashboards v2). Not embedded in the project response, same as workflow/
+   * custom-field overrides - fetched via this dedicated, view-only endpoint. */
+  async getSlaPolicy(id: string, actingUser: AuthenticatedUser): Promise<SlaPolicyEntry[]> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+    return resolveSlaPolicy(project);
+  }
+
+  async updateSlaPolicy(
+    id: string,
+    dto: PutSlaPolicyDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<SlaPolicyEntry[]> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const entries: SlaPolicyEntry[] = dto.entries.map((e) => ({
+      priority: e.priority,
+      resolutionHours: e.resolutionHours,
+    }));
+    const priorities = entries.map((e) => e.priority);
+    if (new Set(priorities).size !== priorities.length) {
+      throw new BadRequestException('Each priority may only appear once in an SLA policy');
+    }
+
+    // An empty list is a valid, deliberate reset to the system default (resolveSlaPolicy treats
+    // "no entries" as "use the default"), not an error.
+    await this.projectsRepository.updateById(id, { slaPolicy: entries });
+    return entries.length > 0 ? entries : resolveSlaPolicy({ slaPolicy: [] });
   }
 
   /** Assign (or, with `null`, unassign) a reusable PermissionScheme to this project. Unassigning

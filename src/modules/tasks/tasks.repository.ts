@@ -51,9 +51,22 @@ export class TasksRepository {
   ): Promise<{ data: TaskDocument[]; total: number }> {
     const filter = buildTaskListFilter(query, scope);
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
-    const skip = (query.page - 1) * query.limit;
     const sort = buildTaskListSort(query.sortBy, sortOrder);
+    return this.paginateWithFilter(filter, sort, query.page, query.limit);
+  }
 
+  /**
+   * Same populate/pagination shape as `paginate()`, but for an already-built Mongo filter -
+   * used by the JQL-lite `/tasks/search` endpoint, whose filter comes from compiling a parsed
+   * query rather than a fixed-shape DTO (see `search/jql.util.ts`).
+   */
+  async paginateWithFilter(
+    filter: FilterQuery<TaskDocument>,
+    sort: Record<string, 1 | -1>,
+    page: number,
+    limit: number,
+  ): Promise<{ data: TaskDocument[]; total: number }> {
+    const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
@@ -64,7 +77,7 @@ export class TasksRepository {
         .populate('parent', 'title issueKey')
         .sort(sort)
         .skip(skip)
-        .limit(query.limit)
+        .limit(limit)
         .exec(),
       this.model.countDocuments(filter).exec(),
     ]);

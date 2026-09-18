@@ -283,6 +283,52 @@ describe('issue type hierarchy (integration)', () => {
     expect(res.status).toBe(400);
   });
 
+  it('the bulk epic-progress report covers every Epic in a project (Search/Dashboards v2)', async () => {
+    const { manager } = await seedManager();
+    const project = await createProject(app, manager.accessToken, { name: 'Report Project' });
+
+    const epicDone = await createTask(app, manager.accessToken, {
+      title: 'Fully done epic',
+      project: project.id,
+      priority: TaskPriority.P2,
+      issueType: IssueType.EPIC,
+    });
+    const storyDone = await createTask(app, manager.accessToken, {
+      title: 'Story under done epic',
+      project: project.id,
+      priority: TaskPriority.P2,
+      issueType: IssueType.STORY,
+      parent: epicDone.id,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${storyDone.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: TaskStatus.IN_PROGRESS });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${storyDone.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: TaskStatus.REVIEW });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${storyDone.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: TaskStatus.DONE });
+
+    const epicEmpty = await createTask(app, manager.accessToken, {
+      title: 'Epic with no linked issues',
+      project: project.id,
+      priority: TaskPriority.P2,
+      issueType: IssueType.EPIC,
+    });
+
+    const res = await api(app)
+      .get(`/${API_PREFIX}/projects/${project.id}/reports/epic-progress`)
+      .set(...authHeader(manager.accessToken));
+    expect(res.status).toBe(200);
+    const byId = Object.fromEntries(res.body.data.map((e: { epicId: string }) => [e.epicId, e]));
+    expect(byId[epicDone.id]).toMatchObject({ linkedIssueCount: 1, doneCount: 1, progress: 100 });
+    expect(byId[epicEmpty.id]).toMatchObject({ linkedIssueCount: 0, doneCount: 0, progress: 0 });
+  });
+
   it('rejects assigning an Epic or a Sub-task to a sprint', async () => {
     const { manager } = await seedManager();
     const project = await createProject(app, manager.accessToken, { name: 'Sprint Guard Project' });

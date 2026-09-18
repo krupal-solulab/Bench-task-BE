@@ -1322,6 +1322,35 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/reports/epic-progress": {
+      "get": {
+        "operationId": "ProjectsController_epicProgressReport",
+        "summary": "Every Epic in this project with its linked-issue completion %",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{id}/activity": {
       "get": {
         "operationId": "ProjectsController_activity",
@@ -1865,6 +1894,72 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PutNotificationSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/sla-policy": {
+      "get": {
+        "operationId": "ProjectsController_getSlaPolicy",
+        "summary": "The project's effective SLA resolution-time targets",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "ProjectsController_updateSlaPolicy",
+        "summary": "Set/replace this project's SLA policy (empty resets to the default)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSlaPolicyDto"
               }
             }
           }
@@ -2920,6 +3015,71 @@
               "items": {
                 "type": "string"
               }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/search": {
+      "get": {
+        "operationId": "TasksController_search",
+        "summary": "JQL-lite compound search (Search/Dashboards v2)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "jql",
+            "required": true,
+            "in": "query",
+            "description": "A JQL-lite compound query - see jql.util.ts for the supported grammar.",
+            "schema": {
+              "example": "project = \"665f...\" AND status != Done AND assignee = currentUser() ORDER BY priority",
+              "type": "string"
             }
           }
         ],
@@ -4473,6 +4633,93 @@
         ]
       }
     },
+    "/api/v1/dashboard/sla-compliance": {
+      "get": {
+        "operationId": "DashboardController_slaCompliance",
+        "summary": "SLA compliance and avg resolution time per priority, last 90 days",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/velocity-trend": {
+      "get": {
+        "operationId": "DashboardController_velocityTrend",
+        "summary": "Story points (or issue count) completed per week, last 8 weeks",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/active-sprints-health": {
+      "get": {
+        "operationId": "DashboardController_activeSprintsHealth",
+        "summary": "Currently-Active sprints, most behind schedule first",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/dashboard/preferences": {
       "get": {
         "operationId": "DashboardController_getPreferences",
@@ -4552,7 +4799,7 @@
       },
       "get": {
         "operationId": "SavedFiltersController_list",
-        "summary": "List the caller's own saved filters",
+        "summary": "The caller's own saved filters, plus any filter shared for the given project (Search/Dashboards v2)",
         "parameters": [
           {
             "name": "scope",
@@ -5574,6 +5821,44 @@
           "rules"
         ]
       },
+      "SlaPolicyEntryDto": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ]
+          },
+          "resolutionHours": {
+            "type": "number",
+            "example": 24,
+            "minimum": 1,
+            "maximum": 8760
+          }
+        },
+        "required": [
+          "priority",
+          "resolutionHours"
+        ]
+      },
+      "PutSlaPolicyDto": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "description": "Empty resets the project to the system default policy",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlaPolicyEntryDto"
+            }
+          }
+        },
+        "required": [
+          "entries"
+        ]
+      },
       "PatchPermissionSchemeDto": {
         "type": "object",
         "properties": {
@@ -6008,6 +6293,15 @@
           "projectId": {
             "type": "string",
             "description": "Required when scope is \"project\""
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "shared"
+            ],
+            "default": "private",
+            "description": "SHARED is only valid when scope is \"project\" - visible to that project's members"
           },
           "query": {
             "type": "object",

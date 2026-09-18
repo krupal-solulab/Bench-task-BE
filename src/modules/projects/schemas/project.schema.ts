@@ -12,6 +12,7 @@ import { AutomationRule, AutomationRuleSchema } from './automation-rule.schema';
 import { Workflow, WorkflowSchema, WorkflowByType, WorkflowByTypeSchema } from './workflow.schema';
 import { IssueTypeDefinition, IssueTypeDefinitionSchema } from './issue-type.schema';
 import { NotificationSchemeRule, NotificationSchemeRuleSchema } from './notification-scheme.schema';
+import { SlaPolicyEntry, SlaPolicyEntrySchema } from './sla-policy.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
 
@@ -141,6 +142,12 @@ export class Project {
   // notification-scheme.schema.ts.
   @Prop({ type: [NotificationSchemeRuleSchema], default: [] })
   notificationScheme!: NotificationSchemeRule[];
+
+  // Empty for every existing project until an Admin/owning Manager configures one via
+  // ProjectsService.updateSlaPolicy() - resolveSlaPolicy() falls back to DEFAULT_SLA_POLICY, so
+  // nothing changes for anyone who doesn't opt in. See sla-policy.schema.ts.
+  @Prop({ type: [SlaPolicyEntrySchema], default: [] })
+  slaPolicy!: SlaPolicyEntry[];
 
   createdAt!: Date;
   updatedAt!: Date;

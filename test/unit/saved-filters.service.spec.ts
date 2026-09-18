@@ -3,7 +3,10 @@ import { Role } from 'src/common/enums/role.enum';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { SavedFiltersService } from 'src/modules/saved-filters/saved-filters.service';
 import { SavedFiltersRepository } from 'src/modules/saved-filters/saved-filters.repository';
-import { SavedFilterScope } from 'src/modules/saved-filters/schemas/saved-filter.schema';
+import {
+  SavedFilterScope,
+  SavedFilterVisibility,
+} from 'src/modules/saved-filters/schemas/saved-filter.schema';
 
 // SavedFiltersService.create() wraps actingUser.id/organizationId in `new Types.ObjectId(...)`,
 // so these must be real 24-char hex strings.
@@ -75,13 +78,60 @@ describe('SavedFiltersService', () => {
         }),
       );
     });
+
+    it('defaults visibility to PRIVATE when omitted (regression: every existing filter)', async () => {
+      repository.create.mockResolvedValue(makeSavedFilter());
+
+      await service.create(
+        { name: 'My open bugs', scope: SavedFilterScope.MY_TASKS, query: {} },
+        makeUser(),
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: SavedFilterVisibility.PRIVATE }),
+      );
+    });
+
+    it('accepts a SHARED visibility for a project-scoped filter', async () => {
+      repository.create.mockResolvedValue(makeSavedFilter());
+
+      await service.create(
+        {
+          name: 'Team filter',
+          scope: SavedFilterScope.PROJECT,
+          projectId: '507f1f77bcf86cd799439003',
+          visibility: SavedFilterVisibility.SHARED,
+          query: {},
+        },
+        makeUser(),
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ visibility: SavedFilterVisibility.SHARED }),
+      );
+    });
+
+    it('rejects a SHARED visibility on a myTasks-scoped filter', async () => {
+      await expect(
+        service.create(
+          {
+            name: 'Team filter',
+            scope: SavedFilterScope.MY_TASKS,
+            visibility: SavedFilterVisibility.SHARED,
+            query: {},
+          },
+          makeUser(),
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(repository.create).not.toHaveBeenCalled();
+    });
   });
 
-  describe('listMine', () => {
+  describe('list', () => {
     it("delegates to the repository scoped to the caller's own id", async () => {
       repository.find.mockResolvedValue([makeSavedFilter()]);
 
-      const result = await service.listMine({}, makeUser());
+      const result = await service.list({}, makeUser());
 
       expect(repository.find).toHaveBeenCalledWith(OWNER_ID, {
         scope: undefined,

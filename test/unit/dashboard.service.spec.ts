@@ -40,6 +40,7 @@ describe('DashboardService.getPreferences / updatePreferences', () => {
       unusedModel,
       unusedModel,
       unusedModel,
+      unusedModel,
       dashboardPreferenceModel as never,
     );
   });

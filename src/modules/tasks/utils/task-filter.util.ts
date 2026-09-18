@@ -4,7 +4,7 @@ import { TaskDocument } from '../schemas/task.schema';
 import { ListTasksDto } from '../dto/list-tasks.dto';
 
 /** Escapes regex metacharacters so free-text search terms are matched literally. */
-function escapeRegex(value: string): string {
+export function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
