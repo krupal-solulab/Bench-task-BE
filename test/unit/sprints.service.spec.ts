@@ -56,6 +56,7 @@ describe('SprintsService', () => {
       | 'logActivity'
       | 'paginate'
       | 'paginateActivity'
+      | 'findCompletedForProject'
     >
   >;
   let projectsService: jest.Mocked<
@@ -69,7 +70,7 @@ describe('SprintsService', () => {
     >
   >;
   let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifySchemeEvent'>>;
-  let taskModel: { updateMany: jest.Mock };
+  let taskModel: { updateMany: jest.Mock; aggregate: jest.Mock; find: jest.Mock };
   let service: SprintsService;
 
   beforeEach(() => {
@@ -83,6 +84,7 @@ describe('SprintsService', () => {
       logActivity: jest.fn(),
       paginate: jest.fn(),
       paginateActivity: jest.fn(),
+      findCompletedForProject: jest.fn().mockResolvedValue([]),
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn().mockResolvedValue(makeProject()),
@@ -96,6 +98,8 @@ describe('SprintsService', () => {
       updateMany: jest
         .fn()
         .mockReturnValue({ exec: jest.fn().mockResolvedValue({ modifiedCount: 0 }) }),
+      aggregate: jest.fn().mockResolvedValue([]),
+      find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
     };
     service = new SprintsService(
       sprintsRepository as unknown as SprintsRepository,
@@ -384,6 +388,98 @@ describe('SprintsService', () => {
           makeUser(),
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('velocity', () => {
+    it('returns an empty array when the project has no completed sprints (regression)', async () => {
+      sprintsRepository.findCompletedForProject.mockResolvedValue([]);
+
+      await expect(service.velocity(PROJECT_ID, makeUser())).resolves.toEqual([]);
+      expect(taskModel.aggregate).not.toHaveBeenCalled();
+    });
+
+    it('zero-fills a completed sprint with no Done tasks', async () => {
+      sprintsRepository.findCompletedForProject.mockResolvedValue([
+        makeSprint({ id: 'sprint-a', name: 'Sprint A', completedAt: new Date('2026-01-14') }),
+      ]);
+      taskModel.aggregate.mockResolvedValue([]);
+
+      const result = await service.velocity(PROJECT_ID, makeUser());
+
+      expect(result).toEqual([
+        {
+          sprintId: 'sprint-a',
+          name: 'Sprint A',
+          completedAt: new Date('2026-01-14'),
+          completedPoints: 0,
+          completedCount: 0,
+        },
+      ]);
+    });
+
+    it('reports completed points/count per sprint from the aggregation', async () => {
+      sprintsRepository.findCompletedForProject.mockResolvedValue([
+        makeSprint({ id: 'sprint-a', name: 'Sprint A' }),
+        makeSprint({ id: 'sprint-b', name: 'Sprint B' }),
+      ]);
+      taskModel.aggregate.mockResolvedValue([
+        { _id: { toString: () => 'sprint-a' }, completedPoints: 13, completedCount: 4 },
+      ]);
+
+      const result = await service.velocity(PROJECT_ID, makeUser());
+
+      expect(result).toEqual([
+        expect.objectContaining({ sprintId: 'sprint-a', completedPoints: 13, completedCount: 4 }),
+        expect.objectContaining({ sprintId: 'sprint-b', completedPoints: 0, completedCount: 0 }),
+      ]);
+    });
+
+    it('clamps an out-of-range limit and ignores a non-numeric one', async () => {
+      await service.velocity(PROJECT_ID, makeUser(), 999);
+      expect(sprintsRepository.findCompletedForProject).toHaveBeenCalledWith(PROJECT_ID, 20);
+
+      await service.velocity(PROJECT_ID, makeUser(), Number('not-a-number'));
+      expect(sprintsRepository.findCompletedForProject).toHaveBeenCalledWith(PROJECT_ID, 5);
+    });
+  });
+
+  describe('burndown', () => {
+    it('returns an empty result for a sprint that has never been started', async () => {
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(makeSprint({ startedAt: null }));
+
+      await expect(service.burndown(PROJECT_ID, SPRINT_ID, makeUser())).resolves.toEqual({
+        points: [],
+        hasStoryPoints: false,
+      });
+      expect(taskModel.find).not.toHaveBeenCalled();
+    });
+
+    it("computes remaining work from the sprint's currently-referenced tasks", async () => {
+      sprintsRepository.findByIdActiveInProject.mockResolvedValue(
+        makeSprint({
+          _id: SPRINT_ID,
+          startedAt: new Date('2026-01-01T00:00:00.000Z'),
+          endDate: new Date('2026-01-05T00:00:00.000Z'),
+          completedAt: new Date('2026-01-03T00:00:00.000Z'),
+        }),
+      );
+      taskModel.find.mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { storyPoints: 3, completedAt: null },
+          { storyPoints: 2, completedAt: new Date('2026-01-02T00:00:00.000Z') },
+        ]),
+      });
+
+      const result = await service.burndown(PROJECT_ID, SPRINT_ID, makeUser());
+
+      expect(taskModel.find).toHaveBeenCalledWith(
+        { sprint: SPRINT_ID, deletedAt: null },
+        { storyPoints: 1, completedAt: 1 },
+      );
+      expect(result.hasStoryPoints).toBe(true);
+      expect(result.points[0]).toMatchObject({ date: '2026-01-01', remainingPoints: 5 });
+      expect(result.points[result.points.length - 1]).toMatchObject({ date: '2026-01-03' });
     });
   });
 });

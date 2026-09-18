@@ -26,6 +26,18 @@ import { isLegalSprintTransition, legalSprintTransitions } from './sprint-status
 import { CreateSprintDto } from './dto/create-sprint.dto';
 import { UpdateSprintDto } from './dto/update-sprint.dto';
 import { ListSprintsDto } from './dto/list-sprints.dto';
+import { SprintBurndownResult, computeBurndown } from './sprint-reports.util';
+
+export interface SprintVelocityEntry {
+  sprintId: string;
+  name: string;
+  completedAt: Date | null;
+  completedPoints: number;
+  completedCount: number;
+}
+
+const DEFAULT_VELOCITY_LIMIT = 5;
+const MAX_VELOCITY_LIMIT = 20;
 
 @Injectable()
 export class SprintsService {
@@ -233,6 +245,84 @@ export class SprintsService {
     await this.getActiveOrThrow(sprintId, projectId);
     const { data, total } = await this.sprintsRepository.paginateActivity(sprintId, page, limit);
     return { data, meta: buildPaginationMeta(total, page, limit) };
+  }
+
+  /**
+   * Story points (and issue count) completed per sprint, for the last `limit` completed sprints -
+   * the BRD's Velocity report. A Done-category task keeps its `sprint` reference forever (see
+   * `complete()` above), so this stays accurate long after a sprint closes. Read-only; view access
+   * only, matching every other GET route on this controller.
+   */
+  async velocity(
+    projectId: string,
+    actingUser: AuthenticatedUser,
+    limit = DEFAULT_VELOCITY_LIMIT,
+  ): Promise<SprintVelocityEntry[]> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+
+    const safeLimit = Number.isFinite(limit) ? limit : DEFAULT_VELOCITY_LIMIT;
+    const clampedLimit = Math.min(Math.max(safeLimit, 1), MAX_VELOCITY_LIMIT);
+    const sprints = await this.sprintsRepository.findCompletedForProject(projectId, clampedLimit);
+    if (sprints.length === 0) return [];
+
+    const sprintIds = sprints.map((s) => s._id);
+    const rows: Array<{ _id: Types.ObjectId; completedPoints: number; completedCount: number }> =
+      await this.taskModel.aggregate([
+        {
+          $match: {
+            sprint: { $in: sprintIds },
+            statusCategory: StatusCategory.DONE,
+            deletedAt: null,
+          },
+        },
+        {
+          $group: {
+            _id: '$sprint',
+            completedPoints: { $sum: { $ifNull: ['$storyPoints', 0] } },
+            completedCount: { $sum: 1 },
+          },
+        },
+      ]);
+    const byId = new Map(rows.map((r) => [r._id.toString(), r]));
+
+    return sprints.map((sprint) => {
+      const row = byId.get(sprint.id);
+      return {
+        sprintId: sprint.id,
+        name: sprint.name,
+        completedAt: sprint.completedAt,
+        completedPoints: row?.completedPoints ?? 0,
+        completedCount: row?.completedCount ?? 0,
+      };
+    });
+  }
+
+  /**
+   * Remaining work (story points and issue count) per day of the sprint, alongside an ideal
+   * straight-line-to-zero-by-endDate reference - the BRD's Burndown chart. Computed from each
+   * task *currently* referencing the sprint and its `completedAt` timestamp - a simplified,
+   * current-scope model (see the Sprint Reporting Depth plan's scope note), not a full historical
+   * replay of scope changes. A sprint that has never been started has nothing to plot yet.
+   */
+  async burndown(
+    projectId: string,
+    sprintId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<SprintBurndownResult> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+    const sprint = await this.getActiveOrThrow(sprintId, projectId);
+
+    if (!sprint.startedAt) {
+      return { points: [], hasStoryPoints: false };
+    }
+
+    const tasks = await this.taskModel
+      .find({ sprint: sprint._id, deletedAt: null }, { storyPoints: 1, completedAt: 1 })
+      .lean();
+
+    return computeBurndown(tasks, sprint.startedAt, sprint.endDate, sprint.completedAt, new Date());
   }
 
   /** Used by TasksService.updateSprint to validate a sprint before attaching a task to it. */

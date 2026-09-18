@@ -88,6 +88,21 @@ export class SprintsRepository {
     });
   }
 
+  /** The last `limit` completed sprints for a project, oldest-first (chronological, for charting) -
+   * used by the Velocity report. */
+  async findCompletedForProject(projectId: string, limit: number): Promise<SprintDocument[]> {
+    const sprints = await this.model
+      .find({
+        project: new Types.ObjectId(projectId),
+        status: SprintStatus.COMPLETED,
+        deletedAt: null,
+      })
+      .sort({ completedAt: -1 })
+      .limit(limit)
+      .exec();
+    return sprints.reverse();
+  }
+
   async paginateActivity(
     sprintId: string,
     page: number,

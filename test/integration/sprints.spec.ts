@@ -295,4 +295,145 @@ describe('sprints (integration)', () => {
     const actions = res.body.data.map((a: { action: string }) => a.action);
     expect(actions).toEqual(['completed', 'started', 'created']);
   });
+
+  describe('reporting (burndown + velocity)', () => {
+    it('GET .../burndown returns an empty result for a sprint that has never been started', async () => {
+      const { manager } = await seedManagerAndDeveloper();
+      const project = await createProject(app, manager.accessToken, { name: 'Never Started' });
+      const sprint = await createSprint(app, manager.accessToken, project.id, {
+        name: 'Sprint 1',
+        startDate: '2026-01-01',
+        endDate: '2026-01-14',
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/burndown`)
+        .set(...authHeader(manager.accessToken));
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({ points: [], hasStoryPoints: false });
+    });
+
+    it('GET .../burndown reflects a task completing partway through the sprint', async () => {
+      const { manager } = await seedManagerAndDeveloper();
+      const project = await createProject(app, manager.accessToken, { name: 'Burndown Project' });
+      const sprint = await createSprint(app, manager.accessToken, project.id, {
+        name: 'Sprint 1',
+        startDate: '2026-01-01',
+        endDate: '2026-01-14',
+      });
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/start`)
+        .set(...authHeader(manager.accessToken));
+
+      const taskA = await createTask(app, manager.accessToken, {
+        title: 'Task A',
+        project: project.id,
+        priority: TaskPriority.P2,
+        storyPoints: 3,
+      });
+      const taskB = await createTask(app, manager.accessToken, {
+        title: 'Task B',
+        project: project.id,
+        priority: TaskPriority.P2,
+        storyPoints: 5,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${taskA.id}/sprint`)
+        .set(...authHeader(manager.accessToken))
+        .send({ sprintId: sprint.id });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${taskB.id}/sprint`)
+        .set(...authHeader(manager.accessToken))
+        .send({ sprintId: sprint.id });
+
+      const before = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/burndown`)
+        .set(...authHeader(manager.accessToken));
+      expect(before.status).toBe(200);
+      expect(before.body.data.hasStoryPoints).toBe(true);
+      const lastPointBefore = before.body.data.points[before.body.data.points.length - 1];
+      expect(lastPointBefore).toMatchObject({ remainingPoints: 8, remainingCount: 2 });
+
+      // Walk taskA through its legal transitions to Done.
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${taskA.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.IN_PROGRESS });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${taskA.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.REVIEW });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${taskA.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.DONE });
+
+      const after = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/burndown`)
+        .set(...authHeader(manager.accessToken));
+      const lastPointAfter = after.body.data.points[after.body.data.points.length - 1];
+      expect(lastPointAfter).toMatchObject({ remainingPoints: 5, remainingCount: 1 });
+    });
+
+    it('GET .../sprints/velocity is empty with no completed sprints, then reports completed points after one closes', async () => {
+      const { manager } = await seedManagerAndDeveloper();
+      const project = await createProject(app, manager.accessToken, { name: 'Velocity Project' });
+
+      const empty = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/sprints/velocity`)
+        .set(...authHeader(manager.accessToken));
+      expect(empty.status).toBe(200);
+      expect(empty.body.data).toEqual([]);
+
+      const sprint = await createSprint(app, manager.accessToken, project.id, {
+        name: 'Sprint 1',
+        startDate: '2026-01-01',
+        endDate: '2026-01-14',
+      });
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/start`)
+        .set(...authHeader(manager.accessToken));
+
+      const doneTask = await createTask(app, manager.accessToken, {
+        title: 'Finished work',
+        project: project.id,
+        priority: TaskPriority.P2,
+        storyPoints: 8,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${doneTask.id}/sprint`)
+        .set(...authHeader(manager.accessToken))
+        .send({ sprintId: sprint.id });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${doneTask.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.IN_PROGRESS });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${doneTask.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.REVIEW });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${doneTask.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.DONE });
+
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/complete`)
+        .set(...authHeader(manager.accessToken));
+
+      const afterComplete = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/sprints/velocity`)
+        .set(...authHeader(manager.accessToken));
+      expect(afterComplete.status).toBe(200);
+      expect(afterComplete.body.data).toEqual([
+        expect.objectContaining({
+          sprintId: sprint.id,
+          name: 'Sprint 1',
+          completedPoints: 8,
+          completedCount: 1,
+        }),
+      ]);
+    });
+  });
 });

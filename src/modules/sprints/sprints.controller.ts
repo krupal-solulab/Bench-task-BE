@@ -58,6 +58,19 @@ export class SprintsController {
     return this.sprintsService.findActive(projectId, user);
   }
 
+  // Registered before ':sprintId' so "velocity" is never matched as a sprint id.
+  @Get('velocity')
+  @ApiOperation({
+    summary: 'Story points/issue count completed per sprint, for the last N completed sprints',
+  })
+  async velocity(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Query('limit') limit: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.sprintsService.velocity(projectId, user, limit ? Number(limit) : undefined);
+  }
+
   @Get(':sprintId')
   @ApiOperation({ summary: 'Get a single sprint' })
   async findOne(
@@ -112,6 +125,18 @@ export class SprintsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<void> {
     await this.sprintsService.remove(projectId, sprintId, user);
+  }
+
+  @Get(':sprintId/burndown')
+  @ApiOperation({
+    summary: 'Remaining work per day vs. an ideal trend line for a sprint (empty if never started)',
+  })
+  async burndown(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Param('sprintId', ParseObjectIdPipe) sprintId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.sprintsService.burndown(projectId, sprintId, user);
   }
 
   @Get(':sprintId/activity')

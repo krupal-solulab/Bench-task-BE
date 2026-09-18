@@ -3269,6 +3269,35 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/sprints/velocity": {
+      "get": {
+        "operationId": "SprintsController_velocity",
+        "summary": "Story points/issue count completed per sprint, for the last N completed sprints",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{projectId}/sprints/{sprintId}": {
       "get": {
         "operationId": "SprintsController_findOne",
@@ -3447,6 +3476,43 @@
         ],
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/{sprintId}/burndown": {
+      "get": {
+        "operationId": "SprintsController_burndown",
+        "summary": "Remaining work per day vs. an ideal trend line for a sprint (empty if never started)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
