@@ -169,7 +169,9 @@ export function validateCustomFieldValues(
   }
 }
 
-function isEmpty(value: unknown): boolean {
+/** Exported for reuse by other required-field-style validators (e.g. a workflow transition's
+ * `requiredCustomFieldIds`) that need the exact same "is this value effectively unset" check. */
+export function isEmpty(value: unknown): boolean {
   if (Array.isArray(value)) return value.length === 0;
   return value === undefined || value === null || value === '';
 }

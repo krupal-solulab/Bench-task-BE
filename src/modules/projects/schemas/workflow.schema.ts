@@ -11,6 +11,13 @@ export class WorkflowStatus {
 
   @Prop({ type: String, enum: StatusCategory, required: true })
   category!: StatusCategory;
+
+  // WIP limit for this column on the Kanban board (BRD 6.1: "WIP limits per column with a visual
+  // warning when exceeded"). Unset/undefined (every existing status) means no limit, identical to
+  // today - this is purely a display warning, never enforced server-side as a hard block, since a
+  // hard block would be a behavior change nobody asked for.
+  @Prop({ type: Number, min: 1 })
+  wipLimit?: number;
 }
 
 export const WorkflowStatusSchema = SchemaFactory.createForClass(WorkflowStatus);
@@ -34,6 +41,13 @@ export class WorkflowTransition {
   // identical to today.
   @Prop({ type: Boolean })
   requireComment?: boolean;
+
+  // Validator: custom field ids (from the project's custom field definitions) that must already
+  // have a value before this transition is allowed - the generalized form of `requireComment`,
+  // reusing the same required-field convention as `CustomFieldOverrideByType.requiredFieldIds`
+  // (see custom-field.schema.ts). Unset/empty means no requirement, identical to today.
+  @Prop({ type: [String], default: [] })
+  requiredCustomFieldIds?: string[];
 }
 
 export const WorkflowTransitionSchema = SchemaFactory.createForClass(WorkflowTransition);

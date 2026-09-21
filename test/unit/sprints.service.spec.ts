@@ -70,7 +70,14 @@ describe('SprintsService', () => {
     >
   >;
   let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifySchemeEvent'>>;
-  let taskModel: { updateMany: jest.Mock; aggregate: jest.Mock; find: jest.Mock };
+  let taskModel: {
+    updateMany: jest.Mock;
+    updateOne: jest.Mock;
+    aggregate: jest.Mock;
+    find: jest.Mock;
+    findOne: jest.Mock;
+    countDocuments: jest.Mock;
+  };
   let service: SprintsService;
 
   beforeEach(() => {
@@ -98,8 +105,19 @@ describe('SprintsService', () => {
       updateMany: jest
         .fn()
         .mockReturnValue({ exec: jest.fn().mockResolvedValue({ modifiedCount: 0 }) }),
+      updateOne: jest.fn().mockResolvedValue({}),
       aggregate: jest.fn().mockResolvedValue([]),
-      find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+      find: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+      findOne: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue(null),
+      }),
+      countDocuments: jest.fn().mockResolvedValue(0),
     };
     service = new SprintsService(
       sprintsRepository as unknown as SprintsRepository,
@@ -164,7 +182,7 @@ describe('SprintsService', () => {
         makeSprint({ status: SprintStatus.COMPLETED }),
       );
 
-      await service.complete(PROJECT_ID, SPRINT_ID, dev);
+      await service.complete(PROJECT_ID, SPRINT_ID, {}, dev);
 
       expect(projectsService.assertUserCanManageOrGranted).toHaveBeenCalledWith(
         expect.anything(),
@@ -287,7 +305,7 @@ describe('SprintsService', () => {
         makeSprint({ status: SprintStatus.PLANNED }),
       );
 
-      await expect(service.complete(PROJECT_ID, SPRINT_ID, makeUser())).rejects.toThrow(
+      await expect(service.complete(PROJECT_ID, SPRINT_ID, {}, makeUser())).rejects.toThrow(
         ConflictException,
       );
       expect(taskModel.updateMany).not.toHaveBeenCalled();
@@ -304,7 +322,7 @@ describe('SprintsService', () => {
         makeSprint({ status: SprintStatus.COMPLETED }),
       );
 
-      await service.complete(PROJECT_ID, SPRINT_ID, makeUser());
+      await service.complete(PROJECT_ID, SPRINT_ID, {}, makeUser());
 
       expect(taskModel.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -337,7 +355,7 @@ describe('SprintsService', () => {
         makeSprint({ status: SprintStatus.COMPLETED }),
       );
 
-      await service.complete(PROJECT_ID, SPRINT_ID, makeUser());
+      await service.complete(PROJECT_ID, SPRINT_ID, {}, makeUser());
 
       expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
         expect.objectContaining({ event: 'SprintCompleted', channels: ['Email'] }),

@@ -144,6 +144,30 @@ export class DashboardController {
     return data;
   }
 
+  @Get('my-open-issues')
+  @ApiOperation({ summary: "The caller's own open (not-Done) assigned tasks, soonest due first" })
+  async myOpenIssues(
+    @Query() query: DashboardScopeDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { data, hit } = await this.dashboardService.myOpenIssues(query.projectId, user);
+    this.setCacheHeader(res, hit);
+    return data;
+  }
+
+  @Get('resolution-time-trend')
+  @ApiOperation({ summary: 'Average resolution hours per priority, per week, last 8 weeks' })
+  async resolutionTimeTrend(
+    @Query() query: DashboardScopeDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { data, hit } = await this.dashboardService.resolutionTimeTrend(query.projectId, user);
+    this.setCacheHeader(res, hit);
+    return data;
+  }
+
   @Get('preferences')
   @ApiOperation({ summary: "The caller's saved widget visibility/order (defaults if never set)" })
   async getPreferences(@CurrentUser() user: AuthenticatedUser) {

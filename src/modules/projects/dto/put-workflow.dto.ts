@@ -6,8 +6,10 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
+  Min,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -25,6 +27,14 @@ export class WorkflowStatusDto {
   @ApiProperty({ enum: StatusCategory })
   @IsEnum(StatusCategory)
   category!: StatusCategory;
+
+  @ApiPropertyOptional({
+    description: 'WIP limit for this column on the board. Omit for no limit (default).',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  wipLimit?: number;
 }
 
 export class WorkflowTransitionDto {
@@ -58,6 +68,17 @@ export class WorkflowTransitionDto {
   @IsOptional()
   @IsBoolean()
   requireComment?: boolean;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Validator: custom field ids that must already have a value before this transition is allowed.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsString({ each: true })
+  requiredCustomFieldIds?: string[];
 }
 
 export class PutWorkflowDto {

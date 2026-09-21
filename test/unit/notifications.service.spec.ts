@@ -10,6 +10,7 @@ import {
 } from 'src/modules/projects/schemas/notification-scheme.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { EventsGateway } from 'src/events/events.gateway';
+import { ChannelStatusService } from 'src/notifications/channel-status.service';
 
 const ORG_A = '507f1f77bcf86cd799439099';
 const ASSIGNEE_ID = '507f1f77bcf86cd799439001';
@@ -48,6 +49,7 @@ describe('NotificationsService', () => {
     >
   >;
   let eventsGateway: jest.Mocked<Pick<EventsGateway, 'emitNotificationCreated'>>;
+  let channelStatusService: jest.Mocked<Pick<ChannelStatusService, 'isPaused' | 'setPaused'>>;
   let logger: PinoLogger;
   let service: NotificationsService;
 
@@ -67,12 +69,17 @@ describe('NotificationsService', () => {
       upsertPreference: jest.fn(),
     };
     eventsGateway = { emitNotificationCreated: jest.fn() };
+    channelStatusService = {
+      isPaused: jest.fn().mockResolvedValue(false),
+      setPaused: jest.fn().mockResolvedValue(undefined),
+    };
     logger = makeLogger();
     service = new NotificationsService(
       emailService,
       usersRepository as unknown as UsersRepository,
       notificationsRepository as unknown as NotificationsRepository,
       eventsGateway as unknown as EventsGateway,
+      channelStatusService as unknown as ChannelStatusService,
       logger,
     );
   });
@@ -119,6 +126,23 @@ describe('NotificationsService', () => {
         recipientId: ASSIGNEE_ID,
         notificationId: 'notif-1',
       });
+    });
+
+    it('skips the email but still creates the in-app notification when Email is paused', async () => {
+      channelStatusService.isPaused.mockResolvedValue(true);
+      usersRepository.findById.mockResolvedValue(makeAssignee());
+
+      await service.notifyTaskAssigned({
+        taskId: TASK_ID,
+        taskTitle: 'Fix the bug',
+        assigneeId: ASSIGNEE_ID,
+        actorEmail: 'manager@example.com',
+      });
+
+      expect(emailService.send).not.toHaveBeenCalled();
+      expect(notificationsRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ type: NotificationType.TASK_ASSIGNED }),
+      );
     });
 
     it('does not create an in-app notification when the recipient has muted the type', async () => {
@@ -359,6 +383,34 @@ describe('NotificationsService', () => {
       expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('dana@example.com'));
       expect(emailService.send).not.toHaveBeenCalled();
       expect(notificationsRepository.create).not.toHaveBeenCalled();
+    });
+
+    it('skips sending Email when the channel is paused (Platform Admin pause/resume)', async () => {
+      channelStatusService.isPaused.mockImplementation(async (channel) => channel === 'Email');
+
+      await service.notifySchemeEvent({
+        recipient: RECIPIENT,
+        event: NotificationSchemeEvent.SPRINT_STARTED,
+        channels: [NotificationChannel.EMAIL],
+        title: 'Sprint 1 started',
+        message: 'message',
+      });
+
+      expect(emailService.send).not.toHaveBeenCalled();
+    });
+
+    it('skips logging WhatsApp when the channel is paused', async () => {
+      channelStatusService.isPaused.mockImplementation(async (channel) => channel === 'WhatsApp');
+
+      await service.notifySchemeEvent({
+        recipient: RECIPIENT,
+        event: NotificationSchemeEvent.TRANSITIONED,
+        channels: [NotificationChannel.WHATSAPP],
+        title: 'Moved to Done',
+        message: 'message',
+      });
+
+      expect(logger.info).not.toHaveBeenCalled();
     });
 
     it('fires every selected channel when more than one is configured', async () => {

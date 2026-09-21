@@ -4,6 +4,10 @@ import { Connection } from 'mongoose';
 import { CacheService } from '../../redis/cache.service';
 import { STORAGE_SERVICE } from '../../storage/storage.constants';
 import { IStorageService } from '../../storage/storage.interface';
+import {
+  ChannelStatusService,
+  PausableNotificationChannel,
+} from '../../notifications/channel-status.service';
 
 export type IntegrationHealthStatus = 'ok' | 'error' | 'stub';
 
@@ -11,6 +15,10 @@ export interface IntegrationHealthEntry {
   name: string;
   status: IntegrationHealthStatus;
   detail: string;
+  // Only set for Email/WhatsApp (BRD 8's Platform Admin pause/resume) - undefined for every other
+  // row, which stays purely display-only (Mongo/Redis/S3 aren't "pausable" without breaking the
+  // app).
+  paused?: boolean;
 }
 
 /**
@@ -24,13 +32,16 @@ export class IntegrationHealthService {
     @InjectConnection() private readonly mongoConnection: Connection,
     private readonly cacheService: CacheService,
     @Inject(STORAGE_SERVICE) private readonly storageService: IStorageService,
+    private readonly channelStatusService: ChannelStatusService,
   ) {}
 
   async check(): Promise<IntegrationHealthEntry[]> {
-    const [mongo, redis, storage] = await Promise.allSettled([
+    const [mongo, redis, storage, emailPaused, whatsappPaused] = await Promise.allSettled([
       this.checkMongo(),
       this.cacheService.ping(),
       this.storageService.healthCheck(),
+      this.channelStatusService.isPaused('Email'),
+      this.channelStatusService.isPaused('WhatsApp'),
     ]);
 
     return [
@@ -41,8 +52,19 @@ export class IntegrationHealthService {
         name: 'Email',
         status: 'stub',
         detail: 'Logging-only stub - no real email provider is configured for this project.',
+        paused: emailPaused.status === 'fulfilled' && emailPaused.value,
+      },
+      {
+        name: 'WhatsApp',
+        status: 'stub',
+        detail: 'Logging-only stub - no real WhatsApp provider is configured for this project.',
+        paused: whatsappPaused.status === 'fulfilled' && whatsappPaused.value,
       },
     ];
+  }
+
+  async setChannelPaused(channel: PausableNotificationChannel, paused: boolean): Promise<void> {
+    await this.channelStatusService.setPaused(channel, paused);
   }
 
   private async checkMongo(): Promise<boolean> {

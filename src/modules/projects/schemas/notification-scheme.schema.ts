@@ -3,9 +3,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { ORG_ROLES, Role } from '../../../common/enums/role.enum';
 
 /**
- * The BRD's "Notification Scheme" event catalog. SLA breach is deliberately excluded - no
- * SLA-tracking feature exists anywhere in this codebase yet, so there is nothing real for it to
- * trigger on; adding it here would be a configurable option that silently never fires.
+ * The BRD's "Notification Scheme" event catalog.
  */
 export enum NotificationSchemeEvent {
   ASSIGNED = 'Assigned',
@@ -13,6 +11,10 @@ export enum NotificationSchemeEvent {
   TRANSITIONED = 'Transitioned',
   SPRINT_STARTED = 'SprintStarted',
   SPRINT_COMPLETED = 'SprintCompleted',
+  // Fired by the hourly SLA-breach checker (tasks.service.ts's checkSlaBreaches, resolveSlaPolicy
+  // + isBreached in sla-policy.schema.ts) - previously excluded here since no SLA-tracking feature
+  // existed to trigger it; both now do.
+  SLA_BREACH = 'SlaBreach',
 }
 
 export const NOTIFICATION_SCHEME_EVENTS = Object.values(NotificationSchemeEvent);

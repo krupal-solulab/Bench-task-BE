@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -28,10 +29,12 @@ import {
   NotificationSchemeEvent,
   resolveNotificationSchemeRule,
 } from '../projects/schemas/notification-scheme.schema';
+import { isBreached, resolveSlaPolicy } from '../projects/schemas/sla-policy.schema';
 import { resolveIssueTypes } from '../projects/schemas/issue-type.schema';
 import {
   CustomFieldDefinition,
   CustomFieldType,
+  isEmpty,
   resolveCustomFields,
   validateCustomFieldValues,
 } from '../projects/schemas/custom-field.schema';
@@ -50,6 +53,16 @@ import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { TasksRepository, RankScope } from './tasks.repository';
 import { TaskDocument } from './schemas/task.schema';
 import { TaskActivityAction } from './schemas/task-activity.schema';
+import {
+  AutomationExecutionLog,
+  AutomationExecutionLogDocument,
+  AutomationExecutionOutcome,
+} from './schemas/automation-execution-log.schema';
+import { AUTOMATION_QUEUE } from '../automation-queue/automation-queue.constants';
+import {
+  AutomationJobData,
+  IAutomationQueue,
+} from '../automation-queue/automation-queue.interface';
 import { isLegalTaskTransition, legalTaskTransitions } from './task-status.rules';
 import { midpointRank, needsRenumber, nextAppendRank } from './utils/rank.util';
 import { buildTaskListSort } from './utils/task-filter.util';
@@ -57,9 +70,18 @@ import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
 import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
+import { BulkMoveSprintDto } from './dto/bulk-move-sprint.dto';
+import { BulkAssignDto } from './dto/bulk-assign.dto';
+import { BulkRelabelDto } from './dto/bulk-relabel.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 import { SearchTasksDto } from './dto/search-tasks.dto';
-import { assertValidJqlOrderBy, compileJqlAst, parseJql } from './search/jql.util';
+import {
+  analyzeCurrentSprintUsage,
+  assertValidJqlOrderBy,
+  compileJqlAst,
+  parseJql,
+  substituteCurrentSprint,
+} from './search/jql.util';
 
 /**
  * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
@@ -73,6 +95,13 @@ interface AutomationContext {
   viaRuleName: string;
 }
 
+/** Per-task outcome of a bulk backlog action (BRD 6.2) - a single unauthorized/invalid id never
+ * fails the whole batch, so callers can show "12 of 13 moved, 1 failed: <reason>". */
+export interface BulkOperationResult {
+  succeeded: string[];
+  failed: Array<{ taskId: string; message: string }>;
+}
+
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
@@ -84,7 +113,10 @@ export class TasksService {
     private readonly cacheService: CacheService,
     private readonly notificationsService: NotificationsService,
     private readonly eventsGateway: EventsGateway,
+    @Inject(AUTOMATION_QUEUE) private readonly automationQueue: IAutomationQueue,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
+    @InjectModel(AutomationExecutionLog.name)
+    private readonly automationLogModel: Model<AutomationExecutionLogDocument>,
   ) {}
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
@@ -132,6 +164,9 @@ export class TasksService {
       description: dto.description ?? '',
       project: new Types.ObjectId(dto.project),
       assignee: dto.assignee ? new Types.ObjectId(dto.assignee) : null,
+      // A task created with no assignee starts its "became unassigned" episode immediately (BRD
+      // 8's UnassignedForDuration trigger) - see updateAssignee's identical reasoning.
+      assigneeClearedAt: dto.assignee ? null : new Date(),
       priority: dto.priority,
       status,
       statusCategory,
@@ -204,8 +239,27 @@ export class TasksService {
    * endpoint already enforces.
    */
   async search(dto: SearchTasksDto, actingUser: AuthenticatedUser) {
-    const { ast, orderBy } = parseJql(dto.jql);
+    const { ast: parsedAst, orderBy } = parseJql(dto.jql);
     assertValidJqlOrderBy(orderBy);
+
+    // `sprint = current` (BRD 7) resolves to "this project's active sprint" - meaningless without
+    // pinning the query to exactly one project, so it's rejected with a clear 400 rather than
+    // silently matching every project's active sprint or none at all.
+    let ast = parsedAst;
+    const { usesCurrentSprint, projectIds } = analyzeCurrentSprintUsage(ast);
+    if (usesCurrentSprint) {
+      if (projectIds.length !== 1) {
+        throw new BadRequestException(
+          '"sprint = current" requires the query to also filter by exactly one "project"',
+        );
+      }
+      const activeSprint = await this.sprintsService.findActive(projectIds[0]!, actingUser);
+      if (!activeSprint) {
+        throw new BadRequestException('This project has no active sprint');
+      }
+      ast = substituteCurrentSprint(ast, activeSprint.id);
+    }
+
     const compiled = compileJqlAst(ast, actingUser);
     const scope = await this.buildScope(actingUser);
 
@@ -373,6 +427,19 @@ export class TasksService {
         throw new BadRequestException('This transition requires a comment on the task first');
       }
     }
+    if (!automation?.bypassPermission && transitionRule?.requiredCustomFieldIds?.length) {
+      const effectiveCustomFields = resolveCustomFields(project, task.issueType);
+      const byId = new Map(effectiveCustomFields.map((f) => [f.id, f]));
+      const missing = transitionRule.requiredCustomFieldIds
+        .map((id) => byId.get(id))
+        .filter((def): def is CustomFieldDefinition => !!def)
+        .filter((def) => isEmpty(task.customFieldValues?.[def.id]));
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `This transition requires a value for: ${missing.map((d) => d.name).join(', ')}`,
+        );
+      }
+    }
 
     const previousCategory = categoryOf(workflow, task.status);
     const update: Partial<{
@@ -435,6 +502,26 @@ export class TasksService {
       if (changedByAutomation) {
         return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
       }
+
+      // BRD 8's cross-issue trigger: "all sub-tasks of a Story marked Done -> auto-transition the
+      // parent Story." Unlike every other trigger, this one's fired actions target the PARENT
+      // task, not the sub-task whose own change caused the check - see runAutomations, which
+      // needs no special-casing for this since it just acts on whatever `task` it's given.
+      if (newCategory === StatusCategory.DONE && task.parent) {
+        const parentId = extractId(task.parent);
+        const { total, done } = await this.tasksRepository.countLinkedIssues(parentId);
+        if (total > 0 && total === done) {
+          const parentTask = await this.tasksRepository.findByIdActive(parentId);
+          if (parentTask) {
+            await this.runAutomations(
+              project,
+              { type: AutomationTriggerType.ALL_SUBTASKS_DONE },
+              parentTask,
+              actingUser,
+            );
+          }
+        }
+      }
     }
 
     return updated!;
@@ -455,8 +542,15 @@ export class TasksService {
     if (assignee) this.assertAssigneeEligible(project, assignee);
 
     const previousAssignee = task.assignee ? extractId(task.assignee) : null;
+    const becameUnassigned = !assignee && previousAssignee !== null;
     const updated = await this.tasksRepository.updateById(id, {
       assignee: assignee ? new Types.ObjectId(assignee) : null,
+      // A fresh "became unassigned" episode starts the clock for UnassignedForDuration rules;
+      // reassigning clears both, so a later unassignment starts a genuinely new episode rather
+      // than immediately re-firing a rule that already fired for the previous one. Calling this
+      // with assignee: null when it's already null is a no-op, not a new episode.
+      ...(assignee ? { assigneeClearedAt: null, firedTimeBasedRuleIds: [] } : {}),
+      ...(becameUnassigned ? { assigneeClearedAt: new Date() } : {}),
     });
     await this.tasksRepository.logActivity(
       id,
@@ -507,6 +601,13 @@ export class TasksService {
       if (sprint.status === SprintStatus.COMPLETED) {
         throw new ConflictException('Cannot add a task to a completed sprint');
       }
+      // BRD 6.3's "add mid-sprint" override is a client-side confirmation, not a server-side
+      // block: adding a task to an already-Active sprint is (and must stay) unrestricted here -
+      // this is a normal, already-relied-upon workflow (PMs add tasks to a running sprint all the
+      // time). The frontend detects this case itself (the sprint's own `status` is already in its
+      // hands) and shows a confirm dialog before calling this same endpoint; the scope-change
+      // indicator on the Active Sprint view is driven by the `initialTaskIds` snapshot below, not
+      // by this endpoint refusing the write.
     }
 
     const scope: RankScope = {
@@ -528,6 +629,63 @@ export class TasksService {
     );
     await this.invalidateDashboardCache();
     return updated!;
+  }
+
+  /**
+   * Runs `perTask` once per id, collecting which ids succeeded and which failed (with a message)
+   * rather than letting one bad/unauthorized id abort the whole batch - the same
+   * one-failure-doesn't-block-the-rest philosophy `runAutomations` already uses. Backs all three
+   * bulk backlog actions below (BRD 6.2's "move multiple issues into a sprint, bulk-assign,
+   * bulk-relabel"), each of which is just this loop calling the existing single-task method, so
+   * per-task permission/validation logic is never duplicated.
+   */
+  private async runBulk(
+    taskIds: string[],
+    perTask: (taskId: string) => Promise<unknown>,
+  ): Promise<BulkOperationResult> {
+    const succeeded: string[] = [];
+    const failed: Array<{ taskId: string; message: string }> = [];
+    for (const taskId of taskIds) {
+      try {
+        await perTask(taskId);
+        succeeded.push(taskId);
+      } catch (err) {
+        failed.push({
+          taskId,
+          message: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+    }
+    return { succeeded, failed };
+  }
+
+  async bulkMoveSprint(
+    dto: BulkMoveSprintDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, (taskId) =>
+      this.updateSprint(taskId, { sprintId: dto.sprintId }, actingUser),
+    );
+  }
+
+  async bulkAssign(
+    dto: BulkAssignDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, (taskId) =>
+      this.updateAssignee(taskId, dto.assignee, actingUser),
+    );
+  }
+
+  async bulkRelabel(
+    dto: BulkRelabelDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const labels = [...new Set([...task.labels, ...dto.labels])];
+      await this.update(taskId, { labels }, actingUser);
+    });
   }
 
   async updateRank(
@@ -782,7 +940,12 @@ export class TasksService {
    */
   private async runAutomations(
     project: ProjectDocument,
-    trigger: { type: AutomationTriggerType; toStatus?: string; fromStatus?: string },
+    trigger: {
+      type: AutomationTriggerType;
+      toStatus?: string;
+      fromStatus?: string;
+      unassignedHours?: number;
+    },
     task: TaskDocument,
     actingUser: AuthenticatedUser,
   ): Promise<boolean> {
@@ -802,21 +965,200 @@ export class TasksService {
       return false;
     }
 
+    // Enqueued (BRD 8: "Rules run through the existing background job queue"), not executed
+    // inline - each fired action becomes its own job, preserving the same one-bad-action-never-
+    // blocks-the-others isolation the previous synchronous loop had. In production this means
+    // automation's effects land shortly after (not within) the response that triggered them; the
+    // test-only FakeAutomationQueue executes synchronously so existing/new tests asserting
+    // immediate effects are unaffected.
     for (const { ruleId, ruleName, action } of fired) {
-      try {
-        await this.applyAutomationAction(project, task, action, actingUser, {
-          bypassPermission: true,
-          viaRuleId: ruleId,
-          viaRuleName: ruleName,
-        });
-      } catch (err) {
-        this.logger.warn(
-          `Automation rule "${ruleName}" (${action.type}) failed on task ${task.id}: ${(err as Error).message}`,
-        );
-      }
+      await this.automationQueue.enqueue({
+        ruleId,
+        ruleName,
+        triggerType: trigger.type,
+        projectId: project.id,
+        taskId: task.id,
+        actionType: action.type,
+        actionValue: action.value,
+        actingUser: {
+          id: actingUser.id,
+          email: actingUser.email,
+          role: actingUser.role,
+          organizationId: actingUser.organizationId,
+        },
+      });
     }
 
     return fired.length > 0;
+  }
+
+  /**
+   * Executes exactly one fired automation action (one queue job's worth of work) and writes an
+   * AutomationExecutionLog entry recording the outcome either way - the BRD's automation audit
+   * trail. Called by AutomationJobProcessor's real Worker and by FakeAutomationQueue in tests.
+   * Public because it's invoked from outside this service (the queue processor), unlike every
+   * other automation method here.
+   */
+  async executeAutomationJob(data: AutomationJobData): Promise<void> {
+    const actingUser: AuthenticatedUser = {
+      id: data.actingUser.id,
+      email: data.actingUser.email,
+      role: data.actingUser.role,
+      organizationId: data.actingUser.organizationId,
+    };
+    const ctx: AutomationContext = {
+      bypassPermission: true,
+      viaRuleId: data.ruleId,
+      viaRuleName: data.ruleName,
+    };
+
+    let outcome = AutomationExecutionOutcome.SUCCESS;
+    let errorMessage: string | null = null;
+    try {
+      const project = await this.projectsService.getActiveProjectOrThrow(data.projectId);
+      const task = await this.getActiveOrThrow(data.taskId);
+      await this.applyAutomationAction(
+        project,
+        task,
+        { type: data.actionType as AutomationActionType, value: data.actionValue },
+        actingUser,
+        ctx,
+      );
+    } catch (err) {
+      outcome = AutomationExecutionOutcome.FAILURE;
+      errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.warn(
+        `Automation rule "${data.ruleName}" (${data.actionType}) failed on task ${data.taskId}: ${errorMessage}`,
+      );
+    }
+
+    await this.automationLogModel.create({
+      project: new Types.ObjectId(data.projectId),
+      task: new Types.ObjectId(data.taskId),
+      ruleId: data.ruleId,
+      ruleName: data.ruleName,
+      triggerType: data.triggerType,
+      actionSummaries: [`${data.actionType}: ${data.actionValue}`],
+      outcome,
+      errorMessage,
+    });
+  }
+
+  /** BRD 8's automation audit trail - "which rule fired, when, on which issue," queryable
+   * project-wide rather than requiring a drill-into-each-task view. */
+  async listAutomationLog(
+    projectId: string,
+    page: number,
+    limit: number,
+    actingUser: AuthenticatedUser,
+  ) {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+
+    const filter = { project: new Types.ObjectId(projectId) };
+    const [data, total] = await Promise.all([
+      this.automationLogModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate('task', 'title issueKey')
+        .exec(),
+      this.automationLogModel.countDocuments(filter),
+    ]);
+    return { data, meta: buildPaginationMeta(total, page, limit) };
+  }
+
+  /**
+   * Hourly-checked time-based automation trigger (BRD 8: "issue unassigned for 24h -> escalate
+   * priority + notify PM") - called by UnassignedAutomationTriggerService's `@Cron`, not by any
+   * request path. For each currently-unassigned open task, evaluates its project's
+   * UnassignedForDuration rules against how long it's actually been unassigned, firing (enqueuing)
+   * any newly-matched rule and recording it in `firedTimeBasedRuleIds` so the same rule doesn't
+   * refire every subsequent hourly run for the same "became unassigned" episode.
+   */
+  async checkUnassignedForDurationRules(): Promise<void> {
+    const now = new Date();
+    const candidates = await this.tasksRepository.findUnassignedCandidates();
+
+    for (const task of candidates) {
+      if (!task.assigneeClearedAt) continue;
+      const unassignedHours = (now.getTime() - task.assigneeClearedAt.getTime()) / (60 * 60 * 1000);
+
+      const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+      if (!project.automationRules?.length) continue;
+
+      let fired: AutomationFiredAction[];
+      try {
+        fired = evaluateAutomationRules(
+          project.automationRules,
+          { type: AutomationTriggerType.UNASSIGNED_FOR_DURATION, unassignedHours },
+          { issueType: task.issueType, priority: task.priority, components: task.components },
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Automation rule evaluation failed on task ${task.id}: ${(err as Error).message}`,
+        );
+        continue;
+      }
+
+      const newlyFired = fired.filter((f) => !task.firedTimeBasedRuleIds.includes(f.ruleId));
+      if (newlyFired.length === 0) continue;
+
+      // A system/scheduled trigger has no human actingUser - the task's own creator stands in
+      // for one (a real, valid user id keeps TaskActivity's required `actor` ref meaningful);
+      // every downstream check is bypassed via ctx.bypassPermission exactly as for any other
+      // automation-fired action.
+      const systemActingUser: AuthenticatedUser = {
+        id: extractId(task.createdBy),
+        email: 'automation@internal',
+        role: Role.MANAGER,
+        organizationId: extractId(task.organizationId),
+      };
+      for (const { ruleId, ruleName, action } of newlyFired) {
+        await this.automationQueue.enqueue({
+          ruleId,
+          ruleName,
+          triggerType: AutomationTriggerType.UNASSIGNED_FOR_DURATION,
+          projectId: project.id,
+          taskId: task.id,
+          actionType: action.type,
+          actionValue: action.value,
+          actingUser: systemActingUser,
+        });
+      }
+      await this.tasksRepository.addFiredTimeBasedRuleIds(
+        task.id,
+        newlyFired.map((f) => f.ruleId),
+      );
+    }
+  }
+
+  /**
+   * Hourly-checked SLA-breach notification (BRD 8's SlaBreach notification scheme event) - for
+   * every open task not yet notified, resolves its project's SLA policy and fires the scheme's
+   * SlaBreach entry once the task has actually breached, via the same notifyScheme path every
+   * other scheme event already uses. Idempotent via `slaBreachNotifiedAt`, same shape as the
+   * due-date-reminder's own flag - a task that isn't yet breached is simply left unmarked and
+   * re-checked next hour.
+   */
+  async checkSlaBreaches(): Promise<void> {
+    const now = new Date();
+    const candidates = await this.tasksRepository.findOpenTasksUnnotifiedForSla();
+
+    for (const task of candidates) {
+      const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+      const policy = resolveSlaPolicy(project);
+      const breached = isBreached(
+        { priority: task.priority, createdAt: task.createdAt, completedAt: task.completedAt },
+        policy,
+        now,
+      );
+      if (!breached) continue;
+
+      await this.notifyScheme(project, NotificationSchemeEvent.SLA_BREACH, task.id, task.title);
+      await this.tasksRepository.markSlaBreachNotified(task.id);
+    }
   }
 
   /**

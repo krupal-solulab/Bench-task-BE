@@ -3,6 +3,14 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 export enum AutomationTriggerType {
   ISSUE_CREATED = 'IssueCreated',
   STATUS_CHANGED = 'StatusChanged',
+  // BRD 8's "issue unassigned for 24h -> escalate priority + notify PM" - a time-based trigger,
+  // checked by a scheduled job (see unassigned-automation-trigger.service.ts) rather than fired
+  // synchronously from a request, since nothing in a single request "causes" this to become true.
+  UNASSIGNED_FOR_DURATION = 'UnassignedForDuration',
+  // BRD 8's "all sub-tasks of a Story marked Done -> auto-transition the parent Story" - a
+  // cross-issue trigger: unlike every other trigger, its actions target the PARENT task, not the
+  // one whose own change caused the check (see tasks.service.ts's own comment on this).
+  ALL_SUBTASKS_DONE = 'AllSubtasksDone',
 }
 
 export enum AutomationActionType {
@@ -62,6 +70,11 @@ export class AutomationTrigger {
   // "any status", identical to today.
   @Prop({ type: String, default: null })
   fromStatus?: string | null;
+
+  // Only meaningful (and only ever set) for type === UnassignedForDuration - how many hours a
+  // task must have been unassigned before this rule fires.
+  @Prop({ type: Number, default: null })
+  afterHours?: number | null;
 }
 
 export const AutomationTriggerSchema = SchemaFactory.createForClass(AutomationTrigger);
@@ -103,6 +116,9 @@ export interface AutomationTriggerEvent {
   type: AutomationTriggerType;
   toStatus?: string;
   fromStatus?: string;
+  // Only set (by the scheduled checker) for a UnassignedForDuration trigger - this task's actual
+  // elapsed unassigned duration, compared against each candidate rule's own `afterHours`.
+  unassignedHours?: number;
 }
 
 export interface AutomationTaskSnapshot {
@@ -139,6 +155,11 @@ export function evaluateAutomationRules(
       rule.trigger.fromStatus !== trigger.fromStatus
     ) {
       continue;
+    }
+    if (trigger.type === AutomationTriggerType.UNASSIGNED_FOR_DURATION) {
+      const threshold = rule.trigger.afterHours;
+      if (threshold == null || trigger.unassignedHours == null) continue;
+      if (trigger.unassignedHours < threshold) continue;
     }
     if (!matchesConditions(rule.conditions, task)) continue;
 

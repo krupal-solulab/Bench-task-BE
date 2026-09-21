@@ -20,6 +20,7 @@ import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { SprintsService } from './sprints.service';
 import { CreateSprintDto } from './dto/create-sprint.dto';
 import { UpdateSprintDto } from './dto/update-sprint.dto';
+import { CompleteSprintDto } from './dto/complete-sprint.dto';
 import { ListSprintsDto } from './dto/list-sprints.dto';
 
 @ApiTags('sprints')
@@ -71,6 +72,17 @@ export class SprintsController {
     return this.sprintsService.velocity(projectId, user, limit ? Number(limit) : undefined);
   }
 
+  // Registered before ':sprintId' so "history" is never matched as a sprint id (same gotcha as
+  // "velocity" above).
+  @Get('history')
+  @ApiOperation({ summary: 'Every past (Completed) sprint, with date range/goal/completion rate' })
+  async history(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.sprintsService.history(projectId, user);
+  }
+
   @Get(':sprintId')
   @ApiOperation({ summary: 'Get a single sprint' })
   async findOne(
@@ -106,13 +118,17 @@ export class SprintsController {
 
   @Post(':sprintId/complete')
   @Roles(...ORG_ROLES)
-  @ApiOperation({ summary: 'Complete an Active sprint (moves incomplete tasks back to backlog)' })
+  @ApiOperation({
+    summary:
+      'Complete an Active sprint (moves incomplete tasks to the backlog, or a chosen next sprint)',
+  })
   async complete(
     @Param('projectId', ParseObjectIdPipe) projectId: string,
     @Param('sprintId', ParseObjectIdPipe) sprintId: string,
+    @Body() dto: CompleteSprintDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.sprintsService.complete(projectId, sprintId, user);
+    return this.sprintsService.complete(projectId, sprintId, dto, user);
   }
 
   @Delete(':sprintId')

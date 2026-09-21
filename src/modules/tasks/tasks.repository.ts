@@ -111,6 +111,41 @@ export class TasksRepository {
     await this.model.updateOne({ _id: id }, { dueDateNotifiedAt: new Date() }).exec();
   }
 
+  /** BRD 8's UnassignedForDuration automation trigger - every currently-unassigned, open task,
+   * for the hourly checker to compute each one's own elapsed-unassigned duration against its
+   * project's rules. */
+  findUnassignedCandidates(): Promise<TaskDocument[]> {
+    return this.model
+      .find({
+        deletedAt: null,
+        assigneeClearedAt: { $ne: null },
+        statusCategory: { $ne: StatusCategory.DONE },
+      })
+      .exec();
+  }
+
+  async addFiredTimeBasedRuleIds(id: string, ruleIds: string[]): Promise<void> {
+    await this.model
+      .updateOne({ _id: id }, { $addToSet: { firedTimeBasedRuleIds: { $each: ruleIds } } })
+      .exec();
+  }
+
+  /** BRD 8's SlaBreach notification scheme event - every open task not yet notified, for the
+   * hourly checker to resolve each one's own project's SLA policy and decide if it's breached. */
+  findOpenTasksUnnotifiedForSla(): Promise<TaskDocument[]> {
+    return this.model
+      .find({
+        deletedAt: null,
+        slaBreachNotifiedAt: null,
+        statusCategory: { $ne: StatusCategory.DONE },
+      })
+      .exec();
+  }
+
+  async markSlaBreachNotified(id: string): Promise<void> {
+    await this.model.updateOne({ _id: id }, { slaBreachNotifiedAt: new Date() }).exec();
+  }
+
   async logActivity(
     taskId: string,
     actorId: string,

@@ -80,6 +80,20 @@ describe('projects CRUD (integration)', () => {
     expect(getAfterDelete.status).toBe(404);
   });
 
+  it('defaults a new project to Scrum, and can be switched to Kanban (Phase 2 gap-closure - BRD 6.3)', async () => {
+    const { manager } = await seedManagerAndDeveloper();
+
+    const created = await createProject(app, manager.accessToken, { name: 'Board Type Project' });
+    expect(created.boardType).toBe('Scrum');
+
+    const updateRes = await api(app)
+      .patch(`/${API_PREFIX}/projects/${created.id}`)
+      .set(...authHeader(manager.accessToken))
+      .send({ boardType: 'Kanban' });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.data.boardType).toBe('Kanban');
+  });
+
   it('rejects an illegal project status transition with 409 (Planning -> Completed is not allowed)', async () => {
     const { manager } = await seedManagerAndDeveloper();
     const project = await createProject(app, manager.accessToken, { name: 'Illegal Transition' });

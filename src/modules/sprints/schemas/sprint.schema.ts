@@ -47,6 +47,25 @@ export class Sprint {
   @Prop({ type: Date, default: null })
   completedAt!: Date | null;
 
+  // Team capacity in story points, PM-entered at planning time (BRD 6.3's "capacity indicator" -
+  // planned points vs. team capacity). Null means "not set", so the planning UI simply omits the
+  // indicator rather than showing a misleading 0.
+  @Prop({ type: Number, default: null, min: 0 })
+  capacityPoints!: number | null;
+
+  // Snapshot of task ids in this sprint at the moment Start Sprint was clicked (BRD 6.3's "Start
+  // Sprint: locks the sprint's issue set... Active Sprint view:... scope-change indicator if
+  // issues are added/removed after start"). Empty until started; only ever set once, by start().
+  @Prop({ type: [Types.ObjectId], default: [] })
+  initialTaskIds!: Types.ObjectId[];
+
+  // % of this sprint's issues that were Done at the moment it was completed (BRD 6.3's Sprint
+  // History "completion rate") - computed and frozen once by complete(), since after completion
+  // incomplete tasks no longer reference this sprint (they move to the backlog or a next sprint),
+  // so it can't be reconstructed later from the tasks collection alone. Null until completed.
+  @Prop({ type: Number, default: null })
+  completionRatePercent!: number | null;
+
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   createdBy!: Types.ObjectId;
 

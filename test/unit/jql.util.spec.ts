@@ -1,6 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
 import { Types } from 'mongoose';
-import { assertValidJqlOrderBy, compileJqlAst, parseJql } from 'src/modules/tasks/search/jql.util';
+import {
+  analyzeCurrentSprintUsage,
+  assertValidJqlOrderBy,
+  compileJqlAst,
+  parseJql,
+  substituteCurrentSprint,
+} from 'src/modules/tasks/search/jql.util';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { Role } from 'src/common/enums/role.enum';
 
@@ -210,6 +216,18 @@ describe('compileJqlAst', () => {
     expect(() => compileJqlAst(ast, user)).toThrow(BadRequestException);
   });
 
+  it('compiles "sprint" to a real ObjectId once substituted', () => {
+    const SPRINT_ID = new Types.ObjectId().toString();
+    const { ast } = parseJql(`sprint = "${SPRINT_ID}"`);
+    const compiled = compileJqlAst(ast, user) as { sprint: Types.ObjectId };
+    expect(compiled.sprint.toString()).toBe(SPRINT_ID);
+  });
+
+  it('rejects an un-substituted "sprint = current" reaching the compiler', () => {
+    const { ast } = parseJql('sprint = current');
+    expect(() => compileJqlAst(ast, user)).toThrow(BadRequestException);
+  });
+
   it('compiles a "contains" clause on an array field (labels)', () => {
     const { ast } = parseJql('labels = urgent');
     expect(compileJqlAst(ast, user)).toEqual({ labels: 'urgent' });
@@ -288,5 +306,41 @@ describe('assertValidJqlOrderBy', () => {
     expect(() => assertValidJqlOrderBy({ field: 'text', direction: 'asc' })).toThrow(
       BadRequestException,
     );
+  });
+});
+
+describe('analyzeCurrentSprintUsage', () => {
+  it('detects "sprint = current" and the single project it is scoped to', () => {
+    const { ast } = parseJql(`project = "${PROJECT_ID}" AND sprint = current`);
+    expect(analyzeCurrentSprintUsage(ast)).toEqual({
+      usesCurrentSprint: true,
+      projectIds: [PROJECT_ID],
+    });
+  });
+
+  it('reports no current-sprint usage for an ordinary query', () => {
+    const { ast } = parseJql('status = Done');
+    expect(analyzeCurrentSprintUsage(ast)).toEqual({ usesCurrentSprint: false, projectIds: [] });
+  });
+
+  it('collects every distinct project referenced, even without "sprint = current"', () => {
+    const OTHER_PROJECT_ID = new Types.ObjectId().toString();
+    const { ast } = parseJql(`project = "${PROJECT_ID}" OR project = "${OTHER_PROJECT_ID}"`);
+    const result = analyzeCurrentSprintUsage(ast);
+    expect(result.usesCurrentSprint).toBe(false);
+    expect(result.projectIds.sort()).toEqual([PROJECT_ID, OTHER_PROJECT_ID].sort());
+  });
+});
+
+describe('substituteCurrentSprint', () => {
+  it('replaces "current" with the given sprint id, leaving other comparisons untouched', () => {
+    const SPRINT_ID = new Types.ObjectId().toString();
+    const { ast } = parseJql(`project = "${PROJECT_ID}" AND sprint = current`);
+    const substituted = substituteCurrentSprint(ast, SPRINT_ID);
+    const compiled = compileJqlAst(substituted, makeUser()) as {
+      $and: [{ project: Types.ObjectId }, { sprint: Types.ObjectId }];
+    };
+    expect(compiled.$and[0].project.toString()).toBe(PROJECT_ID);
+    expect(compiled.$and[1].sprint.toString()).toBe(SPRINT_ID);
   });
 });

@@ -369,4 +369,79 @@ describe('dashboard (integration)', () => {
       expect(res.body.data).toEqual([]);
     });
   });
+
+  describe('my-open-issues widget (Search/Dashboards v2)', () => {
+    it("lists the caller's own open tasks, not tasks assigned to others", async () => {
+      const { developer, taskD } = await seedDashboardFixture();
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/dashboard/my-open-issues`)
+        .set(...authHeader(developer.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([taskD.id]);
+    });
+
+    it('excludes Done tasks even when assigned to the caller', async () => {
+      const { manager, project } = await seedDashboardFixture();
+      const task = await createTask(app, manager.accessToken, {
+        title: 'My completed task',
+        project: project.id,
+        priority: TaskPriority.P2,
+        assignee: manager.userDoc.id,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.IN_PROGRESS });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.REVIEW });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.DONE });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/dashboard/my-open-issues`)
+        .query({ projectId: project.id })
+        .set(...authHeader(manager.accessToken));
+      expect(res.body.data).toEqual([]);
+    });
+  });
+
+  describe('resolution-time-trend widget (Search/Dashboards v2)', () => {
+    it('reports the average resolution hours for the completing priority in the most recent bucket', async () => {
+      const { manager } = await seedDashboardFixture();
+      const project = await createProject(app, manager.accessToken, {
+        name: 'Resolution Trend Project',
+      });
+      const task = await createTask(app, manager.accessToken, {
+        title: 'Resolved task',
+        project: project.id,
+        priority: TaskPriority.P1,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.IN_PROGRESS });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.REVIEW });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: TaskStatus.DONE });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/dashboard/resolution-time-trend`)
+        .query({ projectId: project.id })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      const lastPoint = res.body.data[res.body.data.length - 1];
+      expect(lastPoint.avgResolutionHoursByPriority.P1).toBeGreaterThanOrEqual(0);
+      expect(lastPoint.avgResolutionHoursByPriority.P2).toBeNull();
+    });
+  });
 });

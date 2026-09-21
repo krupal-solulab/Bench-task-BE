@@ -115,6 +115,52 @@ describe('platform admin boundary and API (integration)', () => {
         .set(...authHeader(admin.accessToken));
       expect(res.status).toBe(403);
     });
+
+    it('a Platform Admin can pause and resume the Email and WhatsApp channels (BRD 8)', async () => {
+      const platformAdmin = await seedPlatformAdmin('pause-platform-admin@example.com');
+
+      const initial = await api(app)
+        .get(`/${API_PREFIX}/platform/integrations/health`)
+        .set(...authHeader(platformAdmin.accessToken));
+      const byName = (res: { body: { data: Array<{ name: string; paused?: boolean }> } }) =>
+        Object.fromEntries(res.body.data.map((e) => [e.name, e.paused]));
+      expect(byName(initial)).toMatchObject({ Email: false, WhatsApp: false, MongoDB: undefined });
+
+      const paused = await api(app)
+        .post(`/${API_PREFIX}/platform/integrations/Email/pause`)
+        .set(...authHeader(platformAdmin.accessToken));
+      expect(paused.status).toBe(201);
+      expect(byName(paused)).toMatchObject({ Email: true, WhatsApp: false });
+
+      const resumed = await api(app)
+        .post(`/${API_PREFIX}/platform/integrations/Email/resume`)
+        .set(...authHeader(platformAdmin.accessToken));
+      expect(byName(resumed)).toMatchObject({ Email: false });
+    });
+
+    it('rejects pausing a channel that is not pausable', async () => {
+      const platformAdmin = await seedPlatformAdmin('pause-reject-platform-admin@example.com');
+
+      const res = await api(app)
+        .post(`/${API_PREFIX}/platform/integrations/MongoDB/pause`)
+        .set(...authHeader(platformAdmin.accessToken));
+      expect(res.status).toBe(400);
+    });
+
+    it('403 for an ordinary org role attempting to pause a channel', async () => {
+      const org = await seedOrganization(app);
+      const admin = await seedUserAndLogin(app, {
+        email: 'boundary-pause-admin@example.com',
+        password: 'Password123',
+        role: Role.ADMIN,
+        organizationId: org.id,
+      });
+
+      const res = await api(app)
+        .post(`/${API_PREFIX}/platform/integrations/Email/pause`)
+        .set(...authHeader(admin.accessToken));
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('an ordinary org role can never reach the Platform Admin API', () => {

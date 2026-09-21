@@ -9,6 +9,7 @@ import { EventsGateway } from '../events/events.gateway';
 import { EMAIL_SERVICE } from './email.constants';
 import { IEmailService } from './email.interface';
 import { NotificationsRepository } from './notifications.repository';
+import { ChannelStatusService } from './channel-status.service';
 import { NotificationDocument, NotificationType } from './schemas/notification.schema';
 import { ListNotificationsDto } from './dto/list-notifications.dto';
 import { PutNotificationPreferenceDto } from './dto/put-notification-preference.dto';
@@ -78,6 +79,7 @@ export class NotificationsService {
     private readonly usersRepository: UsersRepository,
     private readonly notificationsRepository: NotificationsRepository,
     private readonly eventsGateway: EventsGateway,
+    private readonly channelStatusService: ChannelStatusService,
     @InjectPinoLogger(NotificationsService.name) private readonly logger: PinoLogger,
   ) {}
 
@@ -88,17 +90,19 @@ export class NotificationsService {
     try {
       assignee = await this.usersRepository.findById(notification.assigneeId);
       if (!assignee) return;
-      await this.emailService.send({
-        to: assignee.email,
-        subject: `You've been assigned: ${notification.taskTitle}`,
-        template: 'task-assigned',
-        data: {
-          taskId: notification.taskId,
-          taskTitle: notification.taskTitle,
-          assigneeName: assignee.name,
-          actorEmail: notification.actorEmail,
-        },
-      });
+      if (!(await this.channelStatusService.isPaused('Email'))) {
+        await this.emailService.send({
+          to: assignee.email,
+          subject: `You've been assigned: ${notification.taskTitle}`,
+          template: 'task-assigned',
+          data: {
+            taskId: notification.taskId,
+            taskTitle: notification.taskTitle,
+            assigneeName: assignee.name,
+            actorEmail: notification.actorEmail,
+          },
+        });
+      }
     } catch (err) {
       this.logger.warn(
         { err, taskId: notification.taskId },
@@ -122,17 +126,19 @@ export class NotificationsService {
     try {
       assignee = await this.usersRepository.findById(notification.assigneeId);
       if (!assignee) return;
-      await this.emailService.send({
-        to: assignee.email,
-        subject: `Due soon: ${notification.taskTitle}`,
-        template: 'task-due-soon',
-        data: {
-          taskId: notification.taskId,
-          taskTitle: notification.taskTitle,
-          assigneeName: assignee.name,
-          dueDate: notification.dueDate.toISOString(),
-        },
-      });
+      if (!(await this.channelStatusService.isPaused('Email'))) {
+        await this.emailService.send({
+          to: assignee.email,
+          subject: `Due soon: ${notification.taskTitle}`,
+          template: 'task-due-soon',
+          data: {
+            taskId: notification.taskId,
+            taskTitle: notification.taskTitle,
+            assigneeName: assignee.name,
+            dueDate: notification.dueDate.toISOString(),
+          },
+        });
+      }
     } catch (err) {
       this.logger.warn(
         { err, taskId: notification.taskId },
@@ -239,7 +245,10 @@ export class NotificationsService {
       );
     }
 
-    if (notification.channels.includes(NotificationChannel.EMAIL)) {
+    if (
+      notification.channels.includes(NotificationChannel.EMAIL) &&
+      !(await this.channelStatusService.isPaused('Email'))
+    ) {
       try {
         await this.emailService.send({
           to: notification.recipient.email,
@@ -255,7 +264,10 @@ export class NotificationsService {
       }
     }
 
-    if (notification.channels.includes(NotificationChannel.WHATSAPP)) {
+    if (
+      notification.channels.includes(NotificationChannel.WHATSAPP) &&
+      !(await this.channelStatusService.isPaused('WhatsApp'))
+    ) {
       this.logger.info(
         `Would send WhatsApp to ${notification.recipient.email}: "${notification.title}" ` +
           '(no WhatsApp provider configured - logging only)',

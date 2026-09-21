@@ -327,6 +327,10 @@ describe('issue type hierarchy (integration)', () => {
     const byId = Object.fromEntries(res.body.data.map((e: { epicId: string }) => [e.epicId, e]));
     expect(byId[epicDone.id]).toMatchObject({ linkedIssueCount: 1, doneCount: 1, progress: 100 });
     expect(byId[epicEmpty.id]).toMatchObject({ linkedIssueCount: 0, doneCount: 0, progress: 0 });
+    // BRD 6.4's Epics View target date + roadmap timeline (Phase 2 gap-closure) - reuses the
+    // generic Task.dueDate/createdAt fields, surfaced here for the frontend's roadmap chart.
+    expect(byId[epicEmpty.id]).toHaveProperty('dueDate');
+    expect(byId[epicEmpty.id]).toHaveProperty('createdAt');
   });
 
   it('rejects assigning an Epic or a Sub-task to a sprint', async () => {

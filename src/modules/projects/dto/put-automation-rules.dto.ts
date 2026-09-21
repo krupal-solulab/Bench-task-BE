@@ -6,8 +6,10 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
+  Min,
   MaxLength,
   MinLength,
   ValidateIf,
@@ -70,6 +72,16 @@ export class AutomationTriggerDto {
   @MinLength(1)
   @MaxLength(40)
   fromStatus?: string;
+
+  @ApiPropertyOptional({
+    description: 'Required, only meaningful, for UnassignedForDuration',
+  })
+  @ValidateIf(
+    (dto: AutomationTriggerDto) => dto.type === AutomationTriggerType.UNASSIGNED_FOR_DURATION,
+  )
+  @IsInt()
+  @Min(1)
+  afterHours?: number;
 }
 
 export class AutomationRuleDto {

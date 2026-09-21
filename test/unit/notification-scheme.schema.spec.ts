@@ -28,8 +28,16 @@ describe('assertValidNotificationScheme', () => {
 
   it('rejects a rule naming an event outside the configurable catalog', () => {
     expect(() =>
-      assertValidNotificationScheme([makeRule({ event: 'SlaBreach' as NotificationSchemeEvent })]),
+      assertValidNotificationScheme([
+        makeRule({ event: 'NotARealEvent' as NotificationSchemeEvent }),
+      ]),
     ).toThrow(BadRequestException);
+  });
+
+  it('accepts SlaBreach (BRD 8 - a real SLA-tracking feature now exists to trigger it)', () => {
+    expect(() =>
+      assertValidNotificationScheme([makeRule({ event: NotificationSchemeEvent.SLA_BREACH })]),
+    ).not.toThrow();
   });
 
   it('rejects a duplicate entry for the same event', () => {

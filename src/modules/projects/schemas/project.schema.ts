@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { ProjectStatus } from '../../../common/enums/project-status.enum';
+import { BoardType } from '../../../common/enums/board-type.enum';
 import { MemberPermissions, MemberPermissionsSchema } from './member-permissions.schema';
 import {
   CustomFieldDefinition,
@@ -57,6 +58,13 @@ export class Project {
 
   @Prop({ type: String, enum: ProjectStatus, default: ProjectStatus.PLANNING })
   status!: ProjectStatus;
+
+  // BRD 6.3's Kanban-vs-Scrum toggle - defaults to Scrum, matching every existing project's
+  // current unconditional Backlog/Sprint-board/Calendar tabs. Switching to Kanban hides those
+  // tabs client-side only (Board/List stay); no server-side gating of sprint endpoints, since a
+  // Kanban project simply choosing not to use them is equivalent to never creating a sprint.
+  @Prop({ type: String, enum: BoardType, default: BoardType.SCRUM })
+  boardType!: BoardType;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   owner!: Types.ObjectId;

@@ -11,7 +11,7 @@ import {
   seedUserAndLogin,
   authHeader,
 } from './setup/test-app';
-import { api, createProject, createTask } from './setup/fixtures';
+import { api, createProject, createSprint, createTask } from './setup/fixtures';
 
 describe('advanced search (integration)', () => {
   let app: INestApplication;
@@ -270,6 +270,72 @@ describe('advanced search (integration)', () => {
         .query({ jql: `project = "${project.id}"` })
         .set(...authHeader(other.accessToken));
       expect(res.body.data).toHaveLength(0);
+    });
+
+    it('resolves "sprint = current" to the project\'s active sprint', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'Sprint JQL Project' });
+      const sprint1 = await createSprint(app, manager.accessToken, project.id, {
+        name: 'Sprint 1',
+        startDate: '2026-01-01',
+        endDate: '2026-01-14',
+      });
+      const sprint2 = await createSprint(app, manager.accessToken, project.id, {
+        name: 'Sprint 2',
+        startDate: '2026-01-15',
+        endDate: '2026-01-28',
+      });
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint1.id}/start`)
+        .set(...authHeader(manager.accessToken));
+
+      const inActiveSprint = await createTask(app, manager.accessToken, {
+        title: 'In the active sprint',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${inActiveSprint.id}/sprint`)
+        .set(...authHeader(manager.accessToken))
+        .send({ sprintId: sprint1.id });
+
+      const inOtherSprint = await createTask(app, manager.accessToken, {
+        title: 'In the planned sprint',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${inOtherSprint.id}/sprint`)
+        .set(...authHeader(manager.accessToken))
+        .send({ sprintId: sprint2.id });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: `project = "${project.id}" AND sprint = current` })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([inActiveSprint.id]);
+    });
+
+    it('rejects "sprint = current" when the query is not scoped to exactly one project', async () => {
+      const { manager } = await seedManager();
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: 'sprint = current' })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(400);
+    });
+
+    it('rejects "sprint = current" when the project has no active sprint', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'No Active Sprint' });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: `project = "${project.id}" AND sprint = current` })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(400);
     });
   });
 });

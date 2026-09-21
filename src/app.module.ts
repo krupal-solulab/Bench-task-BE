@@ -10,6 +10,7 @@ import { envValidationSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './redis/redis.module';
 import { StorageModule } from './storage/storage.module';
+import { AutomationQueueModule } from './modules/automation-queue/automation-queue.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -87,6 +88,7 @@ import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates
     DatabaseModule,
     RedisModule,
     StorageModule,
+    AutomationQueueModule,
     EventsModule,
     HealthModule,
     UsersModule,

@@ -26,6 +26,9 @@ import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
 import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 import { SearchTasksDto } from './dto/search-tasks.dto';
+import { BulkMoveSprintDto } from './dto/bulk-move-sprint.dto';
+import { BulkAssignDto } from './dto/bulk-assign.dto';
+import { BulkRelabelDto } from './dto/bulk-relabel.dto';
 
 @ApiTags('tasks')
 @ApiBearerAuth()
@@ -64,6 +67,29 @@ export class TasksController {
   @ApiOperation({ summary: 'JQL-lite compound search (Search/Dashboards v2)' })
   async search(@Query() query: SearchTasksDto, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.search(query, user);
+  }
+
+  // Registered before PATCH :id/GET :id - literal path segments must precede a :id sibling at the
+  // same depth or Express/Nest would swallow them as the route param (same gotcha as /search above).
+  @Patch('bulk-move-sprint')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Move multiple tasks into a sprint, or back to the backlog (BRD 6.2)' })
+  async bulkMoveSprint(@Body() dto: BulkMoveSprintDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkMoveSprint(dto, user);
+  }
+
+  @Patch('bulk-assign')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Reassign multiple tasks at once (BRD 6.2)' })
+  async bulkAssign(@Body() dto: BulkAssignDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkAssign(dto, user);
+  }
+
+  @Patch('bulk-relabel')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Add labels to multiple tasks at once (BRD 6.2)' })
+  async bulkRelabel(@Body() dto: BulkRelabelDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkRelabel(dto, user);
   }
 
   @Get(':id')

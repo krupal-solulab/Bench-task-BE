@@ -572,6 +572,115 @@ export class DashboardService {
     );
   }
 
+  /** BRD 7's "My Open Issues" widget - the caller's own assigned, not-yet-Done tasks, soonest due
+   * first (nulls last) - unlike every other widget here, this always scopes to the caller
+   * regardless of role (`resolveScope` only auto-scopes Developers), since "my issues" is
+   * inherently personal for an Admin/Manager too. */
+  async myOpenIssues(projectId: string | undefined, actingUser: AuthenticatedUser) {
+    return this.cached(
+      'my-open-issues',
+      actingUser,
+      { projectId },
+      this.ttlDashboard(),
+      async () => {
+        const { taskFilter } = await this.resolveScope(actingUser, projectId);
+        const tasks = await this.taskModel
+          .find({
+            ...taskFilter,
+            assignee: new Types.ObjectId(actingUser.id),
+            statusCategory: { $ne: StatusCategory.DONE },
+          })
+          .populate('project', 'name')
+          .sort({ dueDate: 1 })
+          .limit(100)
+          .exec();
+
+        return tasks.map((task) => {
+          const project = task.project as unknown as { id: string; name: string };
+          return {
+            id: task.id,
+            title: task.title,
+            issueKey: task.issueKey,
+            project: { id: project.id, name: project.name },
+            status: task.status,
+            dueDate: task.dueDate,
+            priority: task.priority,
+          };
+        });
+      },
+    );
+  }
+
+  /** BRD 7's resolution-time-trend widget: average hours-to-resolve per priority, bucketed into
+   * rolling 7-day windows over the last 8 weeks - mirrors velocityTrend's own week-bucketing, just
+   * grouped by priority instead of summed into one series. */
+  async resolutionTimeTrend(projectId: string | undefined, actingUser: AuthenticatedUser) {
+    return this.cached(
+      'resolution-time-trend',
+      actingUser,
+      { projectId },
+      this.ttlTrend(),
+      async () => {
+        const { taskFilter } = await this.resolveScope(actingUser, projectId);
+        const WEEKS = 8;
+        const since = new Date();
+        since.setDate(since.getDate() - WEEKS * 7);
+
+        const tasks = await this.taskModel
+          .find(
+            {
+              ...taskFilter,
+              statusCategory: StatusCategory.DONE,
+              completedAt: { $gte: since, $ne: null },
+            },
+            { priority: 1, createdAt: 1, completedAt: 1 },
+          )
+          .lean();
+
+        const points: {
+          weekStart: string;
+          avgResolutionHoursByPriority: Record<string, number | null>;
+        }[] = [];
+        for (let w = WEEKS - 1; w >= 0; w--) {
+          const bucketEnd = new Date();
+          bucketEnd.setDate(bucketEnd.getDate() - w * 7);
+          const bucketStart = new Date(bucketEnd);
+          bucketStart.setDate(bucketStart.getDate() - 6);
+
+          const sums = new Map(Object.values(TaskPriority).map((p) => [p, { sum: 0, count: 0 }]));
+          for (const task of tasks) {
+            if (
+              !task.completedAt ||
+              task.completedAt < bucketStart ||
+              task.completedAt > bucketEnd
+            ) {
+              continue;
+            }
+            const hours = resolutionHoursOf(task);
+            if (hours == null) continue;
+            const row = sums.get(task.priority);
+            if (!row) continue;
+            row.sum += hours;
+            row.count += 1;
+          }
+
+          const avgResolutionHoursByPriority: Record<string, number | null> = {};
+          for (const priority of Object.values(TaskPriority)) {
+            const row = sums.get(priority)!;
+            avgResolutionHoursByPriority[priority] =
+              row.count > 0 ? Math.round(row.sum / row.count) : null;
+          }
+          points.push({
+            weekStart: bucketStart.toISOString().slice(0, 10),
+            avgResolutionHoursByPriority,
+          });
+        }
+
+        return points;
+      },
+    );
+  }
+
   private zeroFillProjectStatus(
     rows: { _id: string; count: number }[],
   ): Record<ProjectStatus, number> {

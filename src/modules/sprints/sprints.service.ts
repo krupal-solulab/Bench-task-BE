@@ -23,8 +23,10 @@ import { SprintsRepository } from './sprints.repository';
 import { SprintDocument } from './schemas/sprint.schema';
 import { SprintActivityAction } from './schemas/sprint-activity.schema';
 import { isLegalSprintTransition, legalSprintTransitions } from './sprint-status.rules';
+import { nextAppendRank } from '../tasks/utils/rank.util';
 import { CreateSprintDto } from './dto/create-sprint.dto';
 import { UpdateSprintDto } from './dto/update-sprint.dto';
+import { CompleteSprintDto } from './dto/complete-sprint.dto';
 import { ListSprintsDto } from './dto/list-sprints.dto';
 import { SprintBurndownResult, computeBurndown } from './sprint-reports.util';
 
@@ -38,6 +40,7 @@ export interface SprintVelocityEntry {
 
 const DEFAULT_VELOCITY_LIMIT = 5;
 const MAX_VELOCITY_LIMIT = 20;
+const MAX_HISTORY_LIMIT = 50;
 
 @Injectable()
 export class SprintsService {
@@ -61,7 +64,7 @@ export class SprintsService {
     );
 
     const startDate = new Date(dto.startDate);
-    const endDate = new Date(dto.endDate);
+    const endDate = this.resolveEndDate(startDate, dto.durationWeeks, dto.endDate);
     this.assertValidDateRange(startDate, endDate);
 
     const sprint = await this.sprintsRepository.create({
@@ -70,6 +73,7 @@ export class SprintsService {
       project: new Types.ObjectId(project.id),
       startDate,
       endDate,
+      capacityPoints: dto.capacityPoints ?? null,
       createdBy: new Types.ObjectId(actingUser.id),
       organizationId: project.organizationId,
     });
@@ -127,14 +131,19 @@ export class SprintsService {
     }
 
     const nextStartDate = dto.startDate ? new Date(dto.startDate) : sprint.startDate;
-    const nextEndDate = dto.endDate ? new Date(dto.endDate) : sprint.endDate;
+    const nextEndDate = dto.durationWeeks
+      ? this.resolveEndDate(nextStartDate, dto.durationWeeks)
+      : dto.endDate
+        ? new Date(dto.endDate)
+        : sprint.endDate;
     this.assertValidDateRange(nextStartDate, nextEndDate);
 
     const updated = await this.sprintsRepository.updateById(sprintId, {
       ...(dto.name ? { name: dto.name } : {}),
       ...(dto.goal !== undefined ? { goal: dto.goal } : {}),
       ...(dto.startDate ? { startDate: nextStartDate } : {}),
-      ...(dto.endDate ? { endDate: nextEndDate } : {}),
+      ...(dto.endDate || dto.durationWeeks ? { endDate: nextEndDate } : {}),
+      ...(dto.capacityPoints !== undefined ? { capacityPoints: dto.capacityPoints } : {}),
     });
     await this.sprintsRepository.logActivity(sprintId, actingUser.id, SprintActivityAction.UPDATED);
     return updated!;
@@ -162,9 +171,16 @@ export class SprintsService {
       );
     }
 
+    // Snapshot the sprint's issue set at the moment it locks (BRD 6.3) - the Active Sprint view
+    // diffs against this to show a "+N/-M since start" scope-change indicator.
+    const initialTasks = await this.taskModel
+      .find({ sprint: sprint._id, deletedAt: null }, { _id: 1 })
+      .lean();
+
     const updated = await this.sprintsRepository.updateById(sprintId, {
       status: SprintStatus.ACTIVE,
       startedAt: new Date(),
+      initialTaskIds: initialTasks.map((t) => t._id),
     });
     await this.sprintsRepository.logActivity(
       sprintId,
@@ -180,6 +196,7 @@ export class SprintsService {
   async complete(
     projectId: string,
     sprintId: string,
+    dto: CompleteSprintDto,
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
@@ -192,25 +209,69 @@ export class SprintsService {
 
     this.assertLegalTransition(sprint.status, SprintStatus.COMPLETED);
 
-    // Only non-Done-category tasks return to the backlog - Done tasks keep their sprint reference
-    // permanently, so a completed sprint's history still shows what it actually finished. Category-
-    // based (not the literal "Done") so this works under a custom workflow's differently-named
-    // Done status too.
-    const { modifiedCount } = await this.taskModel.updateMany(
-      { sprint: sprint._id, deletedAt: null, statusCategory: { $ne: StatusCategory.DONE } },
-      { sprint: null },
-    );
+    // BRD 6.3's "PM's choice": incomplete issues either go to the backlog (default, unchanged
+    // behavior) or a chosen Planned sprint - never Active/Completed, since dropping tasks into an
+    // already-locked or closed sprint would defeat the point of either state.
+    let destinationLabel = 'backlog';
+    let destinationSprintObjectId: Types.ObjectId | null = null;
+    if (dto.nextSprintId) {
+      const nextSprint = await this.getActiveOrThrow(dto.nextSprintId, projectId);
+      if (nextSprint.status !== SprintStatus.PLANNED) {
+        throw new BadRequestException('The next sprint must be Planned');
+      }
+      destinationSprintObjectId = nextSprint._id as Types.ObjectId;
+      destinationLabel = `sprint "${nextSprint.name}"`;
+    }
+
+    // Only non-Done-category tasks move - Done tasks keep their sprint reference permanently, so
+    // a completed sprint's history still shows what it actually finished. Category-based (not the
+    // literal "Done") so this works under a custom workflow's differently-named Done status too.
+    const incompleteTasks = await this.taskModel
+      .find(
+        { sprint: sprint._id, deletedAt: null, statusCategory: { $ne: StatusCategory.DONE } },
+        { rank: 1 },
+      )
+      .sort({ rank: 1 })
+      .lean();
+    const doneCount = await this.taskModel.countDocuments({
+      sprint: sprint._id,
+      deletedAt: null,
+      statusCategory: StatusCategory.DONE,
+    });
+    const totalCount = doneCount + incompleteTasks.length;
+    const completionRatePercent =
+      totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : null;
+
+    if (destinationSprintObjectId) {
+      const destId = destinationSprintObjectId;
+      const maxRankDoc = await this.taskModel
+        .findOne({ project: sprint.project, sprint: destId, deletedAt: null })
+        .sort({ rank: -1 })
+        .select('rank')
+        .lean();
+      let rank = nextAppendRank(maxRankDoc?.rank ?? null);
+      for (const task of incompleteTasks) {
+        await this.taskModel.updateOne({ _id: task._id }, { sprint: destId, rank });
+        rank = nextAppendRank(rank);
+      }
+    } else {
+      await this.taskModel.updateMany(
+        { sprint: sprint._id, deletedAt: null, statusCategory: { $ne: StatusCategory.DONE } },
+        { sprint: null },
+      );
+    }
 
     const updated = await this.sprintsRepository.updateById(sprintId, {
       status: SprintStatus.COMPLETED,
       completedAt: new Date(),
+      completionRatePercent,
     });
     await this.sprintsRepository.logActivity(
       sprintId,
       actingUser.id,
       SprintActivityAction.COMPLETED,
       sprint.status,
-      `${modifiedCount} task(s) moved to backlog`,
+      `${incompleteTasks.length} task(s) moved to ${destinationLabel}`,
     );
     await this.notifyScheme(project, NotificationSchemeEvent.SPRINT_COMPLETED, sprint.name);
     return updated!;
@@ -325,6 +386,16 @@ export class SprintsService {
     return computeBurndown(tasks, sprint.startedAt, sprint.endDate, sprint.completedAt, new Date());
   }
 
+  /** BRD 6.3's Sprint History: every past (Completed) sprint for a project, most-recent-last,
+   * with its date range/goal/completion rate already on the document (`completionRatePercent`,
+   * frozen at completion time - see `complete()`'s own comment on why it can't be recomputed
+   * later). Read-only; view access only, matching every other GET route on this controller. */
+  async history(projectId: string, actingUser: AuthenticatedUser): Promise<SprintDocument[]> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+    return this.sprintsRepository.findCompletedForProject(projectId, MAX_HISTORY_LIMIT);
+  }
+
   /** Used by TasksService.updateSprint to validate a sprint before attaching a task to it. */
   async getActiveOrThrow(sprintId: string, projectId: string): Promise<SprintDocument> {
     const sprint = await this.sprintsRepository.findByIdActiveInProject(sprintId, projectId);
@@ -345,6 +416,21 @@ export class SprintsService {
     if (endDate < startDate) {
       throw new BadRequestException('endDate must be on or after startDate');
     }
+  }
+
+  /** BRD 6.3's sprint duration presets - a preset always wins over an explicit endDate (the DTO
+   * documents this), computed as a plain calendar-day offset (no timezone/business-day logic,
+   * matching every other date field in this codebase). Falls back to the given endDate for a
+   * custom range, and throws if neither is present (only reachable from `create`, where the DTO
+   * requires one or the other). */
+  private resolveEndDate(startDate: Date, durationWeeks?: number, endDate?: string): Date {
+    if (durationWeeks) {
+      const computed = new Date(startDate);
+      computed.setDate(computed.getDate() + durationWeeks * 7);
+      return computed;
+    }
+    if (endDate) return new Date(endDate);
+    throw new BadRequestException('Either endDate or durationWeeks is required');
   }
 
   /** Fires the project's admin-configured Notification Scheme entry for `event`, if one is

@@ -65,6 +65,202 @@ describe('sprints (integration)', () => {
     expect(invalid.status).toBe(400);
   });
 
+  it('creates a sprint via a duration preset, computing endDate server-side (Phase 2 gap-closure)', async () => {
+    const { manager } = await seedManagerAndDeveloper();
+    const project = await createProject(app, manager.accessToken, { name: 'Duration Project' });
+
+    const sprint = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 1',
+      startDate: '2026-01-01',
+      durationWeeks: 2,
+      capacityPoints: 40,
+    });
+    expect(sprint.endDate.slice(0, 10)).toBe('2026-01-15');
+    expect(sprint.capacityPoints).toBe(40);
+  });
+
+  it('rejects a sprint with neither endDate nor durationWeeks', async () => {
+    const { manager } = await seedManagerAndDeveloper();
+    const project = await createProject(app, manager.accessToken, { name: 'Bad Duration Project' });
+
+    const res = await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints`)
+      .set(...authHeader(manager.accessToken))
+      .send({ name: 'Sprint 1', startDate: '2026-01-01' });
+    expect(res.status).toBe(400);
+  });
+
+  it('completes a sprint into a chosen next Planned sprint instead of the backlog (Phase 2 gap-closure)', async () => {
+    const { manager } = await seedManagerAndDeveloper();
+    const project = await createProject(app, manager.accessToken, { name: 'Next Sprint Project' });
+    const sprint1 = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 1',
+      startDate: '2026-01-01',
+      endDate: '2026-01-14',
+    });
+    const sprint2 = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 2',
+      startDate: '2026-01-15',
+      endDate: '2026-01-28',
+    });
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint1.id}/start`)
+      .set(...authHeader(manager.accessToken));
+
+    const openTask = await createTask(app, manager.accessToken, {
+      title: 'Unfinished work',
+      project: project.id,
+      priority: TaskPriority.P2,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${openTask.id}/sprint`)
+      .set(...authHeader(manager.accessToken))
+      .send({ sprintId: sprint1.id });
+
+    const completeRes = await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint1.id}/complete`)
+      .set(...authHeader(manager.accessToken))
+      .send({ nextSprintId: sprint2.id });
+    expect(completeRes.status).toBe(201);
+
+    const taskAfter = await api(app)
+      .get(`/${API_PREFIX}/tasks/${openTask.id}`)
+      .set(...authHeader(manager.accessToken));
+    expect(taskAfter.body.data.sprint.id).toBe(sprint2.id);
+  });
+
+  it('rejects completing into a next sprint that is not Planned', async () => {
+    const { manager } = await seedManagerAndDeveloper();
+    const project = await createProject(app, manager.accessToken, { name: 'Bad Next Sprint' });
+    const sprint1 = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 1',
+      startDate: '2026-01-01',
+      endDate: '2026-01-14',
+    });
+    const sprint2 = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 2',
+      startDate: '2026-01-15',
+      endDate: '2026-01-28',
+    });
+    const sprint3 = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 3',
+      startDate: '2026-01-29',
+      endDate: '2026-02-11',
+    });
+
+    // Only one sprint may be Active at a time, so cycle sprint1 and sprint2 through to Completed
+    // one at a time before starting sprint3.
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint1.id}/start`)
+      .set(...authHeader(manager.accessToken));
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint1.id}/complete`)
+      .set(...authHeader(manager.accessToken));
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint2.id}/start`)
+      .set(...authHeader(manager.accessToken));
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint2.id}/complete`)
+      .set(...authHeader(manager.accessToken));
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint3.id}/start`)
+      .set(...authHeader(manager.accessToken));
+
+    const res = await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint3.id}/complete`)
+      .set(...authHeader(manager.accessToken))
+      .send({ nextSprintId: sprint2.id }); // sprint2 is Completed, not Planned
+    expect(res.status).toBe(400);
+  });
+
+  it('records a completion rate and lists it in sprint history (Phase 2 gap-closure)', async () => {
+    const { manager } = await seedManagerAndDeveloper();
+    const project = await createProject(app, manager.accessToken, { name: 'History Project' });
+    const sprint = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 1',
+      goal: 'Ship it',
+      startDate: '2026-01-01',
+      endDate: '2026-01-14',
+    });
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/start`)
+      .set(...authHeader(manager.accessToken));
+
+    const doneTask = await createTask(app, manager.accessToken, {
+      title: 'Finished work',
+      project: project.id,
+      priority: TaskPriority.P2,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${doneTask.id}/sprint`)
+      .set(...authHeader(manager.accessToken))
+      .send({ sprintId: sprint.id });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${doneTask.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: TaskStatus.IN_PROGRESS });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${doneTask.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: TaskStatus.REVIEW });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${doneTask.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: TaskStatus.DONE });
+
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/complete`)
+      .set(...authHeader(manager.accessToken));
+
+    const history = await api(app)
+      .get(`/${API_PREFIX}/projects/${project.id}/sprints/history`)
+      .set(...authHeader(manager.accessToken));
+    expect(history.status).toBe(200);
+    expect(history.body.data).toHaveLength(1);
+    expect(history.body.data[0]).toMatchObject({
+      name: 'Sprint 1',
+      goal: 'Ship it',
+      completionRatePercent: 100,
+    });
+  });
+
+  it('snapshots initialTaskIds when a sprint starts', async () => {
+    const { manager } = await seedManagerAndDeveloper();
+    const project = await createProject(app, manager.accessToken, { name: 'Snapshot Project' });
+    const sprint = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 1',
+      startDate: '2026-01-01',
+      endDate: '2026-01-14',
+    });
+    const task = await createTask(app, manager.accessToken, {
+      title: 'Locked-in task',
+      project: project.id,
+      priority: TaskPriority.P2,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${task.id}/sprint`)
+      .set(...authHeader(manager.accessToken))
+      .send({ sprintId: sprint.id });
+
+    const started = await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/start`)
+      .set(...authHeader(manager.accessToken));
+    expect(started.body.data.initialTaskIds).toEqual([task.id]);
+
+    // Adding a task after start is still allowed (no server-side block - see updateSprint's own
+    // comment on why this is a client-side confirmation, not a backend gate).
+    const addedLater = await createTask(app, manager.accessToken, {
+      title: 'Added mid-sprint',
+      project: project.id,
+      priority: TaskPriority.P2,
+    });
+    const midSprintAdd = await api(app)
+      .patch(`/${API_PREFIX}/tasks/${addedLater.id}/sprint`)
+      .set(...authHeader(manager.accessToken))
+      .send({ sprintId: sprint.id });
+    expect(midSprintAdd.status).toBe(200);
+  });
+
   it('starts a sprint, blocks starting a second one while it is Active, then completes it', async () => {
     const { manager } = await seedManagerAndDeveloper();
     const project = await createProject(app, manager.accessToken, { name: 'Lifecycle Project' });

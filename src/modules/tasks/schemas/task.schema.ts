@@ -40,6 +40,18 @@ export class Task {
   @Prop({ type: Types.ObjectId, ref: 'User', default: null })
   assignee!: Types.ObjectId | null;
 
+  // Set whenever assignee transitions to null, cleared when reassigned - the start of a "became
+  // unassigned" episode for the UnassignedForDuration automation trigger (BRD 8). Not the same as
+  // updatedAt, which changes on any field edit, not just assignee.
+  @Prop({ type: Date, default: null })
+  assigneeClearedAt!: Date | null;
+
+  // Rule ids already fired for the CURRENT "became unassigned" episode (see assigneeClearedAt) -
+  // prevents the hourly checker from re-firing the same rule every run; cleared alongside
+  // assigneeClearedAt when the task is reassigned, so a future unassigned episode can fire again.
+  @Prop({ type: [String], default: [] })
+  firedTimeBasedRuleIds!: string[];
+
   @Prop({ type: String, enum: TaskPriority, default: TaskPriority.P2 })
   priority!: TaskPriority;
 
@@ -63,6 +75,12 @@ export class Task {
   // is only ever notified once. Null until then; unrelated to `dueDate` itself changing.
   @Prop({ type: Date, default: null })
   dueDateNotifiedAt!: Date | null;
+
+  // Stamped by the hourly SLA-breach checker (BRD 8's SlaBreach notification scheme event) once
+  // fired, so a task is only ever notified once per breach - same idempotency shape as
+  // dueDateNotifiedAt above.
+  @Prop({ type: Date, default: null })
+  slaBreachNotifiedAt!: Date | null;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   createdBy!: Types.ObjectId;

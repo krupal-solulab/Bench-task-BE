@@ -33,6 +33,7 @@ export const JQL_FIELDS = [
   'createdBy',
   'dueDate',
   'text',
+  'sprint',
 ] as const;
 export type JqlField = (typeof JQL_FIELDS)[number];
 
@@ -59,7 +60,15 @@ const JQL_SORT_FIELD_BY_LOWER = buildLowerLookup(JQL_SORT_FIELDS);
 
 export type JqlOperator = '=' | '!=' | '~' | '>' | '>=' | '<' | '<=';
 
-export type JqlValue = { kind: 'literal'; value: string } | { kind: 'currentUser' };
+export type JqlValue =
+  | { kind: 'literal'; value: string }
+  | { kind: 'currentUser' }
+  // `sprint = current` (valid only for `sprint`) - unlike `currentUser()`, resolving this needs an
+  // async lookup of the named project's active sprint, so it can't be done inside this pure
+  // compiler. The service layer substitutes it for a real sprint id (via `substituteCurrentSprint`)
+  // before `compileJqlAst` ever sees it - `resolveValue` below only guards against a caller that
+  // skipped that step.
+  | { kind: 'currentSprint' };
 
 export type JqlAst =
   | { type: 'and'; left: JqlAst; right: JqlAst }
@@ -290,6 +299,9 @@ class Parser {
         this.pos++;
         return { kind: 'currentUser' };
       }
+      if (token.value.toLowerCase() === 'current') {
+        return { kind: 'currentSprint' };
+      }
       return { kind: 'literal', value: token.value };
     }
     throw new BadRequestException(`Expected a value but got "${token.value || 'end of query'}"`);
@@ -308,7 +320,12 @@ export function parseJql(input: string): JqlQuery {
 // ---------------------------------------------------------------------------
 
 const ARRAY_FIELDS: ReadonlySet<JqlField> = new Set(['labels', 'components']);
-const OBJECT_ID_FIELDS: ReadonlySet<JqlField> = new Set(['project', 'assignee', 'createdBy']);
+const OBJECT_ID_FIELDS: ReadonlySet<JqlField> = new Set([
+  'project',
+  'assignee',
+  'createdBy',
+  'sprint',
+]);
 const CURRENT_USER_FIELDS: ReadonlySet<JqlField> = new Set(['assignee', 'createdBy']);
 
 function resolveValue(field: JqlField, value: JqlValue, actingUser: AuthenticatedUser): string {
@@ -318,7 +335,75 @@ function resolveValue(field: JqlField, value: JqlValue, actingUser: Authenticate
     }
     return actingUser.id;
   }
+  if (value.kind === 'currentSprint') {
+    // Reachable only if a caller compiles an AST that skipped substituteCurrentSprint() first.
+    throw new BadRequestException('"current" is not valid for field "' + field + '"');
+  }
   return value.value;
+}
+
+/**
+ * Walks the AST for `sprint = current`/`sprint != current` usage, and (independently) collects
+ * every literal `project = <id>` comparison's value. `sprint = current` (BRD 7's "resolves to the
+ * project's active sprint") is meaningless without pinning the query to exactly one project - so
+ * the service layer calls this first, before compiling, to either resolve that single project's
+ * active sprint or reject the query with a clear 400.
+ */
+export function analyzeCurrentSprintUsage(ast: JqlAst): {
+  usesCurrentSprint: boolean;
+  projectIds: string[];
+} {
+  const projectIds = new Set<string>();
+  let usesCurrentSprint = false;
+
+  function walk(node: JqlAst): void {
+    switch (node.type) {
+      case 'and':
+      case 'or':
+        walk(node.left);
+        walk(node.right);
+        return;
+      case 'not':
+        walk(node.expr);
+        return;
+      case 'comparison':
+        if (node.field === 'sprint' && node.value.kind === 'currentSprint') {
+          usesCurrentSprint = true;
+        }
+        if (node.field === 'project' && node.operator === '=' && node.value.kind === 'literal') {
+          projectIds.add(node.value.value);
+        }
+        return;
+    }
+  }
+  walk(ast);
+  return { usesCurrentSprint, projectIds: [...projectIds] };
+}
+
+/** Replaces every `{kind: 'currentSprint'}` value in the AST with a resolved sprint id literal -
+ * called once the service layer has looked up the single project's active sprint. */
+export function substituteCurrentSprint(ast: JqlAst, sprintId: string): JqlAst {
+  switch (ast.type) {
+    case 'and':
+      return {
+        type: 'and',
+        left: substituteCurrentSprint(ast.left, sprintId),
+        right: substituteCurrentSprint(ast.right, sprintId),
+      };
+    case 'or':
+      return {
+        type: 'or',
+        left: substituteCurrentSprint(ast.left, sprintId),
+        right: substituteCurrentSprint(ast.right, sprintId),
+      };
+    case 'not':
+      return { type: 'not', expr: substituteCurrentSprint(ast.expr, sprintId) };
+    case 'comparison':
+      if (ast.field === 'sprint' && ast.value.kind === 'currentSprint') {
+        return { ...ast, value: { kind: 'literal', value: sprintId } };
+      }
+      return ast;
+  }
 }
 
 function compileComparison(

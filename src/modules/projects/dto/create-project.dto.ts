@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsEnum,
   IsISO8601,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { IsObjectId } from '../../../common/validators/is-object-id.validator';
+import { BoardType } from '../../../common/enums/board-type.enum';
 
 export class CreateProjectDto {
   @ApiProperty({ example: 'Website Redesign' })
@@ -57,4 +59,13 @@ export class CreateProjectDto {
     message: 'key must be 2-10 uppercase letters/digits, starting with a letter',
   })
   key?: string;
+
+  @ApiPropertyOptional({
+    enum: BoardType,
+    description:
+      'Kanban hides the Backlog/Sprint-board/Calendar tabs client-side. Defaults to Scrum.',
+  })
+  @IsOptional()
+  @IsEnum(BoardType)
+  boardType?: BoardType;
 }

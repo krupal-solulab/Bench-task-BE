@@ -1,5 +1,6 @@
 import { CacheService } from 'src/redis/cache.service';
 import { IStorageService } from 'src/storage/storage.interface';
+import { ChannelStatusService } from 'src/notifications/channel-status.service';
 import { IntegrationHealthService } from 'src/modules/integration-health/integration-health.service';
 
 function makeConnection(readyState: number) {
@@ -9,12 +10,14 @@ function makeConnection(readyState: number) {
 describe('IntegrationHealthService', () => {
   let cacheService: jest.Mocked<Pick<CacheService, 'ping'>>;
   let storageService: jest.Mocked<IStorageService>;
+  let channelStatusService: jest.Mocked<Pick<ChannelStatusService, 'isPaused' | 'setPaused'>>;
 
   function makeService(readyState = 1) {
     return new IntegrationHealthService(
       makeConnection(readyState),
       cacheService as unknown as CacheService,
       storageService,
+      channelStatusService as unknown as ChannelStatusService,
     );
   }
 
@@ -25,6 +28,10 @@ describe('IntegrationHealthService', () => {
       getDownloadUrl: jest.fn(),
       delete: jest.fn(),
       healthCheck: jest.fn().mockResolvedValue(true),
+    };
+    channelStatusService = {
+      isPaused: jest.fn().mockResolvedValue(false),
+      setPaused: jest.fn().mockResolvedValue(undefined),
     };
   });
 
@@ -75,5 +82,29 @@ describe('IntegrationHealthService', () => {
     const result = await service.check();
 
     expect(result.find((r) => r.name === 'Email')?.status).toBe('stub');
+  });
+
+  it('always reports WhatsApp as a stub', async () => {
+    const service = makeService();
+    const result = await service.check();
+
+    expect(result.find((r) => r.name === 'WhatsApp')?.status).toBe('stub');
+  });
+
+  it("reports Email/WhatsApp's paused state from ChannelStatusService, undefined for every other row", async () => {
+    channelStatusService.isPaused.mockImplementation(async (channel) => channel === 'Email');
+    const service = makeService();
+    const result = await service.check();
+
+    expect(result.find((r) => r.name === 'Email')?.paused).toBe(true);
+    expect(result.find((r) => r.name === 'WhatsApp')?.paused).toBe(false);
+    expect(result.find((r) => r.name === 'MongoDB')?.paused).toBeUndefined();
+  });
+
+  it('setChannelPaused delegates to ChannelStatusService', async () => {
+    const service = makeService();
+    await service.setChannelPaused('WhatsApp', true);
+
+    expect(channelStatusService.setPaused).toHaveBeenCalledWith('WhatsApp', true);
   });
 });

@@ -1,7 +1,11 @@
 import { INestApplication } from '@nestjs/common';
+import { getModelToken } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import { Role } from 'src/common/enums/role.enum';
 import { TaskPriority } from 'src/common/enums/task-priority.enum';
 import { NotificationType } from 'src/notifications/schemas/notification.schema';
+import { Task, TaskDocument } from 'src/modules/tasks/schemas/task.schema';
+import { TasksService } from 'src/modules/tasks/tasks.service';
 import {
   API_PREFIX,
   createTestApp,
@@ -232,5 +236,55 @@ describe('notification scheme (integration)', () => {
     expect(
       afterComplete.body.data.filter((n: { type: string }) => n.type === NotificationType.SCHEME),
     ).toHaveLength(1);
+  });
+
+  it('fires a SlaBreach scheme entry once a task has actually breached its SLA target (BRD 8)', async () => {
+    const { manager } = await seedManagerAndAdmin();
+    const project = await createProject(app, manager.accessToken, { name: 'SLA Scheme Project' });
+    await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/notification-scheme`)
+      .set(...authHeader(manager.accessToken))
+      .send({ rules: [{ event: 'SlaBreach', notifyRoles: ['Manager'], channels: ['InApp'] }] });
+
+    const task = await createTask(app, manager.accessToken, {
+      title: 'Aging P1 task',
+      project: project.id,
+      priority: TaskPriority.P1, // default SLA policy: 8h target
+    });
+    await clearNotifications(manager.accessToken);
+
+    const taskModel = app.get<Model<TaskDocument>>(getModelToken(Task.name));
+    // Simulates the passage of time (100h since creation) rather than waiting for the real hourly
+    // @Cron - the checker only cares about how old the still-open task is. Goes through the raw
+    // MongoDB driver collection (bypassing Mongoose) since `timestamps: true` makes `createdAt`
+    // immutable once set, silently ignoring a plain `updateOne` through the model.
+    await taskModel.collection.updateOne(
+      { _id: new Types.ObjectId(task.id) },
+      { $set: { createdAt: new Date(Date.now() - 100 * 60 * 60 * 1000) } },
+    );
+
+    const tasksService = app.get(TasksService);
+    await tasksService.checkSlaBreaches();
+
+    const afterCheck = await api(app)
+      .get(`/${API_PREFIX}/notifications`)
+      .query({ unreadOnly: true })
+      .set(...authHeader(manager.accessToken));
+    expect(
+      afterCheck.body.data.filter((n: { type: string }) => n.type === NotificationType.SCHEME),
+    ).toHaveLength(1);
+
+    // A second hourly run must not re-fire for the same already-notified breach.
+    await clearNotifications(manager.accessToken);
+    await tasksService.checkSlaBreaches();
+    const afterSecondCheck = await api(app)
+      .get(`/${API_PREFIX}/notifications`)
+      .query({ unreadOnly: true })
+      .set(...authHeader(manager.accessToken));
+    expect(
+      afterSecondCheck.body.data.filter(
+        (n: { type: string }) => n.type === NotificationType.SCHEME,
+      ),
+    ).toHaveLength(0);
   });
 });

@@ -35,6 +35,16 @@ export class CacheService {
     }
   }
 
+  /** No expiry - for durable flags (e.g. a Platform Admin's notification-channel pause) rather
+   * than the recomputable, TTL-bounded values `set()` is for. */
+  async setPersistent(key: string, value: unknown): Promise<void> {
+    try {
+      await this.redis.set(key, JSON.stringify(value));
+    } catch (err) {
+      this.logger.warn({ key, err }, 'persistent cache set failed, ignoring');
+    }
+  }
+
   async del(key: string): Promise<void> {
     try {
       await this.redis.del(key);

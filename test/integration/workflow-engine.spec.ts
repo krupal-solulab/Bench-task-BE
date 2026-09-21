@@ -430,5 +430,78 @@ describe('configurable workflow engine (integration)', () => {
       expect(allowed.status).toBe(200);
       expect(allowed.body.data.status).toBe('Shipped');
     });
+
+    it('Validator (generalized): blocks a transition requiring a custom field until it has a value (Phase 2 gap-closure)', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, {
+        name: 'Field Gated Project',
+      });
+      const fieldsRes = await api(app)
+        .put(`/${API_PREFIX}/projects/${project.id}/custom-fields`)
+        .set(...authHeader(manager.accessToken))
+        .send({ fields: [{ name: 'Resolution', type: 'Text', required: false }] });
+      const fieldId: string = fieldsRes.body.data.customFields[0].id;
+
+      await api(app)
+        .put(`/${API_PREFIX}/projects/${project.id}/workflow`)
+        .set(...authHeader(manager.accessToken))
+        .send({
+          statuses: CUSTOM_WORKFLOW_BODY.statuses,
+          transitions: [
+            { from: 'Backlog', to: 'Building' },
+            { from: 'Building', to: 'Shipped', requiredCustomFieldIds: [fieldId] },
+          ],
+          initialStatus: 'Backlog',
+        });
+      const task = await createTask(app, manager.accessToken, {
+        title: 'Needs a resolution before shipping',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: 'Building' });
+
+      const blocked = await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: 'Shipped' });
+      expect(blocked.status).toBe(400);
+
+      await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}`)
+        .set(...authHeader(manager.accessToken))
+        .send({ customFieldValues: { [fieldId]: 'Fixed the root cause' } });
+
+      const allowed = await api(app)
+        .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+        .set(...authHeader(manager.accessToken))
+        .send({ status: 'Shipped' });
+      expect(allowed.status).toBe(200);
+      expect(allowed.body.data.status).toBe('Shipped');
+    });
+  });
+
+  it('round-trips a status WIP limit through the workflow PUT/GET (Phase 2 gap-closure)', async () => {
+    const { manager } = await seedManager();
+    const project = await createProject(app, manager.accessToken, { name: 'WIP Limit Project' });
+    const withWip = {
+      statuses: [
+        { name: 'Backlog', category: StatusCategory.TODO },
+        { name: 'Building', category: StatusCategory.IN_PROGRESS, wipLimit: 3 },
+        { name: 'Shipped', category: StatusCategory.DONE },
+      ],
+      transitions: CUSTOM_WORKFLOW_BODY.transitions,
+      initialStatus: 'Backlog',
+    };
+    const res = await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/workflow`)
+      .set(...authHeader(manager.accessToken))
+      .send(withWip);
+    expect(res.status).toBe(200);
+    expect(
+      res.body.data.statuses.find((s: { name: string }) => s.name === 'Building'),
+    ).toMatchObject({ wipLimit: 3 });
   });
 });

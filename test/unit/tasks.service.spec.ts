@@ -29,6 +29,9 @@ const OTHER_DEV_ID = '507f1f77bcf86cd799439014';
 const ASSIGNEE_ID = '507f1f77bcf86cd799439015';
 const STORY_ID = '507f1f77bcf86cd799439016';
 const EPIC_ID = '507f1f77bcf86cd799439017';
+// Automation-rules tests need a real-looking hex id (unlike the file's usual 'task-1' shorthand)
+// because executeAutomationJob wraps it in `new Types.ObjectId(...)` for the audit-log write.
+const AUTOMATION_TASK_ID = '507f1f77bcf86cd799439018';
 
 function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -96,6 +99,10 @@ describe('TasksService', () => {
       | 'findRankInScope'
       | 'renumberScope'
       | 'countLinkedIssues'
+      | 'findUnassignedCandidates'
+      | 'addFiredTimeBasedRuleIds'
+      | 'findOpenTasksUnnotifiedForSla'
+      | 'markSlaBreachNotified'
     >
   >;
   let projectsService: jest.Mocked<
@@ -125,6 +132,8 @@ describe('TasksService', () => {
     Pick<EventsGateway, 'emitTaskStatusChanged' | 'emitCommentCreated'>
   >;
   let commentModel: { create: jest.Mock; exists: jest.Mock };
+  let automationQueue: { enqueue: jest.Mock };
+  let automationLogModel: { create: jest.Mock };
   let service: TasksService;
 
   beforeEach(() => {
@@ -140,7 +149,11 @@ describe('TasksService', () => {
       findMaxRank: jest.fn().mockResolvedValue(null),
       findRankInScope: jest.fn(),
       renumberScope: jest.fn().mockResolvedValue(undefined),
-      countLinkedIssues: jest.fn(),
+      countLinkedIssues: jest.fn().mockResolvedValue({ total: 0, done: 0 }),
+      findUnassignedCandidates: jest.fn().mockResolvedValue([]),
+      addFiredTimeBasedRuleIds: jest.fn().mockResolvedValue(undefined),
+      findOpenTasksUnnotifiedForSla: jest.fn().mockResolvedValue([]),
+      markSlaBreachNotified: jest.fn().mockResolvedValue(undefined),
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
@@ -167,6 +180,8 @@ describe('TasksService', () => {
       create: jest.fn().mockResolvedValue({ id: 'comment-1' }),
       exists: jest.fn().mockResolvedValue(null),
     };
+    automationQueue = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    automationLogModel = { create: jest.fn().mockResolvedValue(undefined) };
     service = new TasksService(
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
@@ -174,8 +189,15 @@ describe('TasksService', () => {
       cacheService as unknown as CacheService,
       notificationsService as unknown as NotificationsService,
       eventsGateway as unknown as EventsGateway,
+      automationQueue as never,
       commentModel as never,
+      automationLogModel as never,
     );
+    // Mirrors FakeAutomationQueue's synchronous-execution behavior (see
+    // test/integration/setup/fake-automation-queue.ts) so these unit tests, written before
+    // automation actions were queued, keep observing their effects immediately rather than every
+    // "automation rules" test needing to manually re-invoke executeAutomationJob itself.
+    automationQueue.enqueue.mockImplementation((data) => service.executeAutomationJob(data));
   });
 
   describe('create', () => {
@@ -1530,14 +1552,14 @@ describe('TasksService', () => {
       tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.IN_PROGRESS }));
 
       await service.updateStatus(
-        'task-1',
+        AUTOMATION_TASK_ID,
         TaskStatus.IN_PROGRESS,
         makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
       );
 
       expect(tasksRepository.updateById).toHaveBeenCalledTimes(1);
       expect(tasksRepository.logActivity).toHaveBeenCalledWith(
-        'task-1',
+        AUTOMATION_TASK_ID,
         DEV_ID,
         TaskActivityAction.STATUS_CHANGED,
         TaskStatus.TODO,
@@ -1560,10 +1582,12 @@ describe('TasksService', () => {
         ],
       });
       projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
-      const createdTask = makeTask({ id: 'task-1' });
+      const createdTask = makeTask({ id: AUTOMATION_TASK_ID });
       tasksRepository.create.mockResolvedValue(createdTask);
       tasksRepository.findByIdActive.mockResolvedValue(createdTask);
-      tasksRepository.updateById.mockResolvedValue(makeTask({ id: 'task-1', labels: ['triage'] }));
+      tasksRepository.updateById.mockResolvedValue(
+        makeTask({ id: AUTOMATION_TASK_ID, labels: ['triage'] }),
+      );
 
       await service.create(
         { title: 'x', project: PROJECT_ID, priority: 'P2' } as never,
@@ -1571,7 +1595,7 @@ describe('TasksService', () => {
       );
 
       expect(tasksRepository.updateById).toHaveBeenCalledWith(
-        'task-1',
+        AUTOMATION_TASK_ID,
         expect.objectContaining({ labels: ['triage'] }),
       );
     });
@@ -1594,23 +1618,29 @@ describe('TasksService', () => {
       // Admin/owning-Manager only), so the second updateById call below only happens because the
       // automation action bypasses that check.
       tasksRepository.findByIdActive.mockResolvedValue(
-        makeTask({ status: TaskStatus.IN_PROGRESS, assignee: { toString: () => DEV_ID } }),
+        makeTask({
+          id: AUTOMATION_TASK_ID,
+          status: TaskStatus.IN_PROGRESS,
+          assignee: { toString: () => DEV_ID },
+        }),
       );
       projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
       projectsService.isProjectMember.mockReturnValue(true);
       tasksRepository.updateById
-        .mockResolvedValueOnce(makeTask({ status: TaskStatus.REVIEW }))
-        .mockResolvedValueOnce(makeTask({ assignee: { toString: () => ASSIGNEE_ID } }));
+        .mockResolvedValueOnce(makeTask({ id: AUTOMATION_TASK_ID, status: TaskStatus.REVIEW }))
+        .mockResolvedValueOnce(
+          makeTask({ id: AUTOMATION_TASK_ID, assignee: { toString: () => ASSIGNEE_ID } }),
+        );
 
       await service.updateStatus(
-        'task-1',
+        AUTOMATION_TASK_ID,
         TaskStatus.REVIEW,
         makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
       );
 
       expect(tasksRepository.updateById).toHaveBeenCalledTimes(2);
       expect(tasksRepository.logActivity).toHaveBeenCalledWith(
-        'task-1',
+        AUTOMATION_TASK_ID,
         DEV_ID,
         TaskActivityAction.REASSIGNED,
         DEV_ID,
@@ -1637,14 +1667,20 @@ describe('TasksService', () => {
         ],
       });
       tasksRepository.findByIdActive.mockResolvedValue(
-        makeTask({ status: TaskStatus.TODO, assignee: { toString: () => DEV_ID } }),
+        makeTask({
+          id: AUTOMATION_TASK_ID,
+          status: TaskStatus.TODO,
+          assignee: { toString: () => DEV_ID },
+        }),
       );
       projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
-      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.IN_PROGRESS }));
+      tasksRepository.updateById.mockResolvedValue(
+        makeTask({ id: AUTOMATION_TASK_ID, status: TaskStatus.IN_PROGRESS }),
+      );
 
       await expect(
         service.updateStatus(
-          'task-1',
+          AUTOMATION_TASK_ID,
           TaskStatus.IN_PROGRESS,
           makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
         ),
@@ -1681,18 +1717,35 @@ describe('TasksService', () => {
       });
       tasksRepository.findByIdActive
         .mockResolvedValueOnce(
-          makeTask({ status: TaskStatus.TODO, assignee: { toString: () => DEV_ID } }),
+          makeTask({
+            id: AUTOMATION_TASK_ID,
+            status: TaskStatus.TODO,
+            assignee: { toString: () => DEV_ID },
+          }),
         )
         .mockResolvedValueOnce(
-          makeTask({ status: TaskStatus.IN_PROGRESS, assignee: { toString: () => DEV_ID } }),
+          makeTask({
+            id: AUTOMATION_TASK_ID,
+            status: TaskStatus.IN_PROGRESS,
+            assignee: { toString: () => DEV_ID },
+          }),
+        )
+        // The automation action's SET_STATUS re-enters the full updateStatus() method (bypassing
+        // permission via ctx), which does its own findByIdActive fetch before applying REVIEW.
+        .mockResolvedValueOnce(
+          makeTask({
+            id: AUTOMATION_TASK_ID,
+            status: TaskStatus.IN_PROGRESS,
+            assignee: { toString: () => DEV_ID },
+          }),
         );
       projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
       tasksRepository.updateById
-        .mockResolvedValueOnce(makeTask({ status: TaskStatus.IN_PROGRESS }))
-        .mockResolvedValueOnce(makeTask({ status: TaskStatus.REVIEW }));
+        .mockResolvedValueOnce(makeTask({ id: AUTOMATION_TASK_ID, status: TaskStatus.IN_PROGRESS }))
+        .mockResolvedValueOnce(makeTask({ id: AUTOMATION_TASK_ID, status: TaskStatus.REVIEW }));
 
       await service.updateStatus(
-        'task-1',
+        AUTOMATION_TASK_ID,
         TaskStatus.IN_PROGRESS,
         makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
       );
@@ -1718,13 +1771,19 @@ describe('TasksService', () => {
         ],
       });
       tasksRepository.findByIdActive.mockResolvedValue(
-        makeTask({ status: TaskStatus.REVIEW, assignee: { toString: () => DEV_ID } }),
+        makeTask({
+          id: AUTOMATION_TASK_ID,
+          status: TaskStatus.REVIEW,
+          assignee: { toString: () => DEV_ID },
+        }),
       );
       projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
-      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.DONE }));
+      tasksRepository.updateById.mockResolvedValue(
+        makeTask({ id: AUTOMATION_TASK_ID, status: TaskStatus.DONE }),
+      );
 
       await service.updateStatus(
-        'task-1',
+        AUTOMATION_TASK_ID,
         TaskStatus.DONE,
         makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
       );
@@ -1750,17 +1809,23 @@ describe('TasksService', () => {
         ],
       });
       tasksRepository.findByIdActive.mockResolvedValue(
-        makeTask({ status: TaskStatus.REVIEW, assignee: { toString: () => DEV_ID } }),
+        makeTask({
+          id: AUTOMATION_TASK_ID,
+          status: TaskStatus.REVIEW,
+          assignee: { toString: () => DEV_ID },
+        }),
       );
       projectsService.getActiveProjectOrThrow.mockResolvedValue(project);
       projectsService.membersWithRole.mockResolvedValue([
         { id: MANAGER_ID } as never,
         { id: OTHER_DEV_ID } as never,
       ]);
-      tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.DONE }));
+      tasksRepository.updateById.mockResolvedValue(
+        makeTask({ id: AUTOMATION_TASK_ID, status: TaskStatus.DONE }),
+      );
 
       await service.updateStatus(
-        'task-1',
+        AUTOMATION_TASK_ID,
         TaskStatus.DONE,
         makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
       );
@@ -1810,13 +1875,83 @@ describe('TasksService', () => {
       tasksRepository.updateById.mockResolvedValue(makeTask({ status: TaskStatus.DONE }));
 
       await service.updateStatus(
-        'task-1',
+        AUTOMATION_TASK_ID,
         TaskStatus.DONE,
         makeUser({ id: DEV_ID, role: Role.DEVELOPER }),
       );
 
       // Only the human-initiated status change persisted - the fromStatus-scoped rule never fired.
       expect(tasksRepository.updateById).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('checkSlaBreaches', () => {
+    function makeSlaCandidate(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        id: 'task-sla-1',
+        title: 'Slow task',
+        priority: 'P1',
+        project: { toString: () => PROJECT_ID },
+        createdAt: new Date(Date.now() - 100 * 60 * 60 * 1000), // 100h ago
+        completedAt: null,
+        ...overrides,
+      } as never;
+    }
+
+    it('fires the SlaBreach scheme entry and marks the task notified once it has actually breached', async () => {
+      tasksRepository.findOpenTasksUnnotifiedForSla.mockResolvedValue([makeSlaCandidate()]);
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          notificationScheme: [
+            {
+              event: 'SlaBreach',
+              notifyRoles: ['Manager'],
+              channels: ['InApp'],
+            },
+          ],
+        }),
+      );
+      projectsService.membersWithRole.mockResolvedValue([{ id: MANAGER_ID } as never]);
+
+      await service.checkSlaBreaches();
+
+      expect(notificationsService.notifySchemeEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'SlaBreach',
+          recipient: expect.objectContaining({ id: MANAGER_ID }),
+        }),
+      );
+      expect(tasksRepository.markSlaBreachNotified).toHaveBeenCalledWith('task-sla-1');
+    });
+
+    it('does not fire or mark a task that has not yet breached its SLA target', async () => {
+      tasksRepository.findOpenTasksUnnotifiedForSla.mockResolvedValue([
+        makeSlaCandidate({ createdAt: new Date() }), // just created, nowhere near the 8h P1 target
+      ]);
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({
+          notificationScheme: [
+            { event: 'SlaBreach', notifyRoles: ['Manager'], channels: ['InApp'] },
+          ],
+        }),
+      );
+
+      await service.checkSlaBreaches();
+
+      expect(notificationsService.notifySchemeEvent).not.toHaveBeenCalled();
+      expect(tasksRepository.markSlaBreachNotified).not.toHaveBeenCalled();
+    });
+
+    it('marks a breached task notified even when its project has no SlaBreach scheme entry configured (never re-checked again)', async () => {
+      tasksRepository.findOpenTasksUnnotifiedForSla.mockResolvedValue([makeSlaCandidate()]);
+      projectsService.getActiveProjectOrThrow.mockResolvedValue(
+        makeProject({ notificationScheme: [] }),
+      );
+
+      await service.checkSlaBreaches();
+
+      expect(notificationsService.notifySchemeEvent).not.toHaveBeenCalled();
+      expect(tasksRepository.markSlaBreachNotified).toHaveBeenCalledWith('task-sla-1');
     });
   });
 

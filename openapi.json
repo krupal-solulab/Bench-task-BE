@@ -3098,6 +3098,96 @@
         ]
       }
     },
+    "/api/v1/tasks/bulk-move-sprint": {
+      "patch": {
+        "operationId": "TasksController_bulkMoveSprint",
+        "summary": "Move multiple tasks into a sprint, or back to the backlog (BRD 6.2)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkMoveSprintDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-assign": {
+      "patch": {
+        "operationId": "TasksController_bulkAssign",
+        "summary": "Reassign multiple tasks at once (BRD 6.2)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkAssignDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-relabel": {
+      "patch": {
+        "operationId": "TasksController_bulkRelabel",
+        "summary": "Add labels to multiple tasks at once (BRD 6.2)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkRelabelDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{id}": {
       "get": {
         "operationId": "TasksController_findOne",
@@ -3439,6 +3529,69 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/automation-log": {
+      "get": {
+        "operationId": "AutomationLogController_list",
+        "summary": "Paginated automation-rule execution history for a project",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "automation-log"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{projectId}/sprints": {
       "post": {
         "operationId": "SprintsController_create",
@@ -3588,6 +3741,35 @@
       "get": {
         "operationId": "SprintsController_velocity",
         "summary": "Story points/issue count completed per sprint, for the last N completed sprints",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/history": {
+      "get": {
+        "operationId": "SprintsController_history",
+        "summary": "Every past (Completed) sprint, with date range/goal/completion rate",
         "parameters": [
           {
             "name": "projectId",
@@ -3770,7 +3952,7 @@
     "/api/v1/projects/{projectId}/sprints/{sprintId}/complete": {
       "post": {
         "operationId": "SprintsController_complete",
-        "summary": "Complete an Active sprint (moves incomplete tasks back to backlog)",
+        "summary": "Complete an Active sprint (moves incomplete tasks to the backlog, or a chosen next sprint)",
         "parameters": [
           {
             "name": "projectId",
@@ -3789,6 +3971,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteSprintDto"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": ""
@@ -4720,6 +4912,64 @@
         ]
       }
     },
+    "/api/v1/dashboard/my-open-issues": {
+      "get": {
+        "operationId": "DashboardController_myOpenIssues",
+        "summary": "The caller's own open (not-Done) assigned tasks, soonest due first",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dashboard/resolution-time-trend": {
+      "get": {
+        "operationId": "DashboardController_resolutionTimeTrend",
+        "summary": "Average resolution hours per priority, per week, last 8 weeks",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "dashboard"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/dashboard/preferences": {
       "get": {
         "operationId": "DashboardController_getPreferences",
@@ -5159,6 +5409,64 @@
         ]
       }
     },
+    "/api/v1/platform/integrations/{channel}/pause": {
+      "post": {
+        "operationId": "IntegrationHealthController_pause",
+        "summary": "Pause the Email or WhatsApp notification channel",
+        "parameters": [
+          {
+            "name": "channel",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/platform/integrations/{channel}/resume": {
+      "post": {
+        "operationId": "IntegrationHealthController_resume",
+        "summary": "Resume the Email or WhatsApp notification channel",
+        "parameters": [
+          {
+            "name": "channel",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/canned-responses": {
       "post": {
         "operationId": "CannedResponsesController_create",
@@ -5474,6 +5782,14 @@
             "type": "string",
             "example": "SUP",
             "description": "Issue-key prefix (e.g. \"SUP\" for SUP-101). Auto-derived from the name on first use if omitted."
+          },
+          "boardType": {
+            "type": "string",
+            "enum": [
+              "Kanban",
+              "Scrum"
+            ],
+            "description": "Kanban hides the Backlog/Sprint-board/Calendar tabs client-side. Defaults to Scrum."
           }
         },
         "required": [
@@ -5504,6 +5820,14 @@
             "type": "string",
             "example": "SUP",
             "description": "Issue-key prefix (e.g. \"SUP\" for SUP-101). Auto-derived from the name on first use if omitted."
+          },
+          "boardType": {
+            "type": "string",
+            "enum": [
+              "Kanban",
+              "Scrum"
+            ],
+            "description": "Kanban hides the Backlog/Sprint-board/Calendar tabs client-side. Defaults to Scrum."
           }
         }
       },
@@ -5576,6 +5900,10 @@
               "In Progress",
               "Done"
             ]
+          },
+          "wipLimit": {
+            "type": "number",
+            "description": "WIP limit for this column on the board. Omit for no limit (default)."
           }
         },
         "required": [
@@ -5610,6 +5938,13 @@
           "requireComment": {
             "type": "boolean",
             "description": "Validator: the task must already have a comment before this transition is allowed."
+          },
+          "requiredCustomFieldIds": {
+            "description": "Validator: custom field ids that must already have a value before this transition is allowed.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -5813,7 +6148,9 @@
             "type": "string",
             "enum": [
               "IssueCreated",
-              "StatusChanged"
+              "StatusChanged",
+              "UnassignedForDuration",
+              "AllSubtasksDone"
             ]
           },
           "toStatus": {
@@ -5823,6 +6160,10 @@
           "fromStatus": {
             "type": "string",
             "description": "Optional, only meaningful for StatusChanged - further scopes the trigger from \"any status -> toStatus\" to \"fromStatus -> toStatus\" (a specific workflow transition edge)"
+          },
+          "afterHours": {
+            "type": "number",
+            "description": "Required, only meaningful, for UnassignedForDuration"
           }
         },
         "required": [
@@ -5938,7 +6279,8 @@
               "Commented",
               "Transitioned",
               "SprintStarted",
-              "SprintCompleted"
+              "SprintCompleted",
+              "SlaBreach"
             ]
           },
           "notifyRoles": {
@@ -6217,6 +6559,66 @@
           "priority"
         ]
       },
+      "BulkMoveSprintDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprintId": {
+            "type": "object",
+            "nullable": true,
+            "description": "null moves every task back to the backlog"
+          }
+        },
+        "required": [
+          "taskIds"
+        ]
+      },
+      "BulkAssignDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignee": {
+            "type": "object",
+            "nullable": true,
+            "description": "null to unassign every task"
+          }
+        },
+        "required": [
+          "taskIds"
+        ]
+      },
+      "BulkRelabelDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "labels": {
+            "description": "Labels to add to every selected task",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "taskIds",
+          "labels"
+        ]
+      },
       "UpdateTaskDto": {
         "type": "object",
         "properties": {
@@ -6326,13 +6728,27 @@
           },
           "endDate": {
             "type": "string",
-            "example": "2026-09-29"
+            "example": "2026-09-29",
+            "description": "Required unless durationWeeks is given (a custom date range)."
+          },
+          "durationWeeks": {
+            "type": "number",
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "description": "A preset sprint length (BRD 6.3) - when given, endDate is computed server-side (startDate + N weeks) and any client-supplied endDate is ignored."
+          },
+          "capacityPoints": {
+            "type": "number",
+            "description": "Team capacity in story points, for the planning capacity indicator."
           }
         },
         "required": [
           "name",
-          "startDate",
-          "endDate"
+          "startDate"
         ]
       },
       "UpdateSprintDto": {
@@ -6352,7 +6768,32 @@
           },
           "endDate": {
             "type": "string",
-            "example": "2026-09-29"
+            "example": "2026-09-29",
+            "description": "Required unless durationWeeks is given (a custom date range)."
+          },
+          "durationWeeks": {
+            "type": "number",
+            "enum": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "description": "A preset sprint length (BRD 6.3) - when given, endDate is computed server-side (startDate + N weeks) and any client-supplied endDate is ignored."
+          },
+          "capacityPoints": {
+            "type": "number",
+            "description": "Team capacity in story points, for the planning capacity indicator."
+          }
+        }
+      },
+      "CompleteSprintDto": {
+        "type": "object",
+        "properties": {
+          "nextSprintId": {
+            "type": "object",
+            "nullable": true,
+            "description": "Where incomplete issues go (BRD 6.3's PM's choice) - omit/null for the default (the backlog); a Planned sprint id moves them there instead."
           }
         }
       },

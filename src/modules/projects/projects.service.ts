@@ -8,6 +8,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { CacheService } from '../../redis/cache.service';
+import { BoardType } from '../../common/enums/board-type.enum';
 import { dashboardCachePattern } from '../../common/utils/cache-key.util';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { extractId } from '../../common/utils/mongo.util';
@@ -102,6 +103,7 @@ export interface ProjectResponse {
   issueTypes: IssueTypeDefinition[];
   permissionSchemeId: string | null;
   notificationScheme: NotificationSchemeRule[];
+  boardType: BoardType;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -156,6 +158,7 @@ export class ProjectsService {
       startDate,
       dueDate,
       key: dto.key ?? null,
+      ...(dto.boardType ? { boardType: dto.boardType } : {}),
       organizationId: new Types.ObjectId(organizationId),
       members: (dto.memberIds ?? []).map((id) => ({
         user: new Types.ObjectId(id),
@@ -214,6 +217,7 @@ export class ProjectsService {
       ...(dto.startDate ? { startDate: nextStartDate } : {}),
       ...(dto.dueDate ? { dueDate: nextDueDate } : {}),
       ...(dto.key && !project.key ? { key: dto.key } : {}),
+      ...(dto.boardType ? { boardType: dto.boardType } : {}),
     });
     await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.UPDATED);
     await this.invalidateDashboardCache();
@@ -453,7 +457,7 @@ export class ProjectsService {
 
     const epics = await this.taskModel
       .find({ project: project._id, issueType: IssueType.EPIC, deletedAt: null })
-      .select('title issueKey')
+      .select('title issueKey dueDate createdAt')
       .exec();
 
     return Promise.all(
@@ -467,6 +471,10 @@ export class ProjectsService {
           epicId: epic.id,
           issueKey: epic.issueKey,
           title: epic.title,
+          // BRD 6.4's Epics View target date + roadmap timeline - reuses the generic Task.dueDate
+          // every Epic already has, rather than a duplicate field.
+          dueDate: epic.dueDate,
+          createdAt: epic.createdAt,
           linkedIssueCount,
           doneCount,
           progress: linkedIssueCount > 0 ? Math.round((doneCount / linkedIssueCount) * 100) : 0,
@@ -918,6 +926,7 @@ export class ProjectsService {
           type: r.trigger.type,
           toStatus: r.trigger.toStatus ?? null,
           fromStatus: r.trigger.fromStatus ?? null,
+          afterHours: r.trigger.afterHours ?? null,
         },
         conditions: r.conditions.map((c) => ({ field: c.field, value: c.value.trim() })),
         actions: r.actions.map((a) => ({ type: a.type, value: a.value.trim() })),
@@ -1320,6 +1329,7 @@ export class ProjectsService {
       issueTypes: resolveIssueTypes(project),
       permissionSchemeId: project.permissionSchemeId ? extractId(project.permissionSchemeId) : null,
       notificationScheme: project.notificationScheme,
+      boardType: project.boardType,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };
