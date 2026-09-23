@@ -1,6 +1,23 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { OrganizationStatus } from '../../../common/enums/organization-status.enum';
+import {
+  BusinessHoursCalendar,
+  BusinessHoursCalendarSchema,
+} from '../../tickets/schemas/business-hours-calendar.schema';
+import {
+  TicketAutomationRule,
+  TicketAutomationRuleSchema,
+} from '../../tickets/schemas/ticket-automation-rule.schema';
+import { TicketMacro, TicketMacroSchema } from '../../tickets/schemas/ticket-macro.schema';
+import {
+  TicketScheduledAutomation,
+  TicketScheduledAutomationSchema,
+} from '../../tickets/schemas/ticket-scheduled-automation.schema';
+import {
+  TicketSlaPolicyEntry,
+  TicketSlaPolicyEntrySchema,
+} from '../../tickets/schemas/ticket-sla-policy.schema';
 
 export type OrganizationDocument = HydratedDocument<Organization>;
 
@@ -50,6 +67,26 @@ export class Organization {
   // aren't project-scoped, so this lives on Organization rather than mirroring Project.issueSeq.
   @Prop({ type: Number, default: 0 })
   ticketKeySeq!: number;
+
+  // BRD 3.3's Triggers/Automations/Macros + BRD 3.4's Advanced SLA/Business Hours - embedded
+  // per-org config, mirroring how Project.automationRules/slaPolicy/notificationScheme work at
+  // the project level. Tickets are org-scoped (not project-scoped), so Organization is their
+  // natural parent container. All default to empty/null, so every existing org is unaffected
+  // until it deliberately configures one.
+  @Prop({ type: [TicketAutomationRuleSchema], default: [] })
+  ticketAutomationRules!: TicketAutomationRule[];
+
+  @Prop({ type: [TicketScheduledAutomationSchema], default: [] })
+  ticketScheduledAutomations!: TicketScheduledAutomation[];
+
+  @Prop({ type: [TicketMacroSchema], default: [] })
+  ticketMacros!: TicketMacro[];
+
+  @Prop({ type: [TicketSlaPolicyEntrySchema], default: [] })
+  ticketSlaPolicy!: TicketSlaPolicyEntry[];
+
+  @Prop({ type: BusinessHoursCalendarSchema, default: null })
+  businessHoursCalendar!: BusinessHoursCalendar | null;
 
   createdAt!: Date;
   updatedAt!: Date;

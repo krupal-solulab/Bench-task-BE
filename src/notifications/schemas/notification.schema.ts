@@ -14,6 +14,10 @@ export enum NotificationType {
   // distinct from AUTOMATION so the notification list/mute UI can tell "someone's automation
   // rule pinged me" apart from "my project's notification scheme pinged me".
   SCHEME = 'Scheme',
+  // Sent by the ticket-side Triggers/Automations/Macros engine's NotifyRole action, or by the
+  // SLA breach/escalation checker - kept distinct from AUTOMATION (Task-side) since it references
+  // a Ticket, not a Task.
+  TICKET_AUTOMATION = 'TicketAutomation',
 }
 
 export const NOTIFICATION_TYPES = Object.values(NotificationType);
@@ -55,6 +59,9 @@ export class Notification {
 
   @Prop({ type: Types.ObjectId, ref: 'Project', default: null })
   projectId!: Types.ObjectId | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'Ticket', default: null })
+  ticketId!: Types.ObjectId | null;
 
   // null = unread. Set once, to the time it was marked read.
   @Prop({ type: Date, default: null })
