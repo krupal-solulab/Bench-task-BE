@@ -10,6 +10,7 @@ import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ListTicketsDto } from './dto/list-tickets.dto';
 import { UpdateTicketStatusDto } from './dto/update-ticket-status.dto';
 import { UpdateTicketAssigneeDto } from './dto/update-ticket-assignee.dto';
+import { UpdateTicketPriorityDto } from './dto/update-ticket-priority.dto';
 import { AddTicketCommentDto } from './dto/add-ticket-comment.dto';
 
 @ApiTags('tickets')
@@ -57,6 +58,28 @@ export class TicketsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.ticketsService.assign(id, dto, user);
+  }
+
+  @Patch(':id/priority')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Change a ticket priority' })
+  async updatePriority(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: UpdateTicketPriorityDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.ticketsService.updatePriority(id, dto, user);
+  }
+
+  @Post(':id/apply-macro/:macroId')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Apply a stored Macro action bundle to a ticket' })
+  async applyMacro(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('macroId') macroId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.ticketsService.applyMacro(id, macroId, user);
   }
 
   @Post(':id/comments')

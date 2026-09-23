@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
+import { TicketStatusCategory } from '../../common/enums/ticket-status.enum';
 import { Ticket, TicketDocument } from './schemas/ticket.schema';
 import {
   TicketActivity,
@@ -105,5 +106,46 @@ export class TicketsRepository {
     return this.commentModel
       .exists({ ticket: new Types.ObjectId(ticketId), authorType: 'staff', isPublic: true })
       .then((doc) => !!doc);
+  }
+
+  /** Candidate set for one org's scheduled-Automation sweep - every non-terminal, non-deleted
+   * ticket in that org. */
+  findOpenTicketsByOrganization(organizationId: string): Promise<TicketDocument[]> {
+    return this.model
+      .find({
+        organizationId: new Types.ObjectId(organizationId),
+        deletedAt: null,
+        statusCategory: { $ne: TicketStatusCategory.TERMINAL },
+      })
+      .exec();
+  }
+
+  async addFiredScheduledAutomationIds(id: string, automationIds: string[]): Promise<void> {
+    await this.model
+      .updateOne(
+        { _id: id },
+        { $addToSet: { firedScheduledAutomationIds: { $each: automationIds } } },
+      )
+      .exec();
+  }
+
+  /** Candidate set for the SLA breach/escalation cron - every non-terminal, non-deleted ticket
+   * across every org that hasn't yet been notified for at least one of the two SLA events. */
+  findOpenTicketsForSlaCheck(): Promise<TicketDocument[]> {
+    return this.model
+      .find({
+        deletedAt: null,
+        statusCategory: { $ne: TicketStatusCategory.TERMINAL },
+        $or: [{ slaBreachNotifiedAt: null }, { slaEscalatedAt: null }],
+      })
+      .exec();
+  }
+
+  async markSlaBreachNotified(id: string): Promise<void> {
+    await this.model.updateOne({ _id: id }, { slaBreachNotifiedAt: new Date() }).exec();
+  }
+
+  async markSlaEscalated(id: string): Promise<void> {
+    await this.model.updateOne({ _id: id }, { slaEscalatedAt: new Date() }).exec();
   }
 }

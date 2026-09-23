@@ -11,7 +11,9 @@ import { AppConfig } from 'src/config/configuration';
 import { REDIS_CLIENT } from 'src/redis/redis.constants';
 import { STORAGE_SERVICE } from 'src/storage/storage.constants';
 import { AUTOMATION_QUEUE } from 'src/modules/automation-queue/automation-queue.constants';
+import { TICKET_AUTOMATION_QUEUE } from 'src/modules/ticket-automation-queue/ticket-automation-queue.constants';
 import { TasksService } from 'src/modules/tasks/tasks.service';
+import { TicketsService } from 'src/modules/tickets/tickets.service';
 import { Role } from 'src/common/enums/role.enum';
 import { OrganizationStatus } from 'src/common/enums/organization-status.enum';
 import { User, UserDocument } from 'src/modules/users/schemas/user.schema';
@@ -27,6 +29,7 @@ import {
 import { FakeRedis } from './fake-redis';
 import { FakeStorageService } from './fake-storage';
 import { FakeAutomationQueue } from './fake-automation-queue';
+import { FakeTicketAutomationQueue } from './fake-ticket-automation-queue';
 
 export const API_PREFIX = 'api/v1';
 
@@ -36,6 +39,7 @@ export interface TestAppContext {
   fakeRedis: FakeRedis;
   fakeStorage: FakeStorageService;
   fakeAutomationQueue: FakeAutomationQueue;
+  fakeTicketAutomationQueue: FakeTicketAutomationQueue;
 }
 
 /**
@@ -85,6 +89,7 @@ export async function createTestApp(): Promise<TestAppContext> {
   const fakeRedis = new FakeRedis();
   const fakeStorage = new FakeStorageService();
   const fakeAutomationQueue = new FakeAutomationQueue();
+  const fakeTicketAutomationQueue = new FakeTicketAutomationQueue();
 
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -95,6 +100,8 @@ export async function createTestApp(): Promise<TestAppContext> {
     .useValue(fakeStorage)
     .overrideProvider(AUTOMATION_QUEUE)
     .useValue(fakeAutomationQueue)
+    .overrideProvider(TICKET_AUTOMATION_QUEUE)
+    .useValue(fakeTicketAutomationQueue)
     // `ThrottlerGuard` is registered as `{ provide: APP_GUARD, useClass: ThrottlerGuard }` in
     // AppModule. Nest's enhancer-token indirection for APP_GUARD/APP_INTERCEPTOR/etc. means the
     // class is never registered under its own `ThrottlerGuard` token, so `.overrideGuard
@@ -133,7 +140,17 @@ export async function createTestApp(): Promise<TestAppContext> {
   const tasksService = app.get(TasksService);
   fakeAutomationQueue.setExecutor((data) => tasksService.executeAutomationJob(data));
 
-  return { app, httpServer: app.getHttpServer(), fakeRedis, fakeStorage, fakeAutomationQueue };
+  const ticketsService = app.get(TicketsService);
+  fakeTicketAutomationQueue.setExecutor((data) => ticketsService.executeTicketAutomationJob(data));
+
+  return {
+    app,
+    httpServer: app.getHttpServer(),
+    fakeRedis,
+    fakeStorage,
+    fakeAutomationQueue,
+    fakeTicketAutomationQueue,
+  };
 }
 
 export async function closeTestApp(app: INestApplication): Promise<void> {
