@@ -13,7 +13,7 @@ import { UsersRepository } from '../users/users.repository';
 import { UsersService } from '../users/users.service';
 import { UserDocument } from '../users/schemas/user.schema';
 import { OrganizationsRepository } from './organizations.repository';
-import { OrganizationDocument } from './schemas/organization.schema';
+import { Organization, OrganizationDocument } from './schemas/organization.schema';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { ListOrganizationsDto } from './dto/list-organizations.dto';
 
@@ -156,6 +156,40 @@ export class OrganizationsService {
   /** Atomic per-org ticket-number sequence, for building ticket keys like "SUP-101". */
   async nextTicketNumber(organizationId: string): Promise<number> {
     return this.organizationsRepository.incrementTicketSeq(organizationId);
+  }
+
+  /** Public accessor for callers outside this service (TicketsService, the ticket-automation
+   * crons) that need the full Organization document - timezone, ticket automation rules/macros/
+   * SLA policy/business-hours calendar - rather than a projected summary. */
+  async getOrganizationDocument(id: string): Promise<OrganizationDocument> {
+    return this.getOrThrow(id);
+  }
+
+  /** Candidate set for the ticket-automation scheduled-sweep and SLA-check crons. */
+  async listActiveOrganizations(): Promise<OrganizationDocument[]> {
+    return this.organizationsRepository.findAllActive();
+  }
+
+  /** Single write path for every ticket-automation-engine settings mutation (automation rules,
+   * scheduled automations, macros, SLA policy, business-hours calendar) - all five are embedded
+   * config on Organization (see the Phase 3 plan's per-org-config decision), so one generic patch
+   * method covers all of them rather than one bespoke method per field. */
+  async updateTicketAutomationConfig(
+    organizationId: string,
+    patch: Partial<
+      Pick<
+        Organization,
+        | 'ticketAutomationRules'
+        | 'ticketScheduledAutomations'
+        | 'ticketMacros'
+        | 'ticketSlaPolicy'
+        | 'businessHoursCalendar'
+      >
+    >,
+  ): Promise<OrganizationDocument> {
+    const updated = await this.organizationsRepository.updateById(organizationId, patch);
+    if (!updated) throw new NotFoundException('Organization not found');
+    return updated;
   }
 
   private async getOrThrow(id: string): Promise<OrganizationDocument> {

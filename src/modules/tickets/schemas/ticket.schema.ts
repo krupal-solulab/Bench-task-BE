@@ -31,6 +31,12 @@ export class Ticket {
   @Prop({ type: Types.ObjectId, ref: 'Customer', required: true })
   customer!: Types.ObjectId;
 
+  // The staff member who filed the ticket - stands in as the "actor" for system/scheduled
+  // automation actions that have no human actingUser (mirrors Task.createdBy's own role in
+  // TasksService.checkUnassignedForDurationRules' systemActingUser).
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  createdBy!: Types.ObjectId;
+
   // Individual staff only for v1 - no agent-group/team concept exists anywhere in this codebase
   // today, and inventing one prematurely was a documented simplification in the Phase 3 plan.
   @Prop({ type: Types.ObjectId, ref: 'User', default: null })
@@ -91,6 +97,38 @@ export class Ticket {
   @Prop({ type: Date, default: null })
   pausedSince!: Date | null;
 
+  // Business-hours-aware twin of pausedAccumMs (see calculateElapsedBusinessMs) - computed
+  // incrementally at the same moment pausedAccumMs is (leaving the Paused category), so the SLA
+  // breach calculation can subtract exactly the business-hours portion of paused time without
+  // needing a full pause-interval log.
+  @Prop({ type: Number, default: 0 })
+  pausedAccumBusinessMs!: number;
+
+  // Set at creation and on every status change (see TicketsService.updateStatus) - how long the
+  // ticket has been in its CURRENT status, used by the scheduled Automation sweep's `afterHours`
+  // check.
+  @Prop({ type: Date, default: null })
+  statusEnteredAt!: Date | null;
+
+  // Scheduled-Automation ids already fired for the current status episode (see statusEnteredAt) -
+  // prevents the hourly sweep from re-firing the same automation every run; cleared whenever
+  // status changes, mirroring Task.firedTimeBasedRuleIds' own per-episode reset.
+  @Prop({ type: [String], default: [] })
+  firedScheduledAutomationIds!: string[];
+
+  // Idempotency flag for the hard SLA-breach check (mirrors Task.slaBreachNotifiedAt) - null
+  // means "not yet notified", independent per resolution-vs-first-response target isn't tracked
+  // separately in v1 (one notification per ticket's overall SLA breach, same granularity BRD 3.4
+  // asks for).
+  @Prop({ type: Date, default: null })
+  slaBreachNotifiedAt!: Date | null;
+
+  // Idempotency flag for the pre-breach escalation-chain notification - distinct from
+  // slaBreachNotifiedAt so both the "about to breach" warning and the hard breach can each fire
+  // exactly once.
+  @Prop({ type: Date, default: null })
+  slaEscalatedAt!: Date | null;
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
@@ -105,4 +143,8 @@ TicketSchema.index({ organizationId: 1, status: 1 });
 TicketSchema.index({ organizationId: 1, statusCategory: 1 });
 TicketSchema.index({ organizationId: 1, assignee: 1 });
 TicketSchema.index({ organizationId: 1, customer: 1 });
-TicketSchema.index({ ticketKey: 1 }, { unique: true });
+// Scoped per-org, not globally unique - mirrors Customer's {organizationId, email} compound index
+// exactly, and for the same reason: two different orgs' generated ticketKey prefixes (derived from
+// their names) can collide (e.g. "Support Inc" and "Sun Products" both -> "SU"-prefixed), and
+// ticketKey is only ever looked up/displayed within its own org's context, never globally.
+TicketSchema.index({ organizationId: 1, ticketKey: 1 }, { unique: true });
