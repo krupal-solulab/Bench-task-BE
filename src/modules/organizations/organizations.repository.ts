@@ -56,6 +56,18 @@ export class OrganizationsRepository {
     await this.model.deleteOne({ _id: id }).exec();
   }
 
+  /** Atomic per-org ticket-number sequence, for building ticket keys like "SUP-101" - mirrors
+   * ProjectsRepository.incrementIssueSeq exactly. */
+  async incrementTicketSeq(organizationId: string): Promise<number> {
+    const updated = await this.model
+      .findOneAndUpdate({ _id: organizationId }, { $inc: { ticketKeySeq: 1 } }, { new: true })
+      .exec();
+    if (!updated) {
+      throw new Error(`incrementTicketSeq: organization ${organizationId} not found`);
+    }
+    return updated.ticketKeySeq;
+  }
+
   countAll(): Promise<number> {
     return this.model.countDocuments().exec();
   }

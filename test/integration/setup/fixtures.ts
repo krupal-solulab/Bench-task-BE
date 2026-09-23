@@ -61,6 +61,36 @@ export async function createSprint(
   return res.body.data;
 }
 
+export async function createCustomer(
+  app: INestApplication,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<ApiRecord> {
+  const res = await api(app)
+    .post(`/${API_PREFIX}/customers`)
+    .set(...authHeader(token))
+    .send(body);
+  if (res.status !== 201) {
+    throw new Error(`createCustomer failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  return res.body.data;
+}
+
+export async function createTicket(
+  app: INestApplication,
+  token: string,
+  body: Record<string, unknown>,
+): Promise<ApiRecord> {
+  const res = await api(app)
+    .post(`/${API_PREFIX}/tickets`)
+    .set(...authHeader(token))
+    .send(body);
+  if (res.status !== 201) {
+    throw new Error(`createTicket failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
+  return res.body.data;
+}
+
 export async function addMembers(
   app: INestApplication,
   token: string,

@@ -137,6 +137,27 @@ export class OrganizationsService {
     }
   }
 
+  /** Lazily assigns a short ticket-key prefix (e.g. "SUP") on first use - same lazy-assignment
+   * shape as ProjectsService.getOrAssignKey, just org-scoped instead of project-scoped since
+   * tickets aren't project-scoped. */
+  async getOrAssignTicketKeyPrefix(organizationId: string): Promise<string> {
+    const organization = await this.getOrThrow(organizationId);
+    if (organization.ticketKeyPrefix) return organization.ticketKeyPrefix;
+
+    const prefix =
+      organization.name
+        .replace(/[^A-Za-z]/g, '')
+        .toUpperCase()
+        .slice(0, 4) || 'TKT';
+    await this.organizationsRepository.updateById(organizationId, { ticketKeyPrefix: prefix });
+    return prefix;
+  }
+
+  /** Atomic per-org ticket-number sequence, for building ticket keys like "SUP-101". */
+  async nextTicketNumber(organizationId: string): Promise<number> {
+    return this.organizationsRepository.incrementTicketSeq(organizationId);
+  }
+
   private async getOrThrow(id: string): Promise<OrganizationDocument> {
     const organization = await this.organizationsRepository.findById(id);
     if (!organization) throw new NotFoundException('Organization not found');
