@@ -4,10 +4,25 @@ import { TicketsRepository } from 'src/modules/tickets/tickets.repository';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { OrganizationsService } from 'src/modules/organizations/organizations.service';
 import { CustomersService } from 'src/modules/customers/customers.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
+import { ITicketAutomationQueue } from 'src/modules/ticket-automation-queue/ticket-automation-queue.interface';
 import { TicketActivityAction } from 'src/modules/tickets/schemas/ticket-activity.schema';
 import { TicketStatus, TicketStatusCategory } from 'src/common/enums/ticket-status.enum';
 import { Role } from 'src/common/enums/role.enum';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
+
+function makeOrganization(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: '507f1f77bcf86cd799439999',
+    timezone: 'UTC',
+    ticketAutomationRules: [],
+    ticketScheduledAutomations: [],
+    ticketMacros: [],
+    ticketSlaPolicy: [],
+    businessHoursCalendar: null,
+    ...overrides,
+  } as never;
+}
 
 const ORG_A = '507f1f77bcf86cd799439010';
 const ORG_B = '507f1f77bcf86cd799439099';
@@ -68,11 +83,17 @@ describe('TicketsService', () => {
   >;
   let usersRepository: jest.Mocked<Pick<UsersRepository, 'findById'>>;
   let organizationsService: jest.Mocked<
-    Pick<OrganizationsService, 'getOrAssignTicketKeyPrefix' | 'nextTicketNumber'>
+    Pick<
+      OrganizationsService,
+      'getOrAssignTicketKeyPrefix' | 'nextTicketNumber' | 'getOrganizationDocument'
+    >
   >;
   let customersService: jest.Mocked<
     Pick<CustomersService, 'getActiveOrThrow' | 'findOrCreateByEmail'>
   >;
+  let notificationsService: jest.Mocked<Pick<NotificationsService, 'notifyTicketAutomationRole'>>;
+  let ticketAutomationQueue: jest.Mocked<ITicketAutomationQueue>;
+  let ticketAutomationLogModel: { create: jest.Mock };
   let service: TicketsService;
 
   beforeEach(() => {
@@ -91,16 +112,26 @@ describe('TicketsService', () => {
     organizationsService = {
       getOrAssignTicketKeyPrefix: jest.fn().mockResolvedValue('SUP'),
       nextTicketNumber: jest.fn().mockResolvedValue(101),
+      // Empty ticketAutomationRules keeps fireTicketTriggers a no-op for every test below that
+      // isn't specifically exercising Batch 1's automation engine, exactly matching this
+      // service's pre-Batch-1 stubbed behavior.
+      getOrganizationDocument: jest.fn().mockResolvedValue(makeOrganization()),
     };
     customersService = {
       getActiveOrThrow: jest.fn().mockResolvedValue(makeCustomer()),
       findOrCreateByEmail: jest.fn().mockResolvedValue(makeCustomer()),
     };
+    notificationsService = { notifyTicketAutomationRole: jest.fn().mockResolvedValue(undefined) };
+    ticketAutomationQueue = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    ticketAutomationLogModel = { create: jest.fn().mockResolvedValue(undefined) };
     service = new TicketsService(
       ticketsRepository as unknown as TicketsRepository,
       usersRepository as unknown as UsersRepository,
       organizationsService as unknown as OrganizationsService,
       customersService as unknown as CustomersService,
+      notificationsService as unknown as NotificationsService,
+      ticketAutomationQueue,
+      ticketAutomationLogModel as never,
     );
   });
 

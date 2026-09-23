@@ -4285,6 +4285,845 @@
         ]
       }
     },
+    "/api/v1/customers": {
+      "post": {
+        "operationId": "CustomersController_create",
+        "summary": "Create a customer contact record (staff-filed, e.g. from an email)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "customers"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "CustomersController_list",
+        "summary": "List customer contacts (org-scoped, search by email/name)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Case-insensitive substring match on email or name",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "customers"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/customers/{id}": {
+      "get": {
+        "operationId": "CustomersController_get",
+        "summary": "Get a single customer contact",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "customers"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets": {
+      "post": {
+        "operationId": "TicketsController_create",
+        "summary": "Create a ticket (staff-filed, on behalf of a customer)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTicketDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "TicketsController_list",
+        "summary": "List tickets (org-scoped, filterable)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "New",
+                  "Open",
+                  "Pending",
+                  "Solved",
+                  "Closed"
+                ]
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Low",
+                  "Normal",
+                  "High",
+                  "Urgent"
+                ]
+              }
+            }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "description": "null to filter unassigned tickets",
+            "schema": {
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "name": "customer",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Case-insensitive substring match on subject/ticketKey",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}": {
+      "get": {
+        "operationId": "TicketsController_get",
+        "summary": "Get a single ticket",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/status": {
+      "patch": {
+        "operationId": "TicketsController_updateStatus",
+        "summary": "Change a ticket status",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTicketStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/assignee": {
+      "patch": {
+        "operationId": "TicketsController_assign",
+        "summary": "Assign or unassign a ticket",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTicketAssigneeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/priority": {
+      "patch": {
+        "operationId": "TicketsController_updatePriority",
+        "summary": "Change a ticket priority",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTicketPriorityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/apply-macro/{macroId}": {
+      "post": {
+        "operationId": "TicketsController_applyMacro",
+        "summary": "Apply a stored Macro action bundle to a ticket",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "macroId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/comments": {
+      "post": {
+        "operationId": "TicketsController_addComment",
+        "summary": "Add a reply or internal note to a ticket",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddTicketCommentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "TicketsController_listComments",
+        "summary": "A ticket's comment thread (replies and internal notes)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/activity": {
+      "get": {
+        "operationId": "TicketsController_listActivity",
+        "summary": "A ticket's activity log",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/settings/automation-rules": {
+      "get": {
+        "operationId": "TicketSettingsController_getAutomationRules",
+        "summary": "This org's ticket Trigger rules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "TicketSettingsController_updateAutomationRules",
+        "summary": "Set/replace this org's ticket Trigger rules",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTicketAutomationRulesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/settings/scheduled-automations": {
+      "get": {
+        "operationId": "TicketSettingsController_getScheduledAutomations",
+        "summary": "This org's time-based ticket Automations",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "TicketSettingsController_updateScheduledAutomations",
+        "summary": "Set/replace this org's time-based ticket Automations",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTicketScheduledAutomationsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/settings/macros": {
+      "get": {
+        "operationId": "TicketSettingsController_getMacros",
+        "summary": "Macros visible to the caller (team macros + their own personal ones)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "TicketSettingsController_updateMacros",
+        "summary": "Set/replace this org's ticket Macros",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTicketMacrosDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/settings/sla-policy": {
+      "get": {
+        "operationId": "TicketSettingsController_getSlaPolicy",
+        "summary": "This org's Advanced SLA policy",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "TicketSettingsController_updateSlaPolicy",
+        "summary": "Set/replace this org's Advanced SLA policy",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTicketSlaPolicyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/settings/business-hours": {
+      "get": {
+        "operationId": "TicketSettingsController_getBusinessHoursCalendar",
+        "summary": "This org's Business Hours calendar (null = 24/7)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "TicketSettingsController_updateBusinessHoursCalendar",
+        "summary": "Set/replace this org's Business Hours calendar",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutBusinessHoursCalendarDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tickets/settings/automation-log": {
+      "get": {
+        "operationId": "TicketAutomationLogController_list",
+        "summary": "This org's ticket automation execution log",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tickets"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{taskId}/comments": {
       "post": {
         "operationId": "CommentsController_create",
@@ -6810,13 +7649,508 @@
                 "CommentAdded",
                 "DueSoon",
                 "Automation",
-                "Scheme"
+                "Scheme",
+                "TicketAutomation"
               ]
             }
           }
         },
         "required": [
           "mutedTypes"
+        ]
+      },
+      "CreateCustomerDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "dana@customer.com"
+          },
+          "name": {
+            "type": "string",
+            "example": "Dana Customer"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "Standard",
+              "Enterprise"
+            ],
+            "default": "Standard"
+          }
+        },
+        "required": [
+          "email",
+          "name"
+        ]
+      },
+      "CreateTicketDto": {
+        "type": "object",
+        "properties": {
+          "subject": {
+            "type": "string",
+            "example": "Cannot reset my password"
+          },
+          "description": {
+            "type": "string"
+          },
+          "customerId": {
+            "type": "string",
+            "description": "An existing Customer contact id"
+          },
+          "customerEmail": {
+            "type": "string",
+            "description": "Used with customerName to find-or-create a contact"
+          },
+          "customerName": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "Low",
+              "Normal",
+              "High",
+              "Urgent"
+            ],
+            "default": "Normal"
+          },
+          "assignee": {
+            "type": "object",
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "subject"
+        ]
+      },
+      "UpdateTicketStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "New",
+              "Open",
+              "Pending",
+              "Solved",
+              "Closed"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "UpdateTicketAssigneeDto": {
+        "type": "object",
+        "properties": {
+          "assignee": {
+            "type": "object",
+            "nullable": true,
+            "description": "Null to unassign"
+          }
+        }
+      },
+      "UpdateTicketPriorityDto": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "string",
+            "enum": [
+              "Low",
+              "Normal",
+              "High",
+              "Urgent"
+            ]
+          }
+        },
+        "required": [
+          "priority"
+        ]
+      },
+      "AddTicketCommentDto": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "isPublic": {
+            "type": "boolean",
+            "default": true,
+            "description": "true = customer-visible reply, false = internal note"
+          }
+        },
+        "required": [
+          "body"
+        ]
+      },
+      "TicketAutomationTriggerDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "TicketCreated",
+              "TicketStatusChanged",
+              "TicketCommentAdded",
+              "TicketReassigned"
+            ]
+          },
+          "toStatus": {
+            "type": "string",
+            "description": "Required, only meaningful, for TicketStatusChanged"
+          },
+          "fromStatus": {
+            "type": "string",
+            "description": "Optional, only meaningful for TicketStatusChanged - further scopes the trigger from \"any status -> toStatus\" to a specific fromStatus -> toStatus transition."
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "TicketAutomationConditionDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "Priority",
+              "Channel",
+              "CustomerTier",
+              "Tag"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "example": "Urgent"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ]
+      },
+      "TicketAutomationActionDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "SetStatus",
+              "SetPriority",
+              "SetAssignee",
+              "AddTags",
+              "AddComment",
+              "NotifyRole",
+              "Webhook"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "example": "Open",
+            "description": "Status name (SetStatus), priority (SetPriority), user id (SetAssignee), comma-separated tags (AddTags), comment text supporting {{subject}}/{{ticketKey}}/{{status}} (AddComment), a Role (NotifyRole), or a URL (Webhook - logged only, not dispatched)."
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ]
+      },
+      "TicketAutomationRuleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Omit when creating a new rule - the server assigns a stable id. Include the existing id when editing a rule's name/enabled/trigger/conditions/actions."
+          },
+          "name": {
+            "type": "string",
+            "example": "Notify manager on urgent tickets"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "trigger": {
+            "$ref": "#/components/schemas/TicketAutomationTriggerDto"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAutomationConditionDto"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAutomationActionDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "enabled",
+          "trigger",
+          "conditions",
+          "actions"
+        ]
+      },
+      "PutTicketAutomationRulesDto": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAutomationRuleDto"
+            }
+          }
+        },
+        "required": [
+          "rules"
+        ]
+      },
+      "TicketScheduledAutomationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Omit when creating a new scheduled automation - the server assigns a stable id."
+          },
+          "name": {
+            "type": "string",
+            "example": "Auto-close stale pending tickets"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "matchStatus": {
+            "type": "string",
+            "enum": [
+              "New",
+              "Open",
+              "Pending",
+              "Solved",
+              "Closed"
+            ],
+            "description": "Which status the ticket must currently be in"
+          },
+          "afterHours": {
+            "type": "number",
+            "example": 72,
+            "description": "Hours the ticket must have been in matchStatus"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAutomationConditionDto"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAutomationActionDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "enabled",
+          "matchStatus",
+          "afterHours",
+          "conditions",
+          "actions"
+        ]
+      },
+      "PutTicketScheduledAutomationsDto": {
+        "type": "object",
+        "properties": {
+          "automations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketScheduledAutomationDto"
+            }
+          }
+        },
+        "required": [
+          "automations"
+        ]
+      },
+      "TicketMacroDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Omit when creating a new macro - the server assigns a stable id."
+          },
+          "name": {
+            "type": "string",
+            "example": "Close as resolved"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAutomationActionDto"
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "team",
+              "personal"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "actions",
+          "visibility"
+        ]
+      },
+      "PutTicketMacrosDto": {
+        "type": "object",
+        "properties": {
+          "macros": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketMacroDto"
+            }
+          }
+        },
+        "required": [
+          "macros"
+        ]
+      },
+      "TicketSlaPolicyEntryDto": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "string",
+            "enum": [
+              "Low",
+              "Normal",
+              "High",
+              "Urgent"
+            ]
+          },
+          "customerTier": {
+            "type": "string",
+            "enum": [
+              "Standard",
+              "Enterprise"
+            ],
+            "nullable": true,
+            "description": "Omit/null to apply to every customer tier"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "manual"
+            ],
+            "nullable": true,
+            "description": "Omit/null to apply to every channel"
+          },
+          "firstResponseHours": {
+            "type": "number",
+            "example": 2,
+            "minimum": 1,
+            "maximum": 8760
+          },
+          "resolutionHours": {
+            "type": "number",
+            "example": 8,
+            "minimum": 1,
+            "maximum": 8760
+          },
+          "escalationChain": {
+            "description": "Ordered backup-agent/team-lead user ids, notified in order on pre-breach escalation",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "priority",
+          "firstResponseHours",
+          "resolutionHours",
+          "escalationChain"
+        ]
+      },
+      "PutTicketSlaPolicyDto": {
+        "type": "object",
+        "properties": {
+          "policy": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketSlaPolicyEntryDto"
+            }
+          }
+        },
+        "required": [
+          "policy"
+        ]
+      },
+      "BusinessHoursWindowDto": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "example": "09:00",
+            "description": "24h \"HH:mm\" local time"
+          },
+          "end": {
+            "type": "string",
+            "example": "18:00",
+            "description": "24h \"HH:mm\" local time"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ]
+      },
+      "PutBusinessHoursCalendarDto": {
+        "type": "object",
+        "properties": {
+          "workingDays": {
+            "example": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "description": "0 = Sunday ... 6 = Saturday",
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "workingHours": {
+            "$ref": "#/components/schemas/BusinessHoursWindowDto"
+          },
+          "holidays": {
+            "example": [
+              "2026-12-25"
+            ],
+            "description": "\"YYYY-MM-DD\" local dates",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "workingDays",
+          "workingHours",
+          "holidays"
         ]
       },
       "CreateCommentDto": {

@@ -101,4 +101,13 @@ export class UsersRepository {
       .sort({ createdAt: 1 })
       .exec();
   }
+
+  /** Org-wide role lookup (not project-scoped) - used by the ticket automation engine's
+   * NotifyRole action, since Tickets have no project-membership concept to filter by (unlike
+   * ProjectsService.membersWithRole). */
+  findByRole(organizationId: string, role: Role): Promise<UserDocument[]> {
+    return this.model
+      .find({ organizationId: new Types.ObjectId(organizationId), role, isActive: true })
+      .exec();
+  }
 }
