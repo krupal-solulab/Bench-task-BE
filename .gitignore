@@ -13,13 +13,13 @@ build/
 # logs
 *.log
 npm-debug.log*
+temp_auto_push.bat
 
 # coverage
 coverage/
 .nyc_output/
 
 # IDE
-.vscode/
 .idea/
 *.swp
 
@@ -29,3 +29,5 @@ Thumbs.db
 
 # misc
 *.tsbuildinfo
+.gitignore
+branch_structure.json
