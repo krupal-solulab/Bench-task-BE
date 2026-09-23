@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
+import { OrganizationStatus } from '../../common/enums/organization-status.enum';
 import { Organization, OrganizationDocument } from './schemas/organization.schema';
 import { ListOrganizationsDto } from './dto/list-organizations.dto';
 
@@ -70,5 +71,13 @@ export class OrganizationsRepository {
 
   countAll(): Promise<number> {
     return this.model.countDocuments().exec();
+  }
+
+  /** Every active org - the candidate set for the ticket-automation scheduled sweep and SLA
+   * checker crons, which then filter in-memory for the (few) orgs that actually configured
+   * anything, rather than pulling every org's full document unconditionally being a concern at
+   * this scale. */
+  findAllActive(): Promise<OrganizationDocument[]> {
+    return this.model.find({ status: OrganizationStatus.ACTIVE }).exec();
   }
 }
