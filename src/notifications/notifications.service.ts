@@ -56,6 +56,13 @@ export interface AutomationRoleNotification {
   ruleName: string;
 }
 
+export interface TicketAutomationRoleNotification {
+  ticketId: string;
+  ticketSubject: string;
+  recipientId: string;
+  ruleName: string;
+}
+
 export interface SchemeEventNotification {
   recipient: { id: string; email: string; organizationId: string };
   event: NotificationSchemeEvent;
@@ -224,6 +231,31 @@ export class NotificationsService {
     );
   }
 
+  /** Ticket-side mirror of notifyAutomationRole - sent by the ticket automation engine's
+   * NotifyRole action or the SLA breach/escalation checker, in-app only. Kept as its own method
+   * (rather than generalizing notifyAutomationRole) since it references a Ticket, not a Task, and
+   * `createInAppNotification`'s ref map is keyed by entity kind. */
+  async notifyTicketAutomationRole(notification: TicketAutomationRoleNotification): Promise<void> {
+    let recipient: UserDocument | null = null;
+    try {
+      recipient = await this.usersRepository.findById(notification.recipientId);
+    } catch (err) {
+      this.logger.warn(
+        { err, ticketId: notification.ticketId },
+        'failed to look up recipient for a ticket-automation-role notification, ignoring',
+      );
+    }
+    if (!recipient) return;
+    await this.createInAppNotification(
+      notification.recipientId,
+      extractId(recipient.organizationId),
+      NotificationType.TICKET_AUTOMATION,
+      'Ticket automation notification',
+      `Automation rule "${notification.ruleName}" fired on "${notification.ticketSubject}"`,
+      { ticketId: notification.ticketId },
+    );
+  }
+
   /**
    * Fires a project's admin-configured Notification Scheme entry for one recipient (called once
    * per role-matched project member, by the caller resolving `ProjectsService.membersWithRole`).
@@ -333,7 +365,7 @@ export class NotificationsService {
     type: NotificationType,
     title: string,
     message: string,
-    refs: { taskId?: string; projectId?: string },
+    refs: { taskId?: string; projectId?: string; ticketId?: string },
   ): Promise<void> {
     try {
       const preference = await this.notificationsRepository.findPreference(recipientId);
@@ -347,6 +379,7 @@ export class NotificationsService {
         message,
         taskId: refs.taskId ? new Types.ObjectId(refs.taskId) : null,
         projectId: refs.projectId ? new Types.ObjectId(refs.projectId) : null,
+        ticketId: refs.ticketId ? new Types.ObjectId(refs.ticketId) : null,
       });
 
       try {
