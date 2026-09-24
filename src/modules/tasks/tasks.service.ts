@@ -50,6 +50,7 @@ import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
 import { SchemeAction } from '../../permission-schemes/schemas/permission-scheme.schema';
 import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
+import { ReleasesService } from '../releases/releases.service';
 import { TasksRepository, RankScope } from './tasks.repository';
 import { TaskDocument } from './schemas/task.schema';
 import { TaskActivityAction } from './schemas/task-activity.schema';
@@ -110,6 +111,7 @@ export class TasksService {
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
     private readonly sprintsService: SprintsService,
+    private readonly releasesService: ReleasesService,
     private readonly cacheService: CacheService,
     private readonly notificationsService: NotificationsService,
     private readonly eventsGateway: EventsGateway,
@@ -134,6 +136,10 @@ export class TasksService {
     const issueType = dto.issueType ?? IssueType.TASK;
     const parent = await this.assertValidHierarchy(project, issueType, dto.parent);
     this.assertValidComponents(project, dto.components);
+    await this.releasesService.validateIdsForProject(project.id, [
+      ...(dto.fixVersions ?? []),
+      ...(dto.affectsVersions ?? []),
+    ]);
     const effectiveCustomFields = resolveCustomFields(project, issueType);
     validateCustomFieldValues(effectiveCustomFields, dto.customFieldValues ?? {}, 'create');
     this.assertUserPickerFieldsEligible(
@@ -182,6 +188,8 @@ export class TasksService {
       issueKey: `${keyPrefix}-${seq}`,
       labels: dto.labels ?? [],
       components: dto.components ?? [],
+      fixVersions: (dto.fixVersions ?? []).map((id) => new Types.ObjectId(id)),
+      affectsVersions: (dto.affectsVersions ?? []).map((id) => new Types.ObjectId(id)),
       customFieldValues: dto.customFieldValues ?? {},
     });
 
@@ -300,6 +308,10 @@ export class TasksService {
       );
     }
     this.assertValidComponents(project, dto.components);
+    await this.releasesService.validateIdsForProject(project.id, [
+      ...(dto.fixVersions ?? []),
+      ...(dto.affectsVersions ?? []),
+    ]);
     const effectiveCustomFields = resolveCustomFields(project, task.issueType);
     validateCustomFieldValues(effectiveCustomFields, dto.customFieldValues ?? {}, 'update');
     this.assertUserPickerFieldsEligible(
@@ -330,6 +342,12 @@ export class TasksService {
       ...(dto.dueDate !== undefined ? { dueDate: dto.dueDate ? new Date(dto.dueDate) : null } : {}),
       ...(dto.labels !== undefined ? { labels: dto.labels } : {}),
       ...(dto.components !== undefined ? { components: dto.components } : {}),
+      ...(dto.fixVersions !== undefined
+        ? { fixVersions: dto.fixVersions.map((id) => new Types.ObjectId(id)) }
+        : {}),
+      ...(dto.affectsVersions !== undefined
+        ? { affectsVersions: dto.affectsVersions.map((id) => new Types.ObjectId(id)) }
+        : {}),
       // Merged (not replaced) - omitting a key on update keeps its previously-stored value,
       // matching UpdateTaskDto's partial-patch semantics for every other field.
       ...(dto.customFieldValues !== undefined

@@ -130,6 +130,16 @@ export class Task {
   @Prop({ type: [String], default: [] })
   components!: string[];
 
+  // Module 2's "Fix Version" - the release(s) this issue targets. Validated in TasksService
+  // against ReleasesService (must exist, active, and belong to the task's project).
+  @Prop({ type: [Types.ObjectId], ref: 'Release', default: [] })
+  fixVersions!: Types.ObjectId[];
+
+  // Module 2's "Affects Version" - the release(s) this issue affects (e.g. a bug reported against
+  // an older shipped version). Same validation as fixVersions.
+  @Prop({ type: [Types.ObjectId], ref: 'Release', default: [] })
+  affectsVersions!: Types.ObjectId[];
+
   // Keyed by Project.customFields[].id (not name, so renaming a field never orphans its stored
   // values). Validated against the project's field definitions by
   // custom-field.schema.ts's validateCustomFieldValues - never trusted as-is from the client.
@@ -168,3 +178,5 @@ TaskSchema.index({ project: 1, statusCategory: 1 });
 TaskSchema.index({ sprint: 1, statusCategory: 1 });
 TaskSchema.index({ project: 1, labels: 1 });
 TaskSchema.index({ project: 1, components: 1 });
+TaskSchema.index({ fixVersions: 1 });
+TaskSchema.index({ affectsVersions: 1 });

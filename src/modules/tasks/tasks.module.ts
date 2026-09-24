@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ProjectsModule } from '../projects/projects.module';
 import { SprintsModule } from '../sprints/sprints.module';
+import { ReleasesModule } from '../releases/releases.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { EventsModule } from '../../events/events.module';
 import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
@@ -24,6 +25,7 @@ import { AutomationJobProcessor } from './automation-job.processor';
   imports: [
     ProjectsModule,
     SprintsModule,
+    ReleasesModule,
     NotificationsModule,
     EventsModule,
     MongooseModule.forFeature([

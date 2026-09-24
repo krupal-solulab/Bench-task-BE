@@ -100,4 +100,25 @@ export class CreateTaskDto {
   @IsOptional()
   @IsObject()
   customFieldValues?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Release id(s) this issue targets ("Fix Version") - must belong to the project',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsObjectId({ each: true })
+  fixVersions?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Release id(s) this issue affects ("Affects Version") - must belong to the project',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsObjectId({ each: true })
+  affectsVersions?: string[];
 }

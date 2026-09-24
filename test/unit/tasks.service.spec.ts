@@ -16,6 +16,7 @@ import { TasksService } from 'src/modules/tasks/tasks.service';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
 import { ProjectsService } from 'src/modules/projects/projects.service';
 import { SprintsService } from 'src/modules/sprints/sprints.service';
+import { ReleasesService } from 'src/modules/releases/releases.service';
 import { CacheService } from 'src/redis/cache.service';
 import { NotificationsService } from 'src/notifications/notifications.service';
 import { EventsGateway } from 'src/events/events.gateway';
@@ -121,6 +122,7 @@ describe('TasksService', () => {
     >
   >;
   let sprintsService: jest.Mocked<Pick<SprintsService, 'getActiveOrThrow'>>;
+  let releasesService: jest.Mocked<Pick<ReleasesService, 'validateIdsForProject'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
   let notificationsService: jest.Mocked<
     Pick<
@@ -168,6 +170,7 @@ describe('TasksService', () => {
       membersWithRole: jest.fn().mockResolvedValue([]),
     };
     sprintsService = { getActiveOrThrow: jest.fn() };
+    releasesService = { validateIdsForProject: jest.fn().mockResolvedValue(undefined) };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
     notificationsService = {
       notifyTaskAssigned: jest.fn().mockResolvedValue(undefined),
@@ -186,6 +189,7 @@ describe('TasksService', () => {
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
       sprintsService as unknown as SprintsService,
+      releasesService as unknown as ReleasesService,
       cacheService as unknown as CacheService,
       notificationsService as unknown as NotificationsService,
       eventsGateway as unknown as EventsGateway,

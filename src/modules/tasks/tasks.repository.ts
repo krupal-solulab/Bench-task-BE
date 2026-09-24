@@ -18,6 +18,7 @@ export interface RankScope {
 }
 
 const POPULATE_FIELDS = 'name email role isActive';
+const RELEASE_POPULATE_FIELDS = 'name status';
 
 @Injectable()
 export class TasksRepository {
@@ -38,6 +39,8 @@ export class TasksRepository {
       .populate('project', 'name')
       .populate('sprint', 'name')
       .populate('parent', 'title issueKey')
+      .populate('fixVersions', RELEASE_POPULATE_FIELDS)
+      .populate('affectsVersions', RELEASE_POPULATE_FIELDS)
       .exec();
   }
 
@@ -75,6 +78,8 @@ export class TasksRepository {
         .populate('project', 'name')
         .populate('sprint', 'name')
         .populate('parent', 'title issueKey')
+        .populate('fixVersions', RELEASE_POPULATE_FIELDS)
+        .populate('affectsVersions', RELEASE_POPULATE_FIELDS)
         .sort(sort)
         .skip(skip)
         .limit(limit)

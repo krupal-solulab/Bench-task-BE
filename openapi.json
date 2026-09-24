@@ -4285,6 +4285,424 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/releases": {
+      "post": {
+        "operationId": "ReleasesController_create",
+        "summary": "Create a release (Fix Version) under a project",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReleaseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "ReleasesController_list",
+        "summary": "List a project's releases",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Unreleased",
+                  "Released",
+                  "Archived"
+                ]
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/releases/{releaseId}": {
+      "get": {
+        "operationId": "ReleasesController_findOne",
+        "summary": "Get a single release",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "ReleasesController_update",
+        "summary": "Update release name/description/target date",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReleaseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ReleasesController_remove",
+        "summary": "Delete a release (detaches it from every issue that referenced it)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/releases/{releaseId}/release": {
+      "post": {
+        "operationId": "ReleasesController_release",
+        "summary": "Mark a release as Released (sets the actual release timestamp)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/releases/{releaseId}/unrelease": {
+      "post": {
+        "operationId": "ReleasesController_unrelease",
+        "summary": "Revert a Released release back to Unreleased",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/releases/{releaseId}/archive": {
+      "post": {
+        "operationId": "ReleasesController_archive",
+        "summary": "Archive a release (terminal - cannot be un-archived)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/releases/{releaseId}/progress": {
+      "get": {
+        "operationId": "ReleasesController_progress",
+        "summary": "Issue count/done-count/percentage for issues tagged with this release",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/releases/{releaseId}/release-notes": {
+      "get": {
+        "operationId": "ReleasesController_releaseNotes",
+        "summary": "Auto-drafted release notes composed from this release's completed issues",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{taskId}/links": {
       "post": {
         "operationId": "IssueLinksController_create",
@@ -6777,6 +7195,20 @@
           "customFieldValues": {
             "type": "object",
             "description": "Keyed by the project's custom field ids. Value shape is validated per-field's type."
+          },
+          "fixVersions": {
+            "description": "Release id(s) this issue targets (\"Fix Version\") - must belong to the project",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectsVersions": {
+            "description": "Release id(s) this issue affects (\"Affects Version\") - must belong to the project",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -6888,6 +7320,20 @@
           "customFieldValues": {
             "type": "object",
             "description": "Keyed by the project's custom field ids. Value shape is validated per-field's type."
+          },
+          "fixVersions": {
+            "description": "Release id(s) this issue targets (\"Fix Version\") - must belong to the project",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectsVersions": {
+            "description": "Release id(s) this issue affects (\"Affects Version\") - must belong to the project",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -7044,6 +7490,43 @@
         "required": [
           "mutedTypes"
         ]
+      },
+      "CreateReleaseDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "v2.4.0"
+          },
+          "description": {
+            "type": "string"
+          },
+          "releaseDate": {
+            "type": "object",
+            "description": "Target ship date",
+            "nullable": true
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateReleaseDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "v2.4.0"
+          },
+          "description": {
+            "type": "string"
+          },
+          "releaseDate": {
+            "type": "object",
+            "description": "Target ship date",
+            "nullable": true
+          }
+        }
       },
       "CreateIssueLinkDto": {
         "type": "object",
