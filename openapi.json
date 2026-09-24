@@ -3098,6 +3098,61 @@
         ]
       }
     },
+    "/api/v1/tasks/search/autocomplete-fields": {
+      "get": {
+        "operationId": "TasksController_autocompleteFields",
+        "summary": "The Issue Navigator's JQL field/operator/keyword metadata",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/search/autocomplete-values": {
+      "get": {
+        "operationId": "TasksController_autocompleteValues",
+        "summary": "Distinct, currently-in-use values for a JQL field (Module 4)",
+        "parameters": [
+          {
+            "name": "field",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "issueType",
+                "status",
+                "labels",
+                "components"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/bulk-move-sprint": {
       "patch": {
         "operationId": "TasksController_bulkMoveSprint",

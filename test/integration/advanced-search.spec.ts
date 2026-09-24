@@ -337,5 +337,211 @@ describe('advanced search (integration)', () => {
         .set(...authHeader(manager.accessToken));
       expect(res.status).toBe(400);
     });
+
+    describe('Module 4: real JQL engine (IN / NOT IN, multi-field ORDER BY)', () => {
+      it('"priority IN (...)" matches any listed value', async () => {
+        const { manager } = await seedManager();
+        const project = await createProject(app, manager.accessToken, { name: 'IN Project' });
+        const p1 = await createTask(app, manager.accessToken, {
+          title: 'P1 task',
+          project: project.id,
+          priority: TaskPriority.P1,
+        });
+        const p2 = await createTask(app, manager.accessToken, {
+          title: 'P2 task',
+          project: project.id,
+          priority: TaskPriority.P2,
+        });
+        await createTask(app, manager.accessToken, {
+          title: 'P3 task',
+          project: project.id,
+          priority: TaskPriority.P3,
+        });
+
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search`)
+          .query({ jql: `project = "${project.id}" AND priority IN (P1, P2)` })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(200);
+        expect(res.body.data.map((t: { id: string }) => t.id).sort()).toEqual(
+          [p1.id, p2.id].sort(),
+        );
+      });
+
+      it('"status NOT IN (...)" excludes every listed value', async () => {
+        const { manager } = await seedManager();
+        const project = await createProject(app, manager.accessToken, { name: 'NOT IN Project' });
+        const todo = await createTask(app, manager.accessToken, {
+          title: 'Todo task',
+          project: project.id,
+          priority: TaskPriority.P2,
+        });
+        const inProgress = await createTask(app, manager.accessToken, {
+          title: 'In progress task',
+          project: project.id,
+          priority: TaskPriority.P2,
+        });
+        await api(app)
+          .patch(`/${API_PREFIX}/tasks/${inProgress.id}/status`)
+          .set(...authHeader(manager.accessToken))
+          .send({ status: 'In Progress' });
+        const done = await createTask(app, manager.accessToken, {
+          title: 'Done task',
+          project: project.id,
+          priority: TaskPriority.P2,
+        });
+        await api(app)
+          .patch(`/${API_PREFIX}/tasks/${done.id}/status`)
+          .set(...authHeader(manager.accessToken))
+          .send({ status: 'In Progress' });
+        await api(app)
+          .patch(`/${API_PREFIX}/tasks/${done.id}/status`)
+          .set(...authHeader(manager.accessToken))
+          .send({ status: 'Review' });
+        await api(app)
+          .patch(`/${API_PREFIX}/tasks/${done.id}/status`)
+          .set(...authHeader(manager.accessToken))
+          .send({ status: 'Done' });
+
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search`)
+          .query({ jql: `project = "${project.id}" AND status NOT IN (Done, "In Progress")` })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(200);
+        expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([todo.id]);
+      });
+
+      it('sorts by multiple ORDER BY fields, later fields breaking ties in earlier ones', async () => {
+        const { manager } = await seedManager();
+        const project = await createProject(app, manager.accessToken, {
+          name: 'Multi-sort Project',
+        });
+        const p1Early = await createTask(app, manager.accessToken, {
+          title: 'P1 due early',
+          project: project.id,
+          priority: TaskPriority.P1,
+          dueDate: '2026-01-01',
+        });
+        const p1Late = await createTask(app, manager.accessToken, {
+          title: 'P1 due late',
+          project: project.id,
+          priority: TaskPriority.P1,
+          dueDate: '2026-06-01',
+        });
+        const p2 = await createTask(app, manager.accessToken, {
+          title: 'P2 task',
+          project: project.id,
+          priority: TaskPriority.P2,
+          dueDate: '2026-03-01',
+        });
+
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search`)
+          .query({ jql: `project = "${project.id}" ORDER BY priority ASC, dueDate DESC` })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(200);
+        expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([
+          p1Late.id,
+          p1Early.id,
+          p2.id,
+        ]);
+      });
+
+      it('rejects an IN clause missing its value list with 400', async () => {
+        const { manager } = await seedManager();
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search`)
+          .query({ jql: 'priority IN P1' })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(400);
+      });
+    });
+  });
+
+  describe('GET /tasks/search/autocomplete-fields (Module 4)', () => {
+    it('returns field metadata and keywords, requiring no query params', async () => {
+      const { manager } = await seedManager();
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search/autocomplete-fields`)
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data.fields.length).toBeGreaterThan(0);
+      const priorityField = res.body.data.fields.find(
+        (f: { field: string }) => f.field === 'priority',
+      );
+      expect(priorityField).toMatchObject({ label: 'Priority' });
+      expect(priorityField.operators).toEqual(expect.arrayContaining(['=', 'in', 'not in']));
+      expect(res.body.data.keywords).toEqual(expect.arrayContaining(['AND', 'OR', 'IN']));
+    });
+  });
+
+  describe('GET /tasks/search/autocomplete-values (Module 4)', () => {
+    it('returns distinct, currently-in-use issueType values for the org', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, {
+        name: 'Autocomplete Project',
+      });
+      await createTask(app, manager.accessToken, {
+        title: 'A bug',
+        project: project.id,
+        priority: TaskPriority.P2,
+        issueType: 'Bug',
+      });
+      await createTask(app, manager.accessToken, {
+        title: 'A task',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search/autocomplete-values`)
+        .query({ field: 'issueType' })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual(expect.arrayContaining(['Bug', 'Task']));
+    });
+
+    it('rejects an unsupported field with 400', async () => {
+      const { manager } = await seedManager();
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search/autocomplete-values`)
+        .query({ field: 'assignee' })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(400);
+    });
+
+    it("scopes distinct values to the caller's own organization", async () => {
+      const { manager } = await seedManager();
+      const otherOrg = await seedOrganization(app);
+      const otherManager = await seedUserAndLogin(app, {
+        email: 'autocomplete-other-org-manager@example.com',
+        password: 'Password123',
+        role: Role.MANAGER,
+        organizationId: otherOrg.id,
+      });
+      const projectA = await createProject(app, manager.accessToken, { name: 'Org A Project' });
+      const projectB = await createProject(app, otherManager.accessToken, {
+        name: 'Org B Project',
+      });
+      await createTask(app, manager.accessToken, {
+        title: 'Org A task',
+        project: projectA.id,
+        priority: TaskPriority.P2,
+        labels: ['org-a-only'],
+      });
+      await createTask(app, otherManager.accessToken, {
+        title: 'Org B task',
+        project: projectB.id,
+        priority: TaskPriority.P2,
+        labels: ['org-b-only'],
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search/autocomplete-values`)
+        .query({ field: 'labels' })
+        .set(...authHeader(manager.accessToken));
+      expect(res.body.data).toContain('org-a-only');
+      expect(res.body.data).not.toContain('org-b-only');
+    });
   });
 });

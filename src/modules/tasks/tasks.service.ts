@@ -66,7 +66,6 @@ import {
 } from '../automation-queue/automation-queue.interface';
 import { isLegalTaskTransition, legalTaskTransitions } from './task-status.rules';
 import { midpointRank, needsRenumber, nextAppendRank } from './utils/rank.util';
-import { buildTaskListSort } from './utils/task-filter.util';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
@@ -79,10 +78,16 @@ import { SearchTasksDto } from './dto/search-tasks.dto';
 import {
   analyzeCurrentSprintUsage,
   assertValidJqlOrderBy,
+  buildJqlSort,
   compileJqlAst,
   parseJql,
   substituteCurrentSprint,
 } from './search/jql.util';
+import {
+  JQL_DYNAMIC_VALUE_FIELDS,
+  JQL_FIELD_METADATA,
+  JQL_KEYWORDS,
+} from './search/jql-autocomplete.util';
 
 /**
  * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
@@ -275,8 +280,7 @@ export class TasksService {
     const filter: FilterQuery<TaskDocument> = {
       $and: [{ deletedAt: null, ...scope }, compiled],
     };
-    const sortOrder: 1 | -1 = orderBy?.direction === 'asc' ? 1 : -1;
-    const sort = buildTaskListSort(orderBy?.field ?? 'createdAt', orderBy ? sortOrder : -1);
+    const sort = buildJqlSort(orderBy);
 
     const { data, total } = await this.tasksRepository.paginateWithFilter(
       filter,
@@ -285,6 +289,28 @@ export class TasksService {
       dto.limit,
     );
     return { data, meta: buildPaginationMeta(total, dto.page, dto.limit) };
+  }
+
+  /** Static field/operator/keyword metadata for the Issue Navigator's JQL autocomplete (Module 4)
+   * - a thin passthrough, kept as a service method rather than read directly from the controller
+   * to match this codebase's usual controller-delegates-to-service convention. */
+  jqlFieldMetadata() {
+    return { fields: JQL_FIELD_METADATA, keywords: JQL_KEYWORDS };
+  }
+
+  /** Dynamic value suggestions for a JQL field - see jql-autocomplete.util.ts's own doc comment
+   * for which fields this covers and why the rest are deliberately left to the frontend's
+   * existing data sources (assignable users, accessible projects). */
+  async autocompleteValues(field: string, actingUser: AuthenticatedUser): Promise<string[]> {
+    if (!(JQL_DYNAMIC_VALUE_FIELDS as readonly string[]).includes(field)) {
+      throw new BadRequestException(
+        `Unsupported autocomplete field "${field}" - expected one of: ${JQL_DYNAMIC_VALUE_FIELDS.join(', ')}`,
+      );
+    }
+    return this.tasksRepository.distinctValues(
+      field as 'issueType' | 'status' | 'labels' | 'components',
+      requireOrgId(actingUser),
+    );
   }
 
   async findOneScoped(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {

@@ -26,6 +26,7 @@ import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
 import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 import { SearchTasksDto } from './dto/search-tasks.dto';
+import { AutocompleteValuesQueryDto } from './dto/autocomplete-values-query.dto';
 import { BulkMoveSprintDto } from './dto/bulk-move-sprint.dto';
 import { BulkAssignDto } from './dto/bulk-assign.dto';
 import { BulkRelabelDto } from './dto/bulk-relabel.dto';
@@ -67,6 +68,23 @@ export class TasksController {
   @ApiOperation({ summary: 'JQL-lite compound search (Search/Dashboards v2)' })
   async search(@Query() query: SearchTasksDto, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.search(query, user);
+  }
+
+  // 3 literal segments - can never collide with GET :id or GET search regardless of registration
+  // order (different segment count/shape), so no ordering comment is needed here.
+  @Get('search/autocomplete-fields')
+  @ApiOperation({ summary: "The Issue Navigator's JQL field/operator/keyword metadata" })
+  autocompleteFields() {
+    return this.tasksService.jqlFieldMetadata();
+  }
+
+  @Get('search/autocomplete-values')
+  @ApiOperation({ summary: 'Distinct, currently-in-use values for a JQL field (Module 4)' })
+  async autocompleteValues(
+    @Query() query: AutocompleteValuesQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.autocompleteValues(query.field, user);
   }
 
   // Registered before PATCH :id/GET :id - literal path segments must precede a :id sibling at the

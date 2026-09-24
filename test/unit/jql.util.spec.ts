@@ -3,6 +3,7 @@ import { Types } from 'mongoose';
 import {
   analyzeCurrentSprintUsage,
   assertValidJqlOrderBy,
+  buildJqlSort,
   compileJqlAst,
   parseJql,
   substituteCurrentSprint,
@@ -140,12 +141,12 @@ describe('parseJql', () => {
 
   it('parses an optional trailing ORDER BY with direction', () => {
     const { orderBy } = parseJql('status = Done ORDER BY priority DESC');
-    expect(orderBy).toEqual({ field: 'priority', direction: 'desc' });
+    expect(orderBy).toEqual([{ field: 'priority', direction: 'desc' }]);
   });
 
   it('defaults ORDER BY direction to ascending when omitted', () => {
     const { orderBy } = parseJql('status = Done ORDER BY dueDate');
-    expect(orderBy).toEqual({ field: 'dueDate', direction: 'asc' });
+    expect(orderBy).toEqual([{ field: 'dueDate', direction: 'asc' }]);
   });
 
   it('rejects an unsupported ORDER BY field', () => {
@@ -155,6 +156,58 @@ describe('parseJql', () => {
   it('omits orderBy when there is no ORDER BY clause', () => {
     const { orderBy } = parseJql('status = Done');
     expect(orderBy).toBeUndefined();
+  });
+
+  it('parses multiple comma-separated ORDER BY terms (Module 4)', () => {
+    const { orderBy } = parseJql('status = Done ORDER BY priority DESC, dueDate ASC');
+    expect(orderBy).toEqual([
+      { field: 'priority', direction: 'desc' },
+      { field: 'dueDate', direction: 'asc' },
+    ]);
+  });
+
+  it('rejects a second ORDER BY term with an unsupported field', () => {
+    expect(() => parseJql('status = Done ORDER BY priority, text')).toThrow(BadRequestException);
+  });
+
+  it('parses "field IN (...)" as an in comparison over a value list (Module 4)', () => {
+    const { ast } = parseJql('priority IN (P1, P2)');
+    expect(ast).toEqual({
+      type: 'comparison',
+      field: 'priority',
+      operator: 'in',
+      value: {
+        kind: 'list',
+        values: [
+          { kind: 'literal', value: 'P1' },
+          { kind: 'literal', value: 'P2' },
+        ],
+      },
+    });
+  });
+
+  it('parses "field NOT IN (...)" as a not-in comparison', () => {
+    const { ast } = parseJql('status NOT IN ("Done", "Closed")');
+    expect(ast).toEqual({
+      type: 'comparison',
+      field: 'status',
+      operator: 'not in',
+      value: {
+        kind: 'list',
+        values: [
+          { kind: 'literal', value: 'Done' },
+          { kind: 'literal', value: 'Closed' },
+        ],
+      },
+    });
+  });
+
+  it('rejects IN without a value list', () => {
+    expect(() => parseJql('priority IN P1')).toThrow(BadRequestException);
+  });
+
+  it('rejects an unterminated IN value list', () => {
+    expect(() => parseJql('priority IN (P1, P2')).toThrow(BadRequestException);
   });
 });
 
@@ -291,11 +344,61 @@ describe('compileJqlAst', () => {
       expect(() => compileJqlAst(ast, user)).toThrow(BadRequestException);
     });
   });
+
+  describe('storyPoints comparisons (Module 4)', () => {
+    it.each([
+      ['=', 'storyPoints'],
+      ['!=', '$ne'],
+      ['>', '$gt'],
+      ['>=', '$gte'],
+      ['<', '$lt'],
+      ['<=', '$lte'],
+    ])('compiles "%s"', (operator) => {
+      const { ast } = parseJql(`storyPoints ${operator} 5`);
+      const compiled = compileJqlAst(ast, user) as Record<string, unknown>;
+      expect(compiled.storyPoints).toBeDefined();
+    });
+
+    it('rejects a non-numeric value', () => {
+      const { ast } = parseJql('storyPoints = abc');
+      expect(() => compileJqlAst(ast, user)).toThrow(BadRequestException);
+    });
+  });
+
+  describe('IN / NOT IN (Module 4)', () => {
+    it('compiles "field IN (...)" to $in', () => {
+      const { ast } = parseJql('priority IN (P1, P2)');
+      expect(compileJqlAst(ast, user)).toEqual({ priority: { $in: ['P1', 'P2'] } });
+    });
+
+    it('compiles "field NOT IN (...)" to $nin', () => {
+      const { ast } = parseJql('status NOT IN ("Done", "Closed")');
+      expect(compileJqlAst(ast, user)).toEqual({ status: { $nin: ['Done', 'Closed'] } });
+    });
+
+    it('resolves each element of an ObjectId field IN-list to a real ObjectId', () => {
+      const { ast } = parseJql(`project IN (${PROJECT_ID})`);
+      const compiled = compileJqlAst(ast, user) as { project: { $in: Types.ObjectId[] } };
+      expect(compiled.project.$in[0]).toBeInstanceOf(Types.ObjectId);
+      expect(compiled.project.$in[0]!.toString()).toBe(PROJECT_ID);
+    });
+
+    it('resolves currentUser() inside an IN list', () => {
+      const { ast } = parseJql('assignee IN (currentUser())');
+      const compiled = compileJqlAst(ast, user) as { assignee: { $in: Types.ObjectId[] } };
+      expect(compiled.assignee.$in[0]!.toString()).toBe(USER_ID);
+    });
+
+    it('rejects IN on the text field', () => {
+      const { ast } = parseJql('text IN (foo, bar)');
+      expect(() => compileJqlAst(ast, user)).toThrow(BadRequestException);
+    });
+  });
 });
 
 describe('assertValidJqlOrderBy', () => {
   it('accepts an allowed sort field', () => {
-    expect(() => assertValidJqlOrderBy({ field: 'priority', direction: 'asc' })).not.toThrow();
+    expect(() => assertValidJqlOrderBy([{ field: 'priority', direction: 'asc' }])).not.toThrow();
   });
 
   it('is a no-op when orderBy is undefined', () => {
@@ -303,9 +406,45 @@ describe('assertValidJqlOrderBy', () => {
   });
 
   it('rejects an unsupported sort field', () => {
-    expect(() => assertValidJqlOrderBy({ field: 'text', direction: 'asc' })).toThrow(
+    expect(() => assertValidJqlOrderBy([{ field: 'text', direction: 'asc' }])).toThrow(
       BadRequestException,
     );
+  });
+
+  it('rejects when any term in a multi-term list is unsupported', () => {
+    expect(() =>
+      assertValidJqlOrderBy([
+        { field: 'priority', direction: 'asc' },
+        { field: 'text', direction: 'asc' },
+      ]),
+    ).toThrow(BadRequestException);
+  });
+});
+
+describe('buildJqlSort', () => {
+  it('defaults to newest-first when there is no ORDER BY', () => {
+    expect(buildJqlSort(undefined)).toEqual({ createdAt: -1 });
+    expect(buildJqlSort([])).toEqual({ createdAt: -1 });
+  });
+
+  it('builds a single-key sort object, appending createdAt as a stability tie-break', () => {
+    expect(buildJqlSort([{ field: 'priority', direction: 'desc' }])).toEqual({
+      priority: -1,
+      createdAt: 1,
+    });
+  });
+
+  it('builds a multi-key sort object preserving order as tie-break precedence', () => {
+    expect(
+      buildJqlSort([
+        { field: 'priority', direction: 'desc' },
+        { field: 'dueDate', direction: 'asc' },
+      ]),
+    ).toEqual({ priority: -1, dueDate: 1, createdAt: 1 });
+  });
+
+  it('does not append a redundant createdAt tie-break when the caller already sorts by it', () => {
+    expect(buildJqlSort([{ field: 'createdAt', direction: 'desc' }])).toEqual({ createdAt: -1 });
   });
 });
 

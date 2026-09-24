@@ -8,23 +8,25 @@ import { escapeRegex } from '../utils/task-filter.util';
  * A bounded, JQL-lite compound query language for `GET /tasks/search` - additive alongside the
  * fixed-shape `GET /tasks` filtering (`task-filter.util.ts`), which stays untouched. Supports
  * `field operator value` clauses combined with AND/OR (AND binds tighter than OR), parentheses,
- * a `NOT (...)` prefix, and `currentUser()` (valid only for `assignee`/`createdBy`). Not building:
- * issue-history functions, `IN (...)` value lists (express as `field = a OR field = b` instead),
- * or multi-key ORDER BY (matches `buildTaskListSort`'s existing single-key constraint).
+ * a `NOT (...)` prefix, `IN (...)`/`NOT IN (...)` value lists (Module 4's "real JQL engine" -
+ * previously deferred in favor of `field = a OR field = b`), multi-key `ORDER BY`, and
+ * `currentUser()` (valid only for `assignee`/`createdBy`). Not building: issue-history functions.
  *
  * Grammar (case-insensitive keywords; field names case-insensitive; values case-sensitive):
- *   query      := orExpr ( 'ORDER' 'BY' FIELD ( 'ASC' | 'DESC' )? )?
+ *   query      := orExpr ( 'ORDER' 'BY' orderTerm ( ',' orderTerm )* )?
+ *   orderTerm  := FIELD ( 'ASC' | 'DESC' )?
  *   orExpr     := andExpr ( 'OR' andExpr )*
  *   andExpr    := notExpr ( 'AND' notExpr )*
  *   notExpr    := 'NOT' notExpr | primary
  *   primary    := '(' orExpr ')' | comparison
- *   comparison := FIELD OPERATOR value
+ *   comparison := FIELD OPERATOR value | FIELD ( 'IN' | 'NOT' 'IN' ) '(' value ( ',' value )* ')'
  *   value      := STRING | BAREWORD | 'currentUser' '(' ')'
  */
 
 export const JQL_FIELDS = [
   'project',
   'status',
+  'statusCategory',
   'priority',
   'assignee',
   'issueType',
@@ -34,6 +36,11 @@ export const JQL_FIELDS = [
   'dueDate',
   'text',
   'sprint',
+  'storyPoints',
+  'parent',
+  'fixVersions',
+  'affectsVersions',
+  'issueKey',
 ] as const;
 export type JqlField = (typeof JQL_FIELDS)[number];
 
@@ -47,7 +54,8 @@ function buildLowerLookup<T extends string>(names: readonly T[]): Record<string,
 }
 const JQL_FIELD_BY_LOWER = buildLowerLookup(JQL_FIELDS);
 
-/** Valid ORDER BY fields - the same fixed list `buildTaskListSort` already accepts. */
+/** Valid ORDER BY fields - a superset of `buildTaskListSort`'s own single-key list, since JQL's
+ * ORDER BY is compiled independently (see `buildJqlSort` below), not routed through that helper. */
 export const JQL_SORT_FIELDS = [
   'dueDate',
   'priority',
@@ -55,12 +63,17 @@ export const JQL_SORT_FIELDS = [
   'createdAt',
   'updatedAt',
   'rank',
+  'storyPoints',
 ] as const;
 const JQL_SORT_FIELD_BY_LOWER = buildLowerLookup(JQL_SORT_FIELDS);
 
-export type JqlOperator = '=' | '!=' | '~' | '>' | '>=' | '<' | '<=';
+export type JqlOperator = '=' | '!=' | '~' | '>' | '>=' | '<' | '<=' | 'in' | 'not in';
 
-export type JqlValue =
+/** A single value - what a scalar comparison's right-hand side resolves to, and what each element
+ * of an `IN (...)` list is. Deliberately excludes `list` itself - an `IN` list of lists makes no
+ * sense, and keeping `resolveValue` typed against this (not the wider `JqlValue`) is what makes
+ * that exclusion enforced by the compiler, not just documented. */
+export type JqlScalarValue =
   | { kind: 'literal'; value: string }
   | { kind: 'currentUser' }
   // `sprint = current` (valid only for `sprint`) - unlike `currentUser()`, resolving this needs an
@@ -69,6 +82,8 @@ export type JqlValue =
   // before `compileJqlAst` ever sees it - `resolveValue` below only guards against a caller that
   // skipped that step.
   | { kind: 'currentSprint' };
+
+export type JqlValue = JqlScalarValue | { kind: 'list'; values: JqlScalarValue[] };
 
 export type JqlAst =
   | { type: 'and'; left: JqlAst; right: JqlAst }
@@ -83,14 +98,16 @@ export interface JqlOrderBy {
 
 export interface JqlQuery {
   ast: JqlAst;
-  orderBy?: JqlOrderBy;
+  /** One entry per comma-separated ORDER BY term, in the order given - Mongo sort objects are
+   * themselves key-ordered, so this array's order directly becomes tie-break precedence. */
+  orderBy?: JqlOrderBy[];
 }
 
 // ---------------------------------------------------------------------------
 // Tokenizer
 // ---------------------------------------------------------------------------
 
-type TokenType = 'ident' | 'string' | 'operator' | 'lparen' | 'rparen' | 'eof';
+type TokenType = 'ident' | 'string' | 'operator' | 'lparen' | 'rparen' | 'comma' | 'eof';
 
 interface Token {
   type: TokenType;
@@ -115,6 +132,11 @@ function tokenize(input: string): Token[] {
     }
     if (ch === ')') {
       tokens.push({ type: 'rparen', value: ')' });
+      i++;
+      continue;
+    }
+    if (ch === ',') {
+      tokens.push({ type: 'comma', value: ',' });
       i++;
       continue;
     }
@@ -186,28 +208,15 @@ class Parser {
 
   parse(): JqlQuery {
     const ast = this.parseOr();
-    let orderBy: JqlOrderBy | undefined;
+    let orderBy: JqlOrderBy[] | undefined;
     if (this.isKeyword('ORDER')) {
       this.pos++;
       this.consumeKeyword('BY');
-      const fieldToken = this.advance();
-      if (fieldToken.type !== 'ident') {
-        throw new BadRequestException('Expected a field name after ORDER BY');
-      }
-      const field = JQL_SORT_FIELD_BY_LOWER[fieldToken.value.toLowerCase()];
-      if (!field) {
-        throw new BadRequestException(
-          `Cannot ORDER BY "${fieldToken.value}" - expected one of: ${JQL_SORT_FIELDS.join(', ')}`,
-        );
-      }
-      let direction: 'asc' | 'desc' = 'asc';
-      if (this.isKeyword('ASC')) {
+      orderBy = [this.parseOrderTerm()];
+      while (this.peek().type === 'comma') {
         this.pos++;
-      } else if (this.isKeyword('DESC')) {
-        direction = 'desc';
-        this.pos++;
+        orderBy.push(this.parseOrderTerm());
       }
-      orderBy = { field, direction };
     }
     if (this.peek().type !== 'eof') {
       throw new BadRequestException(
@@ -215,6 +224,27 @@ class Parser {
       );
     }
     return { ast, orderBy };
+  }
+
+  private parseOrderTerm(): JqlOrderBy {
+    const fieldToken = this.advance();
+    if (fieldToken.type !== 'ident') {
+      throw new BadRequestException('Expected a field name after ORDER BY');
+    }
+    const field = JQL_SORT_FIELD_BY_LOWER[fieldToken.value.toLowerCase()];
+    if (!field) {
+      throw new BadRequestException(
+        `Cannot ORDER BY "${fieldToken.value}" - expected one of: ${JQL_SORT_FIELDS.join(', ')}`,
+      );
+    }
+    let direction: 'asc' | 'desc' = 'asc';
+    if (this.isKeyword('ASC')) {
+      this.pos++;
+    } else if (this.isKeyword('DESC')) {
+      direction = 'desc';
+      this.pos++;
+    }
+    return { field, direction };
   }
 
   private parseOr(): JqlAst {
@@ -272,17 +302,50 @@ class Parser {
       );
     }
 
-    const opToken = this.advance();
-    if (opToken.type !== 'operator') {
-      throw new BadRequestException(`Expected an operator after "${fieldToken.value}"`);
+    // IN / NOT IN - checked before the generic OPERATORS token set, since 'IN'/'NOT' tokenize as
+    // plain idents (keywords), not operators.
+    let negatedIn = false;
+    if (
+      this.isKeyword('NOT') &&
+      this.tokens[this.pos + 1]?.type === 'ident' &&
+      this.tokens[this.pos + 1]!.value.toUpperCase() === 'IN'
+    ) {
+      negatedIn = true;
+      this.pos += 2;
+    } else if (this.isKeyword('IN')) {
+      this.pos += 1;
+    } else {
+      const opToken = this.advance();
+      if (opToken.type !== 'operator') {
+        throw new BadRequestException(`Expected an operator after "${fieldToken.value}"`);
+      }
+      const operator = opToken.value as JqlOperator;
+      const value = this.parseValue();
+      return { type: 'comparison', field, operator, value };
     }
-    const operator = opToken.value as JqlOperator;
 
-    const value = this.parseValue();
-    return { type: 'comparison', field, operator, value };
+    if (this.peek().type !== 'lparen') {
+      throw new BadRequestException(`Expected "(" after ${negatedIn ? 'NOT IN' : 'IN'}`);
+    }
+    this.pos++;
+    const values: JqlScalarValue[] = [this.parseValue()];
+    while (this.peek().type === 'comma') {
+      this.pos++;
+      values.push(this.parseValue());
+    }
+    if (this.peek().type !== 'rparen') {
+      throw new BadRequestException('Expected a closing ")" after the IN value list');
+    }
+    this.pos++;
+    return {
+      type: 'comparison',
+      field,
+      operator: negatedIn ? 'not in' : 'in',
+      value: { kind: 'list', values },
+    };
   }
 
-  private parseValue(): JqlValue {
+  private parseValue(): JqlScalarValue {
     const token = this.advance();
     if (token.type === 'string') {
       return { kind: 'literal', value: token.value };
@@ -319,16 +382,29 @@ export function parseJql(input: string): JqlQuery {
 // Compiler - JqlAst -> Mongo FilterQuery<TaskDocument>
 // ---------------------------------------------------------------------------
 
-const ARRAY_FIELDS: ReadonlySet<JqlField> = new Set(['labels', 'components']);
+const ARRAY_FIELDS: ReadonlySet<JqlField> = new Set([
+  'labels',
+  'components',
+  'fixVersions',
+  'affectsVersions',
+]);
 const OBJECT_ID_FIELDS: ReadonlySet<JqlField> = new Set([
   'project',
   'assignee',
   'createdBy',
   'sprint',
+  'parent',
+  'fixVersions',
+  'affectsVersions',
 ]);
+const NUMERIC_FIELDS: ReadonlySet<JqlField> = new Set(['storyPoints']);
 const CURRENT_USER_FIELDS: ReadonlySet<JqlField> = new Set(['assignee', 'createdBy']);
 
-function resolveValue(field: JqlField, value: JqlValue, actingUser: AuthenticatedUser): string {
+function resolveValue(
+  field: JqlField,
+  value: JqlScalarValue,
+  actingUser: AuthenticatedUser,
+): string {
   if (value.kind === 'currentUser') {
     if (!CURRENT_USER_FIELDS.has(field)) {
       throw new BadRequestException(`currentUser() is not valid for field "${field}"`);
@@ -412,11 +488,40 @@ function compileComparison(
 ): FilterQuery<TaskDocument> {
   const { field, operator } = node;
 
-  if (field === 'text') {
-    if (operator !== '~') {
-      throw new BadRequestException('"text" only supports the "~" (contains) operator');
+  if (field === 'text' && operator !== '~') {
+    throw new BadRequestException('"text" only supports the "~" (contains) operator');
+  }
+  if (field !== 'text' && operator === '~') {
+    throw new BadRequestException('"~" is only supported on the "text" field');
+  }
+
+  // IN / NOT IN - handled once, generically, for every field: resolve each list element the same
+  // way a scalar comparison would, then $in/$nin. Narrowing on operator here is also what proves
+  // to the compiler that `node.value` can no longer be the `list` variant below.
+  if (operator === 'in' || operator === 'not in') {
+    if (node.value.kind !== 'list') {
+      throw new BadRequestException('IN/NOT IN requires a value list');
     }
-    const pattern = escapeRegex(resolveValue(field, node.value, actingUser));
+    const rawValues = node.value.values.map((v) => resolveValue(field, v, actingUser));
+    const resolvedValues: Array<string | Types.ObjectId> = OBJECT_ID_FIELDS.has(field)
+      ? rawValues.map((v) => new Types.ObjectId(v))
+      : rawValues;
+    return operator === 'in'
+      ? { [field]: { $in: resolvedValues } }
+      : { [field]: { $nin: resolvedValues } };
+  }
+
+  // Every branch below is for a scalar (non-list) comparison - the parser only ever produces a
+  // `list` value alongside 'in'/'not in' (handled and returned above), so this is unreachable in
+  // practice; it exists to prove that to the type-checker, which can't correlate `operator` and
+  // `value`'s types across two separate properties on its own.
+  if (node.value.kind === 'list') {
+    throw new BadRequestException(`"${operator}" does not take a value list`);
+  }
+  const value = node.value;
+
+  if (field === 'text') {
+    const pattern = escapeRegex(resolveValue(field, value, actingUser));
     return {
       $or: [
         { title: { $regex: pattern, $options: 'i' } },
@@ -426,12 +531,8 @@ function compileComparison(
     };
   }
 
-  if (operator === '~') {
-    throw new BadRequestException('"~" is only supported on the "text" field');
-  }
-
   if (field === 'dueDate') {
-    const raw = resolveValue(field, node.value, actingUser);
+    const raw = resolveValue(field, value, actingUser);
     const date = new Date(raw);
     if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(`"${raw}" is not a valid date for "dueDate"`);
@@ -452,11 +553,35 @@ function compileComparison(
     }
   }
 
-  if (operator === '>' || operator === '>=' || operator === '<' || operator === '<=') {
-    throw new BadRequestException(`"${operator}" is only supported on the "dueDate" field`);
+  if (NUMERIC_FIELDS.has(field)) {
+    const raw = resolveValue(field, value, actingUser);
+    const num = Number(raw);
+    if (Number.isNaN(num)) {
+      throw new BadRequestException(`"${raw}" is not a valid number for "${field}"`);
+    }
+    switch (operator) {
+      case '=':
+        return { [field]: num };
+      case '!=':
+        return { [field]: { $ne: num } };
+      case '>':
+        return { [field]: { $gt: num } };
+      case '>=':
+        return { [field]: { $gte: num } };
+      case '<':
+        return { [field]: { $lt: num } };
+      case '<=':
+        return { [field]: { $lte: num } };
+    }
   }
 
-  const raw = resolveValue(field, node.value, actingUser);
+  if (operator === '>' || operator === '>=' || operator === '<' || operator === '<=') {
+    throw new BadRequestException(
+      `"${operator}" is only supported on the "dueDate" and "storyPoints" fields`,
+    );
+  }
+
+  const raw = resolveValue(field, value, actingUser);
   const resolved: string | Types.ObjectId = OBJECT_ID_FIELDS.has(field)
     ? new Types.ObjectId(raw)
     : raw;
@@ -487,15 +612,34 @@ export function compileJqlAst(
 }
 
 /**
- * Defense-in-depth re-check that an `orderBy.field` is one of the allowed sort fields - the
+ * Defense-in-depth re-check that every `orderBy[].field` is one of the allowed sort fields - the
  * parser already canonicalizes and validates this at parse time (see `Parser.parse()`), so this
  * only ever throws for an `orderBy` built some other way than `parseJql()`.
  */
-export function assertValidJqlOrderBy(orderBy: JqlOrderBy | undefined): void {
+export function assertValidJqlOrderBy(orderBy: JqlOrderBy[] | undefined): void {
   if (!orderBy) return;
-  if (!(JQL_SORT_FIELDS as readonly string[]).includes(orderBy.field)) {
-    throw new BadRequestException(
-      `Cannot ORDER BY "${orderBy.field}" - expected one of: ${JQL_SORT_FIELDS.join(', ')}`,
-    );
+  for (const term of orderBy) {
+    if (!(JQL_SORT_FIELDS as readonly string[]).includes(term.field)) {
+      throw new BadRequestException(
+        `Cannot ORDER BY "${term.field}" - expected one of: ${JQL_SORT_FIELDS.join(', ')}`,
+      );
+    }
   }
+}
+
+/**
+ * Compiles a parsed multi-key ORDER BY into a Mongo sort object - array order becomes tie-break
+ * precedence (Mongo sort objects are themselves key-ordered). Defaults to the pre-JQL behavior
+ * (newest first) when the query has no ORDER BY clause at all, and - matching
+ * `buildTaskListSort`'s own existing convention - appends `createdAt` ascending as a final
+ * tie-break for pagination stability whenever the caller's own ORDER BY didn't already sort by it.
+ */
+export function buildJqlSort(orderBy: JqlOrderBy[] | undefined): Record<string, 1 | -1> {
+  if (!orderBy || orderBy.length === 0) return { createdAt: -1 };
+  const sort: Record<string, 1 | -1> = {};
+  for (const term of orderBy) {
+    sort[term.field] = term.direction === 'asc' ? 1 : -1;
+  }
+  if (!('createdAt' in sort)) sort.createdAt = 1;
+  return sort;
 }

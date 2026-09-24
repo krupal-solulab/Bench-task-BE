@@ -222,6 +222,20 @@ export class TasksRepository {
     return { total, done };
   }
 
+  /** Distinct, currently-in-use values for a JQL autocomplete field, scoped to the org - e.g. the
+   * real status names or issue types staff have actually used, rather than a fixed enum (both are
+   * project-workflow-customizable, so there's no single fixed list to offer instead). */
+  async distinctValues(
+    field: 'issueType' | 'status' | 'labels' | 'components',
+    organizationId: string,
+  ): Promise<string[]> {
+    const values = await this.model.distinct(field, {
+      organizationId: new Types.ObjectId(organizationId),
+      deletedAt: null,
+    });
+    return (values as unknown[]).filter((v): v is string => typeof v === 'string').sort();
+  }
+
   /** Re-spaces every task in a scope evenly by RANK_STEP, in their current rank order. */
   async renumberScope(scope: RankScope): Promise<void> {
     const tasks = await this.model
