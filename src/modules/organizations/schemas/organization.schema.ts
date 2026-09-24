@@ -1,6 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { OrganizationStatus } from '../../../common/enums/organization-status.enum';
+import {
+  LinkTypeDefinition,
+  LinkTypeDefinitionSchema,
+} from '../../planning/schemas/link-type.schema';
 
 export type OrganizationDocument = HydratedDocument<Organization>;
 
@@ -34,6 +38,11 @@ export class Organization {
 
   @Prop({ type: Types.ObjectId, ref: 'User', default: null })
   createdBy!: Types.ObjectId | null;
+
+  // Module 1's issue-link type catalog (Blocks/Relates To/Duplicates/...) - org-wide since a link
+  // can cross projects. Empty (the default for every existing org) resolves to DEFAULT_LINK_TYPES.
+  @Prop({ type: [LinkTypeDefinitionSchema], default: [] })
+  linkTypes!: LinkTypeDefinition[];
 
   createdAt!: Date;
   updatedAt!: Date;

@@ -13,6 +13,7 @@ import { UsersRepository } from '../users/users.repository';
 import { UsersService } from '../users/users.service';
 import { UserDocument } from '../users/schemas/user.schema';
 import { OrganizationsRepository } from './organizations.repository';
+import { LinkTypeDefinition } from '../planning/schemas/link-type.schema';
 import { OrganizationDocument } from './schemas/organization.schema';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { ListOrganizationsDto } from './dto/list-organizations.dto';
@@ -127,6 +128,22 @@ export class OrganizationsService {
       this.usersRepository.countAll(),
     ]);
     return { organizationCount, totalUserCount };
+  }
+
+  /** Public accessor for callers outside this service (Module 1's IssueLinksService) that need the
+   * full Organization document - e.g. its (possibly custom) link-type catalog - rather than a
+   * projected summary. */
+  async getOrganizationDocument(id: string): Promise<OrganizationDocument> {
+    return this.getOrThrow(id);
+  }
+
+  async updateLinkTypes(
+    organizationId: string,
+    linkTypes: LinkTypeDefinition[],
+  ): Promise<OrganizationDocument> {
+    const updated = await this.organizationsRepository.updateById(organizationId, { linkTypes });
+    if (!updated) throw new NotFoundException('Organization not found');
+    return updated;
   }
 
   async assertActive(organizationId: string | null): Promise<void> {

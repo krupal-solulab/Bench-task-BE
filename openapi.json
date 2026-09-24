@@ -4285,6 +4285,232 @@
         ]
       }
     },
+    "/api/v1/tasks/{taskId}/links": {
+      "post": {
+        "operationId": "IssueLinksController_create",
+        "summary": "Link this task to another (blocks/relates to/duplicates/...)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueLinkDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "IssueLinksController_list",
+        "summary": "A task's links, resolved to the correct name/inverseName per side",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{taskId}/links/{linkId}": {
+      "delete": {
+        "operationId": "IssueLinksController_remove",
+        "summary": "Remove a link",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "linkId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/link-types": {
+      "get": {
+        "operationId": "LinkTypesController_list",
+        "summary": "This org's issue-link type catalog",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "link-types"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "LinkTypesController_update",
+        "summary": "Set/replace this org's issue-link type catalog",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutLinkTypesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "link-types"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/dependency-graph": {
+      "get": {
+        "operationId": "DependencyGraphController_get",
+        "summary": "A project's issue-link dependency graph (nodes + edges)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/reports/roadmap": {
+      "get": {
+        "operationId": "RoadmapController_get",
+        "summary": "Cross-project epic roadmap, with capacity and blocking warnings",
+        "parameters": [
+          {
+            "name": "projectIds",
+            "required": false,
+            "in": "query",
+            "description": "Restrict to these project ids (a subset of what the caller can already access)",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "To Do",
+                "In Progress",
+                "Done"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{taskId}/comments": {
       "post": {
         "operationId": "CommentsController_create",
@@ -6817,6 +7043,64 @@
         },
         "required": [
           "mutedTypes"
+        ]
+      },
+      "CreateIssueLinkDto": {
+        "type": "object",
+        "properties": {
+          "targetTaskId": {
+            "type": "string",
+            "description": "The other task to link to"
+          },
+          "linkTypeId": {
+            "type": "string",
+            "example": "blocks",
+            "description": "One of the org's link-type ids"
+          }
+        },
+        "required": [
+          "targetTaskId",
+          "linkTypeId"
+        ]
+      },
+      "LinkTypeDefinitionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Omit when creating a new link type - the server assigns a stable id. Include the existing id when editing a type's name/inverseName/isBlocking."
+          },
+          "name": {
+            "type": "string",
+            "example": "Blocks"
+          },
+          "inverseName": {
+            "type": "string",
+            "example": "Is Blocked By"
+          },
+          "isBlocking": {
+            "type": "boolean",
+            "description": "Whether this type participates in circular-dependency detection"
+          }
+        },
+        "required": [
+          "name",
+          "inverseName",
+          "isBlocking"
+        ]
+      },
+      "PutLinkTypesDto": {
+        "type": "object",
+        "properties": {
+          "linkTypes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkTypeDefinitionDto"
+            }
+          }
+        },
+        "required": [
+          "linkTypes"
         ]
       },
       "CreateCommentDto": {

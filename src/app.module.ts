@@ -23,6 +23,7 @@ import { OrganizationsModule } from './modules/organizations/organizations.modul
 import { AuthModule } from './modules/auth/auth.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 import { TasksModule } from './modules/tasks/tasks.module';
+import { PlanningModule } from './modules/planning/planning.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
@@ -96,6 +97,7 @@ import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates
     AuthModule,
     ProjectsModule,
     TasksModule,
+    PlanningModule,
     CommentsModule,
     AttachmentsModule,
     DashboardModule,
