@@ -5,6 +5,7 @@ import {
   IsEnum,
   IsISO8601,
   IsInt,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -73,6 +74,15 @@ export class CreateTaskDto {
   @Min(0)
   @Max(1000)
   storyPoints?: number;
+
+  @ApiPropertyOptional({
+    description: 'Original Estimate in hours (Time Tracking & Work Logs)',
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10000)
+  originalEstimateHours?: number;
 
   @ApiPropertyOptional({ type: [String], description: 'Free-form tags' })
   @IsOptional()

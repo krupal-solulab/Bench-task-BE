@@ -185,6 +185,7 @@ export class TasksService {
       issueType,
       parent,
       storyPoints: dto.storyPoints ?? null,
+      originalEstimateHours: dto.originalEstimateHours ?? null,
       issueKey: `${keyPrefix}-${seq}`,
       labels: dto.labels ?? [],
       components: dto.components ?? [],
@@ -347,6 +348,9 @@ export class TasksService {
         : {}),
       ...(dto.affectsVersions !== undefined
         ? { affectsVersions: dto.affectsVersions.map((id) => new Types.ObjectId(id)) }
+        : {}),
+      ...(dto.originalEstimateHours !== undefined
+        ? { originalEstimateHours: dto.originalEstimateHours }
         : {}),
       // Merged (not replaced) - omitting a key on update keeps its previously-stored value,
       // matching UpdateTaskDto's partial-patch semantics for every other field.

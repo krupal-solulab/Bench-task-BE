@@ -4929,6 +4929,346 @@
         ]
       }
     },
+    "/api/v1/tasks/{taskId}/worklogs": {
+      "post": {
+        "operationId": "WorkLogsController_create",
+        "summary": "Log hours against a task (project members only, logs as yourself)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkLogDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "WorkLogsController_list",
+        "summary": "List a task's work logs (paginated, newest work date first)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{taskId}/worklogs/summary": {
+      "get": {
+        "operationId": "WorkLogsController_summary",
+        "summary": "Original estimate vs. total logged hours for a task",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/worklogs/{id}": {
+      "patch": {
+        "operationId": "WorkLogsController_update",
+        "summary": "Edit your own work log (Admin may edit any)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkLogDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "WorkLogsController_remove",
+        "summary": "Soft-delete your own work log (Admin may delete any)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/worklogs": {
+      "get": {
+        "operationId": "WorkLogsController_listForProject",
+        "summary": "A project's raw timesheet - every work log, filterable by user/date range/billable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": false,
+            "in": "query",
+            "description": "Restrict to a single user (project-wide list only)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "billable",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/worklogs/report": {
+      "get": {
+        "operationId": "WorkLogsController_reportForProject",
+        "summary": "Per-user totals for a project (the timesheet report)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-31",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{taskId}/comments": {
       "post": {
         "operationId": "CommentsController_create",
@@ -7178,6 +7518,10 @@
             "type": "number",
             "description": "Story/Task/Bug only"
           },
+          "originalEstimateHours": {
+            "type": "number",
+            "description": "Original Estimate in hours (Time Tracking & Work Logs)"
+          },
           "labels": {
             "description": "Free-form tags",
             "type": "array",
@@ -7302,6 +7646,10 @@
           "storyPoints": {
             "type": "number",
             "description": "Story/Task/Bug only"
+          },
+          "originalEstimateHours": {
+            "type": "number",
+            "description": "Original Estimate in hours (Time Tracking & Work Logs)"
           },
           "labels": {
             "description": "Free-form tags",
@@ -7585,6 +7933,56 @@
         "required": [
           "linkTypes"
         ]
+      },
+      "CreateWorkLogDto": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": "number",
+            "example": 2.5,
+            "description": "Hours worked (0.1 - 24)"
+          },
+          "description": {
+            "type": "string",
+            "example": "Investigated the flaky test"
+          },
+          "workDate": {
+            "type": "string",
+            "example": "2026-03-01",
+            "description": "The day the work was actually done"
+          },
+          "billable": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "hours",
+          "workDate"
+        ]
+      },
+      "UpdateWorkLogDto": {
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": "number",
+            "example": 2.5,
+            "description": "Hours worked (0.1 - 24)"
+          },
+          "description": {
+            "type": "string",
+            "example": "Investigated the flaky test"
+          },
+          "workDate": {
+            "type": "string",
+            "example": "2026-03-01",
+            "description": "The day the work was actually done"
+          },
+          "billable": {
+            "type": "boolean",
+            "default": true
+          }
+        }
       },
       "CreateCommentDto": {
         "type": "object",

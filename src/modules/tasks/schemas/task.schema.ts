@@ -115,6 +115,12 @@ export class Task {
   @Prop({ type: Number, default: null })
   storyPoints!: number | null;
 
+  // Module 3's "Original Estimate" (BRD: Time Tracking & Work Logs) - hours, kept separate from
+  // storyPoints (an agile sizing unit, not a time unit). Actual time is the sum of this task's
+  // WorkLog entries, computed on read by WorkLogsService, not denormalized here.
+  @Prop({ type: Number, default: null })
+  originalEstimateHours!: number | null;
+
   // "SUP-101" style, assigned once at creation (TasksService.create()) and never changed after -
   // null for every task created before this field existed (no backfill, purely historical gap).
   @Prop({ type: String, default: null })
