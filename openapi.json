@@ -6856,7 +6856,12 @@
                 "tasksByPriority",
                 "taskTrend",
                 "developerWorkload",
-                "overdueList"
+                "overdueList",
+                "slaCompliance",
+                "velocityTrend",
+                "activeSprintsHealth",
+                "myOpenIssues",
+                "resolutionTimeTrend"
               ]
             }
           },
@@ -6870,7 +6875,12 @@
                 "tasksByPriority",
                 "taskTrend",
                 "developerWorkload",
-                "overdueList"
+                "overdueList",
+                "slaCompliance",
+                "velocityTrend",
+                "activeSprintsHealth",
+                "myOpenIssues",
+                "resolutionTimeTrend"
               ]
             }
           }

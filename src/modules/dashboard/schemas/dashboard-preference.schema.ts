@@ -12,6 +12,11 @@ export const DASHBOARD_WIDGET_IDS = [
   'taskTrend',
   'developerWorkload',
   'overdueList',
+  'slaCompliance',
+  'velocityTrend',
+  'activeSprintsHealth',
+  'myOpenIssues',
+  'resolutionTimeTrend',
 ] as const;
 export type DashboardWidgetId = (typeof DASHBOARD_WIDGET_IDS)[number];
 
