@@ -25,6 +25,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { PlanningModule } from './modules/planning/planning.module';
 import { WorkLogsModule } from './modules/worklogs/worklogs.module';
+import { ImportExportModule } from './modules/import-export/import-export.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
@@ -109,6 +110,7 @@ import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates
     ApiLogsModule,
     IntegrationHealthModule,
     CannedResponsesModule,
+    ImportExportModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

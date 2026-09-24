@@ -73,6 +73,9 @@ import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { BulkMoveSprintDto } from './dto/bulk-move-sprint.dto';
 import { BulkAssignDto } from './dto/bulk-assign.dto';
 import { BulkRelabelDto } from './dto/bulk-relabel.dto';
+import { BulkStatusDto } from './dto/bulk-status.dto';
+import { BulkPriorityDto } from './dto/bulk-priority.dto';
+import { BulkDeleteDto } from './dto/bulk-delete.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 import { SearchTasksDto } from './dto/search-tasks.dto';
 import {
@@ -734,6 +737,33 @@ export class TasksService {
       const labels = [...new Set([...task.labels, ...dto.labels])];
       await this.update(taskId, { labels }, actingUser);
     });
+  }
+
+  /** Module 5's bulk transition - each task's workflow legality is checked independently (a
+   * custom-workflow project may not even have this status), so one illegal transition among many
+   * selected tasks fails only that task, matching every other bulk-* endpoint's partial-success
+   * shape. */
+  async bulkStatus(
+    dto: BulkStatusDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, (taskId) => this.updateStatus(taskId, dto.status, actingUser));
+  }
+
+  async bulkPriority(
+    dto: BulkPriorityDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, (taskId) =>
+      this.update(taskId, { priority: dto.priority }, actingUser),
+    );
+  }
+
+  async bulkDelete(
+    dto: BulkDeleteDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, (taskId) => this.softDelete(taskId, actingUser));
   }
 
   async updateRank(

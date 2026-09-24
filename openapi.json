@@ -3243,6 +3243,96 @@
         ]
       }
     },
+    "/api/v1/tasks/bulk-status": {
+      "patch": {
+        "operationId": "TasksController_bulkStatus",
+        "summary": "Transition multiple tasks to the same status at once (Module 5)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-priority": {
+      "patch": {
+        "operationId": "TasksController_bulkPriority",
+        "summary": "Set the priority of multiple tasks at once (Module 5)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkPriorityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-delete": {
+      "patch": {
+        "operationId": "TasksController_bulkDelete",
+        "summary": "Soft-delete multiple tasks at once (Module 5)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkDeleteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{id}": {
       "get": {
         "operationId": "TasksController_findOne",
@@ -6619,6 +6709,103 @@
           }
         ]
       }
+    },
+    "/api/v1/projects/{projectId}/tasks/export": {
+      "get": {
+        "operationId": "ImportExportController_exportTasksCsv",
+        "summary": "A project's tasks as CSV content (Module 5)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/tasks/import": {
+      "post": {
+        "operationId": "ImportExportController_importTasksCsv",
+        "summary": "Bulk-create tasks from CSV content, per-row success/failure (Module 5)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportTasksDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/backup": {
+      "get": {
+        "operationId": "ImportExportController_backupProject",
+        "summary": "A project's configuration + issue snapshot as JSON (Module 5)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -7676,6 +7863,62 @@
           "labels"
         ]
       },
+      "BulkStatusDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "example": "Done"
+          }
+        },
+        "required": [
+          "taskIds",
+          "status"
+        ]
+      },
+      "BulkPriorityDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ]
+          }
+        },
+        "required": [
+          "taskIds",
+          "priority"
+        ]
+      },
+      "BulkDeleteDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "taskIds"
+        ]
+      },
       "UpdateTaskDto": {
         "type": "object",
         "properties": {
@@ -8211,6 +8454,18 @@
             "type": "string"
           }
         }
+      },
+      "ImportTasksDto": {
+        "type": "object",
+        "properties": {
+          "csv": {
+            "type": "string",
+            "description": "Raw CSV content - first row is headers (title, description, issueType, priority, dueDate, storyPoints, labels, components)"
+          }
+        },
+        "required": [
+          "csv"
+        ]
       }
     }
   }

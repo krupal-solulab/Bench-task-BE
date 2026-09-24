@@ -222,6 +222,18 @@ export class TasksRepository {
     return { total, done };
   }
 
+  /** Every non-deleted task in a project, for Module 5's CSV export/project backup - unpaginated
+   * (unlike `paginate()`, which is capped at 100 per page), but still hard-capped to keep a single
+   * export request bounded. */
+  async findAllForProject(projectId: string, limit = 5000): Promise<TaskDocument[]> {
+    return this.model
+      .find({ project: new Types.ObjectId(projectId), deletedAt: null })
+      .populate('assignee', POPULATE_FIELDS)
+      .sort({ rank: 1, createdAt: 1 })
+      .limit(limit)
+      .exec();
+  }
+
   /** Distinct, currently-in-use values for a JQL autocomplete field, scoped to the org - e.g. the
    * real status names or issue types staff have actually used, rather than a fixed enum (both are
    * project-workflow-customizable, so there's no single fixed list to offer instead). */

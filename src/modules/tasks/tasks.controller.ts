@@ -30,6 +30,9 @@ import { AutocompleteValuesQueryDto } from './dto/autocomplete-values-query.dto'
 import { BulkMoveSprintDto } from './dto/bulk-move-sprint.dto';
 import { BulkAssignDto } from './dto/bulk-assign.dto';
 import { BulkRelabelDto } from './dto/bulk-relabel.dto';
+import { BulkStatusDto } from './dto/bulk-status.dto';
+import { BulkPriorityDto } from './dto/bulk-priority.dto';
+import { BulkDeleteDto } from './dto/bulk-delete.dto';
 
 @ApiTags('tasks')
 @ApiBearerAuth()
@@ -108,6 +111,27 @@ export class TasksController {
   @ApiOperation({ summary: 'Add labels to multiple tasks at once (BRD 6.2)' })
   async bulkRelabel(@Body() dto: BulkRelabelDto, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.bulkRelabel(dto, user);
+  }
+
+  @Patch('bulk-status')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Transition multiple tasks to the same status at once (Module 5)' })
+  async bulkStatus(@Body() dto: BulkStatusDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkStatus(dto, user);
+  }
+
+  @Patch('bulk-priority')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Set the priority of multiple tasks at once (Module 5)' })
+  async bulkPriority(@Body() dto: BulkPriorityDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkPriority(dto, user);
+  }
+
+  @Patch('bulk-delete')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Soft-delete multiple tasks at once (Module 5)' })
+  async bulkDelete(@Body() dto: BulkDeleteDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkDelete(dto, user);
   }
 
   @Get(':id')
