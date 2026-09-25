@@ -155,6 +155,18 @@ export class SprintsController {
     return this.sprintsService.burndown(projectId, sprintId, user);
   }
 
+  @Get(':sprintId/planning-suggestion')
+  @ApiOperation({
+    summary: 'Suggested backlog items for a Planned sprint, based on capacity or velocity',
+  })
+  async planningSuggestion(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Param('sprintId', ParseObjectIdPipe) sprintId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.sprintsService.planningSuggestion(projectId, sprintId, user);
+  }
+
   @Get(':sprintId/retrospective')
   @ApiOperation({
     summary: 'Sprint retrospective: planned vs completed scope, scope changes, and carryover',

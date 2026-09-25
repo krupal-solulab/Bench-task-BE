@@ -268,4 +268,15 @@ export class TasksController {
   ) {
     return this.tasksService.epicBurndown(id, user);
   }
+
+  @Get(':id/summary')
+  @ApiOperation({
+    summary: 'A deterministic, field-based summary of this issue (not AI-generated)',
+  })
+  async summary(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.summary(id, user);
+  }
 }

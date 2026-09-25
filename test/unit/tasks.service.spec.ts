@@ -147,7 +147,8 @@ describe('TasksService', () => {
   let eventsGateway: jest.Mocked<
     Pick<EventsGateway, 'emitTaskStatusChanged' | 'emitCommentCreated'>
   >;
-  let commentModel: { create: jest.Mock; exists: jest.Mock };
+  let commentModel: { create: jest.Mock; exists: jest.Mock; countDocuments: jest.Mock };
+  let issueLinkModel: { countDocuments: jest.Mock };
   let automationQueue: { enqueue: jest.Mock };
   let automationLogModel: { create: jest.Mock };
   let service: TasksService;
@@ -209,9 +210,11 @@ describe('TasksService', () => {
     commentModel = {
       create: jest.fn().mockResolvedValue({ id: 'comment-1' }),
       exists: jest.fn().mockResolvedValue(null),
+      countDocuments: jest.fn().mockResolvedValue(0),
     };
     automationQueue = { enqueue: jest.fn().mockResolvedValue(undefined) };
     automationLogModel = { create: jest.fn().mockResolvedValue(undefined) };
+    issueLinkModel = { countDocuments: jest.fn().mockResolvedValue(0) };
     service = new TasksService(
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
@@ -223,6 +226,7 @@ describe('TasksService', () => {
       eventsGateway as unknown as EventsGateway,
       automationQueue as never,
       commentModel as never,
+      issueLinkModel as never,
       automationLogModel as never,
     );
     // Mirrors FakeAutomationQueue's synchronous-execution behavior (see

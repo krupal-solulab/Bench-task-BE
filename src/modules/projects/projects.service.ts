@@ -625,6 +625,64 @@ export class ProjectsService {
     };
   }
 
+  /**
+   * Module 10's deterministic "AI-assisted issue creation" (NOT an LLM call - see
+   * `release-notes.util.ts`/`task-summary.util.ts` for this codebase's established "deterministic,
+   * clearly-labeled-as-suggested" pattern): the most-frequent assignee and most-common labels for
+   * this project's existing issues, optionally narrowed to one issue type, so a new-issue form can
+   * offer them as a one-click suggestion rather than starting from nothing every time.
+   */
+  async suggestedTaskFields(
+    id: string,
+    issueType: string | undefined,
+    actingUser: AuthenticatedUser,
+  ) {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+
+    const match: Record<string, unknown> = { project: project._id, deletedAt: null };
+    if (issueType) match.issueType = issueType;
+
+    const [assigneeRows, labelRows] = await Promise.all([
+      this.taskModel.aggregate<{ _id: Types.ObjectId; count: number }>([
+        { $match: { ...match, assignee: { $ne: null } } },
+        { $group: { _id: '$assignee', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        // A handful of candidates, not just the top one - a New Task's Assignee picker only ever
+        // offers active Developers (see UsersRepository.findAssignable), so the most-frequent
+        // assignee overall could be a Manager/Admin (a legitimate assignee, just not one the form
+        // can currently pre-select) - the loop below falls through to the next candidate rather
+        // than suggesting a user the form has no way to actually apply.
+        { $limit: 5 },
+      ]),
+      this.taskModel.aggregate<{ _id: string; count: number }>([
+        { $match: match },
+        { $unwind: '$labels' },
+        { $group: { _id: '$labels', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+        { $limit: 5 },
+      ]),
+    ]);
+
+    let suggestedAssigneeId: string | null = null;
+    if (assigneeRows.length > 0) {
+      const candidates = await this.usersRepository.findByIds(
+        assigneeRows.map((r) => r._id.toString()),
+        requireOrgId(actingUser),
+      );
+      const candidateById = new Map(candidates.map((u) => [u.id, u]));
+      const eligible = assigneeRows
+        .map((r) => candidateById.get(r._id.toString()))
+        .find((u) => u && u.role === Role.DEVELOPER && u.isActive);
+      suggestedAssigneeId = eligible?.id ?? null;
+    }
+
+    return {
+      suggestedAssigneeId,
+      suggestedLabels: labelRows.map((r) => r._id),
+    };
+  }
+
   async statsForProject(id: string, actingUser: AuthenticatedUser) {
     const project = await this.getActiveOrThrow(id);
     this.assertCanView(project, actingUser);
