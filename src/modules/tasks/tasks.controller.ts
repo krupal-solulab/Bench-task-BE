@@ -259,4 +259,13 @@ export class TasksController {
   ) {
     return this.tasksService.epicProgress(id, user);
   }
+
+  @Get(':id/epic-burndown')
+  @ApiOperation({ summary: "An Epic's remaining linked-issue work over time" })
+  async epicBurndown(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.epicBurndown(id, user);
+  }
 }

@@ -93,6 +93,7 @@ import {
   JQL_FIELD_METADATA,
   JQL_KEYWORDS,
 } from './search/jql-autocomplete.util';
+import { computeBurndown } from '../sprints/sprint-reports.util';
 
 /**
  * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
@@ -898,6 +899,34 @@ export class TasksService {
       doneCount: done,
       progress: total > 0 ? Math.round((done / total) * 100) : 0,
     };
+  }
+
+  /**
+   * Module 9's Epic Burndown: remaining linked-issue work over time, reusing sprint burndown's own
+   * `computeBurndown` unchanged - an Epic's direct children are exactly the
+   * {storyPoints, completedAt} shape it already expects. Unlike a Sprint, an Epic has no
+   * `startDate`/`endDate` of its own: `createdAt` stands in for the start, and `dueDate` (if set)
+   * for the ideal end - `hasIdealLine` tells the frontend whether to draw that reference series at
+   * all, since a made-up end date for an epic with no due date would be misleading rather than
+   * merely simplified.
+   */
+  async epicBurndown(id: string, actingUser: AuthenticatedUser) {
+    const epic = await this.getActiveOrThrow(id);
+    await this.assertCanView(epic, actingUser);
+    if (epic.issueType !== IssueType.EPIC) {
+      throw new BadRequestException('epic-burndown is only valid for an Epic issue');
+    }
+
+    const linkedTasks = await this.tasksRepository.findLinkedIssueSnapshots(id);
+    const plannedEndDate = epic.dueDate ?? epic.completedAt ?? new Date();
+    const result = computeBurndown(
+      linkedTasks,
+      epic.createdAt,
+      plannedEndDate,
+      epic.completedAt,
+      new Date(),
+    );
+    return { ...result, hasIdealLine: epic.dueDate != null };
   }
 
   private isOwner(project: ProjectDocument, userId: string): boolean {
