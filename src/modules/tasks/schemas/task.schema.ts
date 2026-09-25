@@ -159,6 +159,18 @@ export class Task {
   @Prop({ type: String, default: null })
   securityLevel!: string | null;
 
+  // Module 7's Watchers - who gets notified of activity on this issue beyond the assignee. The
+  // reporter (creator) and the current assignee are auto-added (TasksService.create()/
+  // updateAssignee()) but never auto-removed, so a user can always deliberately stop watching.
+  // Empty for every task created before this feature existed.
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  watcherIds!: Types.ObjectId[];
+
+  // Module 7's Voting - self-service only (TasksService.addVoter/removeVoter), purely a signal of
+  // interest with no permission effect. Empty for every existing task.
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  voterIds!: Types.ObjectId[];
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 

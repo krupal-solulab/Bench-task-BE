@@ -17,6 +17,7 @@ export class CommentsRepository {
     return this.model
       .findOne({ _id: id, deletedAt: null })
       .populate('author', AUTHOR_POPULATE)
+      .populate('mentionedUserIds', AUTHOR_POPULATE)
       .exec();
   }
 
@@ -32,6 +33,7 @@ export class CommentsRepository {
       this.model
         .find(filter)
         .populate('author', AUTHOR_POPULATE)
+        .populate('mentionedUserIds', AUTHOR_POPULATE)
         .sort({ createdAt: sortOrder === 'asc' ? 1 : -1 })
         .skip(skip)
         .limit(limit)
@@ -41,8 +43,11 @@ export class CommentsRepository {
     return { data, total };
   }
 
-  async updateById(id: string, body: string): Promise<CommentDocument | null> {
-    await this.model.updateOne({ _id: id }, { body }).exec();
+  async updateById(
+    id: string,
+    update: { body: string; mentionedUserIds: Types.ObjectId[] },
+  ): Promise<CommentDocument | null> {
+    await this.model.updateOne({ _id: id }, update).exec();
     return this.findByIdActive(id);
   }
 

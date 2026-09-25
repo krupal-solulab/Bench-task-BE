@@ -14,6 +14,12 @@ export enum NotificationType {
   // distinct from AUTOMATION so the notification list/mute UI can tell "someone's automation
   // rule pinged me" apart from "my project's notification scheme pinged me".
   SCHEME = 'Scheme',
+  // Module 7: someone @mentioned this user in a comment.
+  MENTIONED = 'Mentioned',
+  // Module 7: an event on a task this user is watching (but isn't the assignee for - the
+  // assignee already gets their own TASK_ASSIGNED/STATUS_CHANGED/COMMENT_ADDED notification, so
+  // this is scoped to watchers who aren't also the assignee, to avoid a duplicate).
+  WATCHED_TASK_UPDATED = 'WatchedTaskUpdated',
 }
 
 export const NOTIFICATION_TYPES = Object.values(NotificationType);

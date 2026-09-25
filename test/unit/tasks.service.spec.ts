@@ -64,6 +64,8 @@ function makeTask(overrides: Partial<Record<string, unknown>> = {}) {
     priority: 'P2',
     labels: [],
     components: [],
+    watcherIds: [],
+    voterIds: [],
     ...overrides,
   } as never;
 }
@@ -105,6 +107,10 @@ describe('TasksService', () => {
       | 'addFiredTimeBasedRuleIds'
       | 'findOpenTasksUnnotifiedForSla'
       | 'markSlaBreachNotified'
+      | 'addWatcher'
+      | 'removeWatcher'
+      | 'addVoter'
+      | 'removeVoter'
     >
   >;
   let projectsService: jest.Mocked<
@@ -131,7 +137,11 @@ describe('TasksService', () => {
   let notificationsService: jest.Mocked<
     Pick<
       NotificationsService,
-      'notifyTaskAssigned' | 'notifyStatusChanged' | 'notifyAutomationRole' | 'notifySchemeEvent'
+      | 'notifyTaskAssigned'
+      | 'notifyStatusChanged'
+      | 'notifyAutomationRole'
+      | 'notifySchemeEvent'
+      | 'notifyWatchers'
     >
   >;
   let eventsGateway: jest.Mocked<
@@ -160,6 +170,10 @@ describe('TasksService', () => {
       addFiredTimeBasedRuleIds: jest.fn().mockResolvedValue(undefined),
       findOpenTasksUnnotifiedForSla: jest.fn().mockResolvedValue([]),
       markSlaBreachNotified: jest.fn().mockResolvedValue(undefined),
+      addWatcher: jest.fn().mockResolvedValue(makeTask()),
+      removeWatcher: jest.fn().mockResolvedValue(makeTask()),
+      addVoter: jest.fn().mockResolvedValue(makeTask()),
+      removeVoter: jest.fn().mockResolvedValue(makeTask()),
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
@@ -189,6 +203,7 @@ describe('TasksService', () => {
       notifyStatusChanged: jest.fn().mockResolvedValue(undefined),
       notifyAutomationRole: jest.fn().mockResolvedValue(undefined),
       notifySchemeEvent: jest.fn().mockResolvedValue(undefined),
+      notifyWatchers: jest.fn().mockResolvedValue(undefined),
     };
     eventsGateway = { emitTaskStatusChanged: jest.fn(), emitCommentCreated: jest.fn() };
     commentModel = {

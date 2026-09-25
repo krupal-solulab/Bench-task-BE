@@ -49,6 +49,24 @@ export interface CommentAddedNotification {
   commentAuthorName: string;
 }
 
+export interface MentionedNotification {
+  taskId: string;
+  taskTitle: string;
+  mentionedUserId: string;
+  actorId: string;
+  actorName: string;
+}
+
+export interface WatchedTaskUpdatedNotification {
+  taskId: string;
+  taskTitle: string;
+  watcherIds: string[];
+  /** Never notified as a watcher - typically the actor themself, plus anyone (e.g. the assignee)
+   * who already received their own dedicated notification for this same event. */
+  excludeUserIds: string[];
+  message: string;
+}
+
 export interface AutomationRoleNotification {
   taskId: string;
   taskTitle: string;
@@ -199,6 +217,60 @@ export class NotificationsService {
       `${notification.commentAuthorName} commented on "${notification.taskTitle}"`,
       { taskId: notification.taskId },
     );
+  }
+
+  /** Module 7: someone @mentioned this user in a comment - in-app only (lighter-weight, like
+   * AUTOMATION), and never fired for mentioning yourself. */
+  async notifyMentioned(notification: MentionedNotification): Promise<void> {
+    if (notification.mentionedUserId === notification.actorId) return;
+    let mentioned: UserDocument | null = null;
+    try {
+      mentioned = await this.usersRepository.findById(notification.mentionedUserId);
+    } catch (err) {
+      this.logger.warn(
+        { err, taskId: notification.taskId },
+        'failed to look up mentioned user, ignoring',
+      );
+    }
+    if (!mentioned) return;
+    await this.createInAppNotification(
+      notification.mentionedUserId,
+      extractId(mentioned.organizationId),
+      NotificationType.MENTIONED,
+      'You were mentioned',
+      `${notification.actorName} mentioned you on "${notification.taskTitle}"`,
+      { taskId: notification.taskId },
+    );
+  }
+
+  /** Module 7: broadens a hardcoded assignee-only notification (status changed, comment added, ...)
+   * to every other watcher of the task - `excludeUserIds` keeps the actor and anyone who already
+   * got their own dedicated notification for this same event from being notified twice. Every
+   * lookup/send failure is per-watcher and never stops the rest of the list, same "never breaks
+   * the caller" contract as every other method here. */
+  async notifyWatchers(notification: WatchedTaskUpdatedNotification): Promise<void> {
+    const excluded = new Set(notification.excludeUserIds);
+    const recipientIds = notification.watcherIds.filter((id) => !excluded.has(id));
+    for (const watcherId of recipientIds) {
+      let watcher: UserDocument | null = null;
+      try {
+        watcher = await this.usersRepository.findById(watcherId);
+      } catch (err) {
+        this.logger.warn(
+          { err, taskId: notification.taskId, watcherId },
+          'failed to look up a watcher, ignoring',
+        );
+      }
+      if (!watcher) continue;
+      await this.createInAppNotification(
+        watcherId,
+        extractId(watcher.organizationId),
+        NotificationType.WATCHED_TASK_UPDATED,
+        'Watched issue updated',
+        notification.message,
+        { taskId: notification.taskId },
+      );
+    }
   }
 
   /** Sent by an automation rule's NotifyRole post-function action (Workflow Engine v2) - in-app

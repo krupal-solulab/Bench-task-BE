@@ -4037,6 +4037,118 @@
         ]
       }
     },
+    "/api/v1/tasks/{id}/watch": {
+      "post": {
+        "operationId": "TasksController_watch",
+        "summary": "Start watching this task (Module 7)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TasksController_unwatch",
+        "summary": "Stop watching this task (Module 7)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/vote": {
+      "post": {
+        "operationId": "TasksController_vote",
+        "summary": "Vote for this task (Module 7)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TasksController_unvote",
+        "summary": "Remove your vote from this task (Module 7)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{id}/activity": {
       "get": {
         "operationId": "TasksController_activity",
@@ -8789,7 +8901,9 @@
                 "CommentAdded",
                 "DueSoon",
                 "Automation",
-                "Scheme"
+                "Scheme",
+                "Mentioned",
+                "WatchedTaskUpdated"
               ]
             }
           }

@@ -5,8 +5,10 @@ import { extractId } from '../../common/utils/mongo.util';
 import { requireOrgId } from '../../common/utils/auth-user.util';
 import { Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { UsersRepository } from '../users/users.repository';
 import { TasksRepository } from '../tasks/tasks.repository';
 import { TaskDocument } from '../tasks/schemas/task.schema';
+import { TaskActivityAction } from '../tasks/schemas/task-activity.schema';
 import { ProjectsService } from '../projects/projects.service';
 import { EventsGateway } from '../../events/events.gateway';
 import { NotificationsService } from '../../notifications/notifications.service';
@@ -17,12 +19,14 @@ import {
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { CommentsRepository } from './comments.repository';
 import { CommentDocument } from './schemas/comment.schema';
+import { extractMentionedUserIds } from './mention.util';
 
 @Injectable()
 export class CommentsService {
   constructor(
     private readonly commentsRepository: CommentsRepository,
     private readonly tasksRepository: TasksRepository,
+    private readonly usersRepository: UsersRepository,
     private readonly projectsService: ProjectsService,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsService: NotificationsService,
@@ -34,10 +38,13 @@ export class CommentsService {
     actingUser: AuthenticatedUser,
   ): Promise<CommentDocument> {
     const { task, projectId } = await this.assertTaskMember(taskId, actingUser);
+    const mentionedUserIds = await this.resolveMentions(body, requireOrgId(actingUser));
+
     const comment = await this.commentsRepository.create({
       task: new Types.ObjectId(taskId),
       author: new Types.ObjectId(actingUser.id),
       body,
+      mentionedUserIds: mentionedUserIds.map((id) => new Types.ObjectId(id)),
     });
     const created = (await this.commentsRepository.findByIdActive(comment.id)) as CommentDocument;
 
@@ -52,6 +59,10 @@ export class CommentsService {
       // Best-effort real-time push; a delivery failure here must never fail comment creation.
     }
 
+    // Module 7 - a comment is a meaningful, signal-heavy event worth a permanent history entry
+    // (unlike watch/vote/mention, deliberately left out - see task-activity.schema.ts's comment).
+    await this.tasksRepository.logActivity(taskId, actingUser.id, TaskActivityAction.COMMENTED);
+
     if (task.assignee) {
       await this.notificationsService.notifyCommentAdded({
         taskId,
@@ -61,6 +72,27 @@ export class CommentsService {
         commentAuthorName: actingUser.email,
       });
     }
+    // Module 7: broaden to every other watcher (the assignee, if also watching, already got the
+    // dedicated notification above).
+    await this.notificationsService.notifyWatchers({
+      taskId,
+      taskTitle: task.title,
+      watcherIds: task.watcherIds.map(extractId),
+      excludeUserIds: [actingUser.id, ...(task.assignee ? [extractId(task.assignee)] : [])],
+      message: `${actingUser.email} commented on "${task.title}"`,
+    });
+    // Module 7: @mentions - notified regardless of watcher/assignee status, since being mentioned
+    // is its own distinct signal even for someone not otherwise involved in the task.
+    for (const mentionedUserId of mentionedUserIds) {
+      await this.notificationsService.notifyMentioned({
+        taskId,
+        taskTitle: task.title,
+        mentionedUserId,
+        actorId: actingUser.id,
+        actorName: actingUser.email,
+      });
+    }
+
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
     await this.notifyScheme(project, NotificationSchemeEvent.COMMENTED, taskId, task.title);
 
@@ -87,7 +119,14 @@ export class CommentsService {
   async update(id: string, body: string, actingUser: AuthenticatedUser): Promise<CommentDocument> {
     const comment = await this.getActiveOrThrow(id);
     await this.assertCanModify(comment, actingUser);
-    return (await this.commentsRepository.updateById(id, body))!;
+    // Mentions are re-derived so the stored list never diverges from the edited body, but editing
+    // never re-notifies - only the original creation does (avoids re-pinging someone on every
+    // unrelated typo fix to a comment that already mentioned them).
+    const mentionedUserIds = await this.resolveMentions(body, requireOrgId(actingUser));
+    return (await this.commentsRepository.updateById(id, {
+      body,
+      mentionedUserIds: mentionedUserIds.map((mentionedId) => new Types.ObjectId(mentionedId)),
+    }))!;
   }
 
   async softDelete(id: string, actingUser: AuthenticatedUser): Promise<void> {
@@ -136,6 +175,17 @@ export class CommentsService {
       throw new ForbiddenException('You must be a member of this project to comment');
     }
     return { task, projectId };
+  }
+
+  /** Extracts `@[Name](userId)` mentions from `body` and keeps only the ids that actually resolve
+   * to a real user in the same org - a stale/forged/foreign-org id in the markup is silently
+   * dropped rather than rejecting the whole comment, since the visible text still reads fine
+   * either way (this is a notification list, not a referential-integrity-critical field). */
+  private async resolveMentions(body: string, organizationId: string): Promise<string[]> {
+    const candidateIds = extractMentionedUserIds(body);
+    if (candidateIds.length === 0) return [];
+    const users = await this.usersRepository.findByIds(candidateIds, organizationId);
+    return users.map((u) => u.id);
   }
 
   private async getActiveOrThrow(id: string): Promise<CommentDocument> {

@@ -4,6 +4,7 @@ import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { CommentsService } from 'src/modules/comments/comments.service';
 import { CommentsRepository } from 'src/modules/comments/comments.repository';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
+import { UsersRepository } from 'src/modules/users/users.repository';
 import { ProjectsService } from 'src/modules/projects/projects.service';
 import { EventsGateway } from 'src/events/events.gateway';
 import { NotificationsService } from 'src/notifications/notifications.service';
@@ -24,6 +25,7 @@ function makeRawTask(overrides: Partial<Record<string, unknown>> = {}) {
     id: TASK_ID,
     project: { toString: () => 'project-1' },
     organizationId: { toString: () => ORG_A },
+    watcherIds: [],
     ...overrides,
   } as never;
 }
@@ -55,13 +57,17 @@ describe('CommentsService', () => {
       'create' | 'findByIdActive' | 'paginateForTask' | 'updateById' | 'softDelete'
     >
   >;
-  let tasksRepository: jest.Mocked<Pick<TasksRepository, 'findRawById'>>;
+  let tasksRepository: jest.Mocked<Pick<TasksRepository, 'findRawById' | 'logActivity'>>;
+  let usersRepository: jest.Mocked<Pick<UsersRepository, 'findByIds'>>;
   let projectsService: jest.Mocked<
     Pick<ProjectsService, 'getActiveProjectOrThrow' | 'isProjectMember' | 'membersWithRole'>
   >;
   let eventsGateway: jest.Mocked<Pick<EventsGateway, 'emitCommentCreated'>>;
   let notificationsService: jest.Mocked<
-    Pick<NotificationsService, 'notifyCommentAdded' | 'notifySchemeEvent'>
+    Pick<
+      NotificationsService,
+      'notifyCommentAdded' | 'notifySchemeEvent' | 'notifyWatchers' | 'notifyMentioned'
+    >
   >;
   let service: CommentsService;
 
@@ -73,7 +79,11 @@ describe('CommentsService', () => {
       updateById: jest.fn(),
       softDelete: jest.fn(),
     };
-    tasksRepository = { findRawById: jest.fn() };
+    tasksRepository = {
+      findRawById: jest.fn(),
+      logActivity: jest.fn().mockResolvedValue(undefined),
+    };
+    usersRepository = { findByIds: jest.fn().mockResolvedValue([]) };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
       isProjectMember: jest.fn(),
@@ -83,10 +93,13 @@ describe('CommentsService', () => {
     notificationsService = {
       notifyCommentAdded: jest.fn().mockResolvedValue(undefined),
       notifySchemeEvent: jest.fn().mockResolvedValue(undefined),
+      notifyWatchers: jest.fn().mockResolvedValue(undefined),
+      notifyMentioned: jest.fn().mockResolvedValue(undefined),
     };
     service = new CommentsService(
       commentsRepository as unknown as CommentsRepository,
       tasksRepository as unknown as TasksRepository,
+      usersRepository as unknown as UsersRepository,
       projectsService as unknown as ProjectsService,
       eventsGateway as unknown as EventsGateway,
       notificationsService as unknown as NotificationsService,
