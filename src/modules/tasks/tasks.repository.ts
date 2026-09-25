@@ -258,6 +258,20 @@ export class TasksRepository {
     return { total, done };
   }
 
+  /** Module 9's Epic Burndown: the same {storyPoints, completedAt} shape sprint burndown's
+   * `computeBurndown` already consumes, scoped to an Epic's direct linked issues instead of a
+   * sprint's tasks. */
+  async findLinkedIssueSnapshots(
+    epicId: string,
+  ): Promise<Array<{ storyPoints: number | null; completedAt: Date | null }>> {
+    return this.model
+      .find(
+        { parent: new Types.ObjectId(epicId), deletedAt: null },
+        { storyPoints: 1, completedAt: 1 },
+      )
+      .lean();
+  }
+
   /** Every non-deleted task in a project, for Module 5's CSV export/project backup - unpaginated
    * (unlike `paginate()`, which is capped at 100 per page), but still hard-capped to keep a single
    * export request bounded. */

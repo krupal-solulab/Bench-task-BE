@@ -169,6 +169,26 @@ export class ProjectsController {
     return this.projectsService.epicProgressReport(id, user);
   }
 
+  @Get(':id/reports/cfd')
+  @ApiOperation({ summary: 'Cumulative Flow Diagram: task counts per status category, per day' })
+  async cfdReport(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Query('days') days: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.cfdReport(id, days ? Number(days) : 30, user);
+  }
+
+  @Get(':id/reports/cycle-time')
+  @ApiOperation({ summary: 'Control Chart: per-issue lead time and cycle time' })
+  async cycleTimeReport(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Query('days') days: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.cycleTimeReport(id, days ? Number(days) : 90, user);
+  }
+
   @Get(':id/activity')
   @ApiOperation({ summary: 'Paginated audit trail for a project' })
   async activity(

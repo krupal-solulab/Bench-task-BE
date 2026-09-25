@@ -24,6 +24,11 @@ import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface
 import { UsersRepository } from '../users/users.repository';
 import { UserDocument } from '../users/schemas/user.schema';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
+import {
+  TaskActivity,
+  TaskActivityAction,
+  TaskActivityDocument,
+} from '../tasks/schemas/task-activity.schema';
 import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
 import { Sprint, SprintDocument } from '../sprints/schemas/sprint.schema';
 import { ListTasksDto } from '../tasks/dto/list-tasks.dto';
@@ -36,8 +41,11 @@ import {
   DEFAULT_WORKFLOW,
   Workflow,
   resolveWorkflow,
+  categoryOf,
   assertValidWorkflowShape,
 } from './schemas/workflow.schema';
+import { CfdPoint, CfdTaskHistory, computeCfd } from './cfd-report.util';
+import { computeCycleTime } from './cycle-time.util';
 import {
   GrantableCapability,
   MemberPermissions,
@@ -134,6 +142,7 @@ export class ProjectsService {
     private readonly teamsService: TeamsService,
     private readonly projectRolesService: ProjectRolesService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
+    @InjectModel(TaskActivity.name) private readonly taskActivityModel: Model<TaskActivityDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     @InjectModel(Sprint.name) private readonly sprintModel: Model<SprintDocument>,
   ) {}
@@ -499,6 +508,121 @@ export class ProjectsService {
         };
       }),
     );
+  }
+
+  /**
+   * Module 9's Cumulative Flow Diagram: per-day counts of this project's (non-deleted) tasks in
+   * each status category, over the last `days` days. Reconstructed from each task's
+   * `TaskActivity` STATUS_CHANGED log (mapped to a category via the project's - possibly
+   * per-issue-type - workflow) rather than any new tracking field; see `cfd-report.util.ts`'s
+   * `computeCfd` for the pure day-bucketing logic and its documented simplifications.
+   */
+  async cfdReport(id: string, days: number, actingUser: AuthenticatedUser): Promise<CfdPoint[]> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+
+    const tasks = await this.taskModel
+      .find({ project: project._id, deletedAt: null }, { issueType: 1, createdAt: 1 })
+      .lean();
+    if (tasks.length === 0) return [];
+
+    const activities = await this.taskActivityModel
+      .find({
+        task: { $in: tasks.map((t) => t._id) },
+        action: TaskActivityAction.STATUS_CHANGED,
+      })
+      .sort({ createdAt: 1 })
+      .select('task to createdAt')
+      .lean();
+
+    const activitiesByTask = new Map<string, typeof activities>();
+    for (const activity of activities) {
+      const key = activity.task.toString();
+      const forTask = activitiesByTask.get(key);
+      if (forTask) forTask.push(activity);
+      else activitiesByTask.set(key, [activity]);
+    }
+
+    const histories: CfdTaskHistory[] = tasks.map((task) => {
+      const workflow = resolveWorkflow(project, task.issueType);
+      const initialCategory = categoryOf(workflow, workflow.initialStatus) ?? StatusCategory.TODO;
+      const events = [{ at: task.createdAt, category: initialCategory }];
+      for (const activity of activitiesByTask.get(task._id.toString()) ?? []) {
+        const category = activity.to ? categoryOf(workflow, activity.to) : undefined;
+        // A status name that no longer resolves in the CURRENT workflow (e.g. since renamed or
+        // removed by an Admin) is skipped rather than guessed at - the task simply keeps whatever
+        // category its last resolvable event left it in, an honest simplification for a workflow
+        // that has changed shape since the activity was recorded.
+        if (category) events.push({ at: activity.createdAt, category });
+      }
+      return { createdAt: task.createdAt, events };
+    });
+
+    return computeCfd(histories, days, new Date());
+  }
+
+  /**
+   * Module 9's Control Chart data: per-issue lead time (creation to completion) and cycle time
+   * (first status change to completion) for every issue completed in the last `days` days, plus
+   * the averages of each - see `cycle-time.util.ts`'s `computeCycleTime`.
+   */
+  async cycleTimeReport(id: string, days: number, actingUser: AuthenticatedUser) {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const tasks = await this.taskModel
+      .find({
+        project: project._id,
+        deletedAt: null,
+        statusCategory: StatusCategory.DONE,
+        completedAt: { $ne: null, $gte: since },
+      })
+      .select('title issueKey createdAt completedAt')
+      .lean();
+
+    if (tasks.length === 0) {
+      return { points: [], averageLeadTimeHours: null, averageCycleTimeHours: null };
+    }
+
+    const firstStatusChanges = await this.taskActivityModel
+      .aggregate<{ _id: Types.ObjectId; firstAt: Date }>([
+        {
+          $match: {
+            task: { $in: tasks.map((t) => t._id) },
+            action: TaskActivityAction.STATUS_CHANGED,
+          },
+        },
+        { $sort: { createdAt: 1 } },
+        { $group: { _id: '$task', firstAt: { $first: '$createdAt' } } },
+      ])
+      .exec();
+    const firstChangeByTask = new Map(firstStatusChanges.map((f) => [f._id.toString(), f.firstAt]));
+
+    const points = tasks.map((task) => {
+      const { leadTimeHours, cycleTimeHours } = computeCycleTime({
+        createdAt: task.createdAt,
+        completedAt: task.completedAt!,
+        firstStatusChangeAt: firstChangeByTask.get(task._id.toString()) ?? null,
+      });
+      return {
+        taskId: task._id.toString(),
+        issueKey: task.issueKey,
+        title: task.title,
+        completedAt: task.completedAt,
+        leadTimeHours: Math.round(leadTimeHours * 10) / 10,
+        cycleTimeHours: Math.round(cycleTimeHours * 10) / 10,
+      };
+    });
+
+    const average = (values: number[]) =>
+      Math.round((values.reduce((sum, v) => sum + v, 0) / values.length) * 10) / 10;
+
+    return {
+      points,
+      averageLeadTimeHours: average(points.map((p) => p.leadTimeHours)),
+      averageCycleTimeHours: average(points.map((p) => p.cycleTimeHours)),
+    };
   }
 
   async statsForProject(id: string, actingUser: AuthenticatedUser) {

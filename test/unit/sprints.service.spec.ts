@@ -78,6 +78,7 @@ describe('SprintsService', () => {
     findOne: jest.Mock;
     countDocuments: jest.Mock;
   };
+  let taskActivityModel: { find: jest.Mock };
   let service: SprintsService;
 
   beforeEach(() => {
@@ -119,11 +120,17 @@ describe('SprintsService', () => {
       }),
       countDocuments: jest.fn().mockResolvedValue(0),
     };
+    taskActivityModel = {
+      find: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+      }),
+    };
     service = new SprintsService(
       sprintsRepository as unknown as SprintsRepository,
       projectsService as unknown as ProjectsService,
       notificationsService as unknown as NotificationsService,
       taskModel as never,
+      taskActivityModel as never,
     );
   });
 

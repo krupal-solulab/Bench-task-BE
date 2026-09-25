@@ -18,6 +18,11 @@ import {
   resolveNotificationSchemeRule,
 } from '../projects/schemas/notification-scheme.schema';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
+import {
+  TaskActivity,
+  TaskActivityAction,
+  TaskActivityDocument,
+} from '../tasks/schemas/task-activity.schema';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { SprintsRepository } from './sprints.repository';
 import { SprintDocument } from './schemas/sprint.schema';
@@ -29,6 +34,7 @@ import { UpdateSprintDto } from './dto/update-sprint.dto';
 import { CompleteSprintDto } from './dto/complete-sprint.dto';
 import { ListSprintsDto } from './dto/list-sprints.dto';
 import { SprintBurndownResult, computeBurndown } from './sprint-reports.util';
+import { SprintRetrospectiveResult, computeRetrospective } from './sprint-retrospective.util';
 
 export interface SprintVelocityEntry {
   sprintId: string;
@@ -49,6 +55,7 @@ export class SprintsService {
     private readonly projectsService: ProjectsService,
     private readonly notificationsService: NotificationsService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
+    @InjectModel(TaskActivity.name) private readonly taskActivityModel: Model<TaskActivityDocument>,
   ) {}
 
   async create(
@@ -384,6 +391,97 @@ export class SprintsService {
       .lean();
 
     return computeBurndown(tasks, sprint.startedAt, sprint.endDate, sprint.completedAt, new Date());
+  }
+
+  /**
+   * Module 9's sprint retrospective: planned vs. completed scope, mid-sprint scope changes, and
+   * carryover - see `sprint-retrospective.util.ts`'s `computeRetrospective` for the pure
+   * aggregation and exactly what each figure means. `Sprint.initialTaskIds` (locked by `start()`)
+   * is the planned scope; tasks added/removed after that are found via `TaskActivity`'s
+   * SPRINT_ASSIGNED/SPRINT_REMOVED log (logged by `TasksService.updateSprint` - not by this
+   * service's own `complete()`, whose end-of-sprint carryover is a bulk update, not a per-task
+   * "removal", which is exactly why carryover is reported separately from an explicit removal).
+   */
+  async retrospective(
+    projectId: string,
+    sprintId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<SprintRetrospectiveResult> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+    const sprint = await this.getActiveOrThrow(sprintId, projectId);
+
+    if (!sprint.startedAt) {
+      return {
+        plannedCount: 0,
+        plannedPoints: 0,
+        addedCount: 0,
+        addedPoints: 0,
+        completedCount: 0,
+        completedPoints: 0,
+        removedCount: 0,
+        removedPoints: 0,
+        carryoverCount: 0,
+        carryoverPoints: 0,
+        completionRatePercent: null,
+      };
+    }
+
+    const sprintObjectId = sprint._id as Types.ObjectId;
+    const initialIdSet = new Set(sprint.initialTaskIds.map((id) => id.toString()));
+
+    const initialScopeTasks = sprint.initialTaskIds.length
+      ? await this.taskModel
+          .find({ _id: { $in: sprint.initialTaskIds } }, { storyPoints: 1, statusCategory: 1 })
+          .lean()
+      : [];
+
+    const addedActivities = await this.taskActivityModel
+      .find({
+        action: TaskActivityAction.SPRINT_ASSIGNED,
+        to: sprintId,
+        createdAt: { $gt: sprint.startedAt },
+      })
+      .select('task')
+      .lean();
+    const addedIds = [...new Set(addedActivities.map((a) => a.task.toString()))].filter(
+      (id) => !initialIdSet.has(id),
+    );
+    const addedScopeTasks = addedIds.length
+      ? await this.taskModel
+          .find({ _id: { $in: addedIds } }, { storyPoints: 1, statusCategory: 1 })
+          .lean()
+      : [];
+
+    const removedActivities = await this.taskActivityModel
+      .find({
+        action: TaskActivityAction.SPRINT_REMOVED,
+        from: sprintId,
+        createdAt: { $gt: sprint.startedAt, $lt: sprint.completedAt ?? new Date() },
+      })
+      .select('task')
+      .lean();
+    const removedCandidateIds = [...new Set(removedActivities.map((a) => a.task.toString()))];
+    // A task removed and later re-added to this same sprint isn't genuinely lost scope - excluded
+    // by only counting ids that are NOT currently back in this sprint.
+    const removedTasks = removedCandidateIds.length
+      ? await this.taskModel
+          .find(
+            { _id: { $in: removedCandidateIds }, sprint: { $ne: sprintObjectId } },
+            { storyPoints: 1 },
+          )
+          .lean()
+      : [];
+
+    // The set actually eligible to be "completed" or "carried over" is planned+added MINUS
+    // anything explicitly removed - a removed task is no longer part of what the sprint needs to
+    // finish, even though it still counts toward the raw addedCount/addedPoints churn figure.
+    const removedIdSet = new Set(removedTasks.map((t) => t._id.toString()));
+    const activeScopeTasks = [...initialScopeTasks, ...addedScopeTasks].filter(
+      (t) => !removedIdSet.has(t._id.toString()),
+    );
+
+    return computeRetrospective(initialScopeTasks, addedScopeTasks, activeScopeTasks, removedTasks);
   }
 
   /** BRD 6.3's Sprint History: every past (Completed) sprint for a project, most-recent-last,

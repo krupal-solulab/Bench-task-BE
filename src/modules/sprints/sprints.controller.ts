@@ -155,6 +155,18 @@ export class SprintsController {
     return this.sprintsService.burndown(projectId, sprintId, user);
   }
 
+  @Get(':sprintId/retrospective')
+  @ApiOperation({
+    summary: 'Sprint retrospective: planned vs completed scope, scope changes, and carryover',
+  })
+  async retrospective(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Param('sprintId', ParseObjectIdPipe) sprintId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.sprintsService.retrospective(projectId, sprintId, user);
+  }
+
   @Get(':sprintId/activity')
   @ApiOperation({ summary: 'Paginated audit trail for a sprint' })
   async activity(

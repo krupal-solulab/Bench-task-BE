@@ -32,6 +32,7 @@ import { TeamsService } from 'src/modules/teams/teams.service';
 import { ProjectRolesService } from 'src/modules/project-roles/project-roles.service';
 import { CacheService } from 'src/redis/cache.service';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
+import { TaskActivityDocument } from 'src/modules/tasks/schemas/task-activity.schema';
 import { CommentDocument } from 'src/modules/comments/schemas/comment.schema';
 import { SprintDocument } from 'src/modules/sprints/schemas/sprint.schema';
 
@@ -120,6 +121,7 @@ describe('ProjectsService', () => {
   };
   let commentModel: { updateMany: jest.Mock };
   let sprintModel: { updateMany: jest.Mock };
+  let taskActivityModel: { find: jest.Mock; aggregate: jest.Mock };
   let service: ProjectsService;
 
   beforeEach(() => {
@@ -158,6 +160,14 @@ describe('ProjectsService', () => {
     sprintModel = {
       updateMany: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue(undefined) }),
     };
+    taskActivityModel = {
+      find: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+        }),
+      }),
+      aggregate: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue([]) }),
+    };
 
     service = new ProjectsService(
       projectsRepository as unknown as ProjectsRepository,
@@ -168,6 +178,7 @@ describe('ProjectsService', () => {
       teamsService as unknown as TeamsService,
       projectRolesService as unknown as ProjectRolesService,
       taskModel as unknown as Model<TaskDocument>,
+      taskActivityModel as unknown as Model<TaskActivityDocument>,
       commentModel as unknown as Model<CommentDocument>,
       sprintModel as unknown as Model<SprintDocument>,
     );
