@@ -2982,6 +2982,34 @@
             "bearer": []
           }
         ]
+      },
+      "patch": {
+        "operationId": "AuthController_updateMe",
+        "summary": "Update own name/email (Module 11's self-service profile editing)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
       }
     },
     "/api/v1/auth/me/password": {
@@ -5238,6 +5266,25 @@
             "description": "true = only unread notifications",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "description": "Module 11 - filter to one type",
+            "schema": {
+              "enum": [
+                "TaskAssigned",
+                "StatusChanged",
+                "CommentAdded",
+                "DueSoon",
+                "Automation",
+                "Scheme",
+                "Mentioned",
+                "WatchedTaskUpdated"
+              ],
+              "type": "string"
             }
           }
         ],
@@ -7742,6 +7789,48 @@
         },
         "tags": [
           "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "operationId": "SearchController_search",
+        "summary": "Module 11: search tasks, projects, and users in one call",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "description": "Free-text search term",
+            "schema": {
+              "example": "login",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 20,
+              "default": 5,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "search"
         ],
         "security": [
           {

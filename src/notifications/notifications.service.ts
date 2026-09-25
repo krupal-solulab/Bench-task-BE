@@ -353,6 +353,7 @@ export class NotificationsService {
       query.page,
       query.limit,
       !!query.unreadOnly,
+      query.type,
     );
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
   }

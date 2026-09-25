@@ -11,6 +11,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateUserDto } from '../users/dto/update-user.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -69,6 +70,14 @@ export class AuthController {
   @ApiOperation({ summary: 'Get the current authenticated user' })
   async me(@CurrentUser() user: AuthenticatedUser) {
     return this.usersService.findByIdOrThrow(user.id);
+  }
+
+  @Patch('me')
+  @SharedRoute()
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Update own name/email (Module 11's self-service profile editing)" })
+  async updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateUserDto) {
+    return this.usersService.updateOwnProfile(user.id, dto);
   }
 
   @Patch('me/password')

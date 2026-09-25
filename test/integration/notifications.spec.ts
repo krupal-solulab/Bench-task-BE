@@ -264,6 +264,56 @@ describe('notifications (integration)', () => {
     expect(afterAll.body.data).toEqual({ count: 0 });
   });
 
+  it('filters the list to a single type via the type query param (Module 11)', async () => {
+    const { org, manager } = await seedManager();
+    const developer = await seedUserAndLogin(app, {
+      email: 'type-filter-notif-dev@example.com',
+      password: 'Password123',
+      role: Role.DEVELOPER,
+      organizationId: org.id,
+    });
+    const project = await createProject(app, manager.accessToken, { name: 'Type Filter Project' });
+    await addMembers(app, manager.accessToken, project.id, [developer.userDoc.id]);
+    const task = await createTask(app, manager.accessToken, {
+      title: 'Task',
+      project: project.id,
+      priority: TaskPriority.P2,
+      assignee: developer.userDoc.id,
+    });
+    await clearNotifications(developer.accessToken);
+
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: 'In Progress' });
+    await api(app)
+      .post(`/${API_PREFIX}/tasks/${task.id}/comments`)
+      .set(...authHeader(manager.accessToken))
+      .send({ body: 'a comment' });
+
+    const unfiltered = await api(app)
+      .get(`/${API_PREFIX}/notifications`)
+      .query({ unreadOnly: true })
+      .set(...authHeader(developer.accessToken));
+    expect(unfiltered.body.data).toHaveLength(2);
+
+    const statusOnly = await api(app)
+      .get(`/${API_PREFIX}/notifications`)
+      .query({ unreadOnly: true, type: NotificationType.STATUS_CHANGED })
+      .set(...authHeader(developer.accessToken));
+    expect(statusOnly.status).toBe(200);
+    expect(statusOnly.body.data).toHaveLength(1);
+    expect(statusOnly.body.data[0]).toMatchObject({ type: NotificationType.STATUS_CHANGED });
+
+    const commentOnly = await api(app)
+      .get(`/${API_PREFIX}/notifications`)
+      .query({ unreadOnly: true, type: NotificationType.COMMENT_ADDED })
+      .set(...authHeader(developer.accessToken));
+    expect(commentOnly.status).toBe(200);
+    expect(commentOnly.body.data).toHaveLength(1);
+    expect(commentOnly.body.data[0]).toMatchObject({ type: NotificationType.COMMENT_ADDED });
+  });
+
   it("never lets one user mark or see another user's notification", async () => {
     const { org, manager } = await seedManager();
     const developer = await seedUserAndLogin(app, {

@@ -40,6 +40,7 @@ import { TeamsModule } from './modules/teams/teams.module';
 import { ProjectRolesModule } from './modules/project-roles/project-roles.module';
 import { SecuritySchemesModule } from './security-schemes/security-schemes.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
+import { SearchModule } from './modules/search/search.module';
 
 @Module({
   imports: [
@@ -119,6 +120,7 @@ import { AuditLogModule } from './modules/audit-log/audit-log.module';
     ProjectRolesModule,
     SecuritySchemesModule,
     AuditLogModule,
+    SearchModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
