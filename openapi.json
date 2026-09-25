@@ -322,6 +322,115 @@
         ]
       }
     },
+    "/api/v1/audit-log": {
+      "get": {
+        "operationId": "AuditLogController_list",
+        "summary": "This organization's admin audit log (Module 8)",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "UserCreated",
+                "UserUpdated",
+                "UserRoleChanged",
+                "UserStatusChanged",
+                "OrganizationSettingsUpdated",
+                "PermissionSchemeCreated",
+                "PermissionSchemeUpdated",
+                "PermissionSchemeDeleted",
+                "SecuritySchemeCreated",
+                "SecuritySchemeUpdated",
+                "SecuritySchemeDeleted",
+                "TeamCreated",
+                "TeamUpdated",
+                "TeamDeleted",
+                "ProjectRoleCreated",
+                "ProjectRoleUpdated",
+                "ProjectRoleDeleted"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "actorId",
+            "required": false,
+            "in": "query",
+            "description": "Filter to entries performed by one actor (user id)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateFrom",
+            "required": false,
+            "in": "query",
+            "description": "ISO date - only entries at or after this instant",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateTo",
+            "required": false,
+            "in": "query",
+            "description": "ISO date - only entries at or before this instant",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "audit-log"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/platform/organizations": {
       "post": {
         "operationId": "PlatformOrganizationsController_create",
@@ -595,6 +704,54 @@
         },
         "tags": [
           "platform"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/organizations/me": {
+      "get": {
+        "operationId": "OrganizationSettingsController_get",
+        "summary": "This organization's settings (Module 8)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organization-settings"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "OrganizationSettingsController_update",
+        "summary": "Update this organization's settings (Module 8)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrganizationSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organization-settings"
         ],
         "security": [
           {
@@ -7540,6 +7697,26 @@
           "email",
           "password"
         ]
+      },
+      "UpdateOrganizationSettingsDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "A free-form timezone label (e.g. an IANA name) - not strictly validated"
+          },
+          "logoUrl": {
+            "type": "object",
+            "nullable": true,
+            "maxLength": 500
+          }
+        }
       },
       "CreateProjectDto": {
         "type": "object",

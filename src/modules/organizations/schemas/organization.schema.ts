@@ -44,6 +44,15 @@ export class Organization {
   @Prop({ type: [LinkTypeDefinitionSchema], default: [] })
   linkTypes!: LinkTypeDefinition[];
 
+  // Module 8's org Settings - self-service fields an org's own Admin can manage (see
+  // OrganizationSettingsController), distinct from `name`/`status`, which stay Platform-Admin-only.
+  // 'UTC' for every existing org until an Admin opts into a different one.
+  @Prop({ default: 'UTC', maxlength: 60 })
+  timezone!: string;
+
+  @Prop({ type: String, default: null, maxlength: 500 })
+  logoUrl!: string | null;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

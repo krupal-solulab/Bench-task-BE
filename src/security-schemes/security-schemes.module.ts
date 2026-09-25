@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UsersModule } from '../modules/users/users.module';
+import { AuditLogModule } from '../modules/audit-log/audit-log.module';
 import { Project, ProjectSchema } from '../modules/projects/schemas/project.schema';
 import { Team, TeamSchema } from '../modules/teams/schemas/team.schema';
 import {
@@ -15,6 +16,7 @@ import { SecuritySchemesController } from './security-schemes.controller';
 @Module({
   imports: [
     UsersModule,
+    AuditLogModule,
     MongooseModule.forFeature([
       { name: SecurityScheme.name, schema: SecuritySchemeSchema },
       { name: Project.name, schema: ProjectSchema },

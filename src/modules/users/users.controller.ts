@@ -6,6 +6,8 @@ import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { requireOrgId } from '../../common/utils/auth-user.util';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { AuditAction } from '../audit-log/schemas/audit-log-entry.schema';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -17,7 +19,10 @@ import { ListUsersDto } from './dto/list-users.dto';
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly auditLogService: AuditLogService,
+  ) {}
 
   @Get()
   @Roles(Role.ADMIN)
@@ -58,7 +63,18 @@ export class UsersController {
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Create a user with an explicit role (Admin only)' })
   async create(@Body() dto: CreateUserDto, @CurrentUser() actingUser: AuthenticatedUser) {
-    return this.usersService.create(dto, requireOrgId(actingUser));
+    const organizationId = requireOrgId(actingUser);
+    const created = await this.usersService.create(dto, organizationId);
+    await this.auditLogService.record({
+      organizationId,
+      actorId: actingUser.id,
+      action: AuditAction.USER_CREATED,
+      targetType: 'User',
+      targetId: created.id,
+      targetLabel: created.name,
+      metadata: { role: created.role },
+    });
+    return created;
   }
 
   @Patch(':id')
@@ -69,7 +85,17 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
     @CurrentUser() actingUser: AuthenticatedUser,
   ) {
-    return this.usersService.update(id, dto, requireOrgId(actingUser));
+    const organizationId = requireOrgId(actingUser);
+    const updated = await this.usersService.update(id, dto, organizationId);
+    await this.auditLogService.record({
+      organizationId,
+      actorId: actingUser.id,
+      action: AuditAction.USER_UPDATED,
+      targetType: 'User',
+      targetId: updated.id,
+      targetLabel: updated.name,
+    });
+    return updated;
   }
 
   @Patch(':id/role')
@@ -80,7 +106,24 @@ export class UsersController {
     @Body() dto: UpdateRoleDto,
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
-    return this.usersService.updateRole(id, dto.role, currentUser.id, requireOrgId(currentUser));
+    const organizationId = requireOrgId(currentUser);
+    const previousRole = (await this.usersService.findByIdInOrgOrThrow(id, organizationId)).role;
+    const updated = await this.usersService.updateRole(
+      id,
+      dto.role,
+      currentUser.id,
+      organizationId,
+    );
+    await this.auditLogService.record({
+      organizationId,
+      actorId: currentUser.id,
+      action: AuditAction.USER_ROLE_CHANGED,
+      targetType: 'User',
+      targetId: updated.id,
+      targetLabel: updated.name,
+      metadata: { from: previousRole, to: dto.role },
+    });
+    return updated;
   }
 
   @Patch(':id/status')
@@ -91,12 +134,23 @@ export class UsersController {
     @Body() dto: UpdateStatusDto,
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
-    return this.usersService.updateStatus(
+    const organizationId = requireOrgId(currentUser);
+    const updated = await this.usersService.updateStatus(
       id,
       dto.isActive,
       currentUser.id,
-      requireOrgId(currentUser),
+      organizationId,
     );
+    await this.auditLogService.record({
+      organizationId,
+      actorId: currentUser.id,
+      action: AuditAction.USER_STATUS_CHANGED,
+      targetType: 'User',
+      targetId: updated.id,
+      targetLabel: updated.name,
+      metadata: { isActive: dto.isActive },
+    });
+    return updated;
   }
 
   @Get(':id/workload')

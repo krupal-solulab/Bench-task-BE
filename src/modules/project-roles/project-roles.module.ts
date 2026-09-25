@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 import { Project, ProjectSchema } from '../projects/schemas/project.schema';
 import {
   ProjectRoleDefinition,
@@ -15,6 +16,7 @@ import { ProjectRolesController } from './project-roles.controller';
  * Assignment's projectRoleId) - importing ProjectsModule back here would be a genuine cycle. */
 @Module({
   imports: [
+    AuditLogModule,
     MongooseModule.forFeature([
       { name: ProjectRoleDefinition.name, schema: ProjectRoleDefinitionSchema },
       { name: Project.name, schema: ProjectSchema },

@@ -17,6 +17,14 @@ import { LinkTypeDefinition } from '../planning/schemas/link-type.schema';
 import { OrganizationDocument } from './schemas/organization.schema';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { ListOrganizationsDto } from './dto/list-organizations.dto';
+import { UpdateOrganizationSettingsDto } from './dto/update-organization-settings.dto';
+
+export interface OrganizationSettings {
+  id: string;
+  name: string;
+  timezone: string;
+  logoUrl: string | null;
+}
 
 export interface OrganizationSummary {
   id: string;
@@ -144,6 +152,40 @@ export class OrganizationsService {
     const updated = await this.organizationsRepository.updateById(organizationId, { linkTypes });
     if (!updated) throw new NotFoundException('Organization not found');
     return updated;
+  }
+
+  /**
+   * Module 8's org Settings - self-service for the org's OWN Admin, scoped to their own org via
+   * `requireOrgId(actingUser)` at the controller layer (no `:id` param, unlike the Platform-Admin
+   * rename/status routes above, which operate on any org by id and are otherwise untouched by
+   * this feature).
+   */
+  async getSettings(organizationId: string): Promise<OrganizationSettings> {
+    const organization = await this.getOrThrow(organizationId);
+    return this.toSettings(organization);
+  }
+
+  async updateSettings(
+    organizationId: string,
+    dto: UpdateOrganizationSettingsDto,
+  ): Promise<OrganizationSettings> {
+    const update: Partial<{ name: string; timezone: string; logoUrl: string | null }> = {};
+    if (dto.name !== undefined) update.name = dto.name;
+    if (dto.timezone !== undefined) update.timezone = dto.timezone;
+    if (dto.logoUrl !== undefined) update.logoUrl = dto.logoUrl;
+
+    const updated = await this.organizationsRepository.updateById(organizationId, update);
+    if (!updated) throw new NotFoundException('Organization not found');
+    return this.toSettings(updated);
+  }
+
+  private toSettings(organization: OrganizationDocument): OrganizationSettings {
+    return {
+      id: organization.id,
+      name: organization.name,
+      timezone: organization.timezone,
+      logoUrl: organization.logoUrl,
+    };
   }
 
   async assertActive(organizationId: string | null): Promise<void> {
