@@ -189,6 +189,18 @@ export class ProjectsController {
     return this.projectsService.cycleTimeReport(id, days ? Number(days) : 90, user);
   }
 
+  @Get(':id/tasks/suggested-fields')
+  @ApiOperation({
+    summary: "Suggested assignee/labels for a new issue, based on this project's existing issues",
+  })
+  async suggestedTaskFields(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Query('issueType') issueType: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.suggestedTaskFields(id, issueType, user);
+  }
+
   @Get(':id/activity')
   @ApiOperation({ summary: 'Paginated audit trail for a project' })
   async activity(

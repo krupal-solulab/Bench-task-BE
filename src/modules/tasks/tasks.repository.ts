@@ -225,6 +225,20 @@ export class TasksRepository {
     return { data, total };
   }
 
+  /** Module 10's issue summary: the full (capped) activity history for one task, ascending, so
+   * the summary composer can find the most recent status change without a second sort. Capped
+   * rather than truly unbounded - same defensive bound as `findAllForProject`'s CSV export. */
+  async findActivityForSummary(
+    taskId: string,
+    limit = 500,
+  ): Promise<Array<{ action: TaskActivityAction; createdAt: Date }>> {
+    return this.activityModel
+      .find({ task: new Types.ObjectId(taskId) }, { action: 1, createdAt: 1 })
+      .sort({ createdAt: 1 })
+      .limit(limit)
+      .lean();
+  }
+
   /** Highest rank currently in a backlog/sprint scope, or null if the scope is empty. */
   async findMaxRank(scope: RankScope): Promise<number | null> {
     const top = await this.model

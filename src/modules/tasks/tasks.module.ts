@@ -7,6 +7,7 @@ import { ReleasesModule } from '../releases/releases.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { EventsModule } from '../../events/events.module';
 import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
+import { IssueLink, IssueLinkSchema } from '../planning/schemas/issue-link.schema';
 import { Task, TaskSchema } from './schemas/task.schema';
 import { TaskActivity, TaskActivitySchema } from './schemas/task-activity.schema';
 import {
@@ -38,6 +39,9 @@ import { AutomationJobProcessor } from './automation-job.processor';
       // automation "Add Comment" action's comment directly, without importing CommentsModule -
       // CommentsModule already imports TasksModule, so that would be a genuine two-way cycle.
       { name: Comment.name, schema: CommentSchema },
+      // Same reasoning, for Module 10's issue summary (comment/linked-issue counts): PlanningModule
+      // (issue-links) already imports TasksModule, so importing it back here would also cycle.
+      { name: IssueLink.name, schema: IssueLinkSchema },
     ]),
   ],
   controllers: [TasksController, AutomationLogController],

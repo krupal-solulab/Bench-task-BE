@@ -47,6 +47,7 @@ import {
   renderTemplate,
 } from '../projects/schemas/automation-rule.schema';
 import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
+import { IssueLink, IssueLinkDocument } from '../planning/schemas/issue-link.schema';
 import { SchemeAction } from '../../permission-schemes/schemas/permission-scheme.schema';
 import { SecuritySchemesService } from '../../security-schemes/security-schemes.service';
 import { viewableLevelNames } from '../../security-schemes/schemas/security-scheme.schema';
@@ -94,6 +95,7 @@ import {
   JQL_KEYWORDS,
 } from './search/jql-autocomplete.util';
 import { computeBurndown } from '../sprints/sprint-reports.util';
+import { buildTaskSummary } from './task-summary.util';
 
 /**
  * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
@@ -129,6 +131,7 @@ export class TasksService {
     private readonly eventsGateway: EventsGateway,
     @Inject(AUTOMATION_QUEUE) private readonly automationQueue: IAutomationQueue,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
+    @InjectModel(IssueLink.name) private readonly issueLinkModel: Model<IssueLinkDocument>,
     @InjectModel(AutomationExecutionLog.name)
     private readonly automationLogModel: Model<AutomationExecutionLogDocument>,
   ) {}
@@ -927,6 +930,44 @@ export class TasksService {
       new Date(),
     );
     return { ...result, hasIdealLine: epic.dueDate != null };
+  }
+
+  /**
+   * Module 10's deterministic issue summary (NOT an LLM call - see `task-summary.util.ts`'s own
+   * doc comment). Assembles real field values and `TaskActivity` history for `buildTaskSummary`.
+   */
+  async summary(id: string, actingUser: AuthenticatedUser) {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+
+    const [activity, commentCount, linkedIssueCount] = await Promise.all([
+      this.tasksRepository.findActivityForSummary(id),
+      this.commentModel.countDocuments({ task: task._id }),
+      this.issueLinkModel.countDocuments({
+        $or: [{ sourceTask: task._id }, { targetTask: task._id }],
+      }),
+    ]);
+
+    // `assignee` is populated by `findByIdActive` (which `getActiveOrThrow` calls) with at least
+    // `name` - the schema's static type is `Types.ObjectId | null` since populate isn't visible to
+    // the type system, so this is the same documented cast every populate-vs-schema-type mismatch
+    // in this codebase already uses.
+    const assigneeName = task.assignee ? (task.assignee as unknown as { name: string }).name : null;
+
+    return buildTaskSummary({
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      createdAt: task.createdAt,
+      completedAt: task.completedAt,
+      assigneeName,
+      commentCount,
+      linkedIssueCount,
+      watcherCount: task.watcherIds.length,
+      voterCount: task.voterIds.length,
+      activity,
+      now: new Date(),
+    });
   }
 
   private isOwner(project: ProjectDocument, userId: string): boolean {

@@ -1566,6 +1566,35 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/tasks/suggested-fields": {
+      "get": {
+        "operationId": "ProjectsController_suggestedTaskFields",
+        "summary": "Suggested assignee/labels for a new issue, based on this project's existing issues",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{id}/activity": {
       "get": {
         "operationId": "ProjectsController_activity",
@@ -4485,6 +4514,35 @@
         ]
       }
     },
+    "/api/v1/tasks/{id}/summary": {
+      "get": {
+        "operationId": "TasksController_summary",
+        "summary": "A deterministic, field-based summary of this issue (not AI-generated)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{projectId}/automation-log": {
       "get": {
         "operationId": "AutomationLogController_list",
@@ -4956,6 +5014,43 @@
       "get": {
         "operationId": "SprintsController_burndown",
         "summary": "Remaining work per day vs. an ideal trend line for a sprint (empty if never started)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "sprints"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/sprints/{sprintId}/planning-suggestion": {
+      "get": {
+        "operationId": "SprintsController_planningSuggestion",
+        "summary": "Suggested backlog items for a Planned sprint, based on capacity or velocity",
         "parameters": [
           {
             "name": "projectId",

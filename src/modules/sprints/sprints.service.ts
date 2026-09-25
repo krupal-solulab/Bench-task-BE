@@ -35,6 +35,7 @@ import { CompleteSprintDto } from './dto/complete-sprint.dto';
 import { ListSprintsDto } from './dto/list-sprints.dto';
 import { SprintBurndownResult, computeBurndown } from './sprint-reports.util';
 import { SprintRetrospectiveResult, computeRetrospective } from './sprint-retrospective.util';
+import { SprintPlanningSuggestion, suggestSprintScope } from './sprint-planning.util';
 
 export interface SprintVelocityEntry {
   sprintId: string;
@@ -482,6 +483,60 @@ export class SprintsService {
     );
 
     return computeRetrospective(initialScopeTasks, addedScopeTasks, activeScopeTasks, removedTasks);
+  }
+
+  /**
+   * Module 10's deterministic sprint-planning suggestion (NOT an LLM call - see
+   * `sprint-planning.util.ts`'s own doc comment): which ranked backlog items would fit a Planned
+   * sprint's capacity (or, absent a set capacity, the project's recent average velocity). Only
+   * valid before a sprint starts - once Active, `initialTaskIds` is the record of what was
+   * actually planned, and this suggestion no longer applies.
+   */
+  async planningSuggestion(
+    projectId: string,
+    sprintId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<SprintPlanningSuggestion> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+    const sprint = await this.getActiveOrThrow(sprintId, projectId);
+
+    if (sprint.status !== SprintStatus.PLANNED) {
+      throw new BadRequestException('A planning suggestion is only available for a Planned sprint');
+    }
+
+    const backlog = await this.taskModel
+      .find(
+        {
+          project: project._id,
+          sprint: null,
+          deletedAt: null,
+          statusCategory: { $ne: StatusCategory.DONE },
+        },
+        { storyPoints: 1 },
+      )
+      .sort({ rank: 1 })
+      .limit(200)
+      .lean();
+
+    const velocityEntries = await this.velocity(projectId, actingUser, DEFAULT_VELOCITY_LIMIT);
+    const averageVelocityPoints = velocityEntries.length
+      ? Math.round(
+          velocityEntries.reduce((sum, e) => sum + e.completedPoints, 0) / velocityEntries.length,
+        )
+      : null;
+    const averageVelocityCount = velocityEntries.length
+      ? Math.round(
+          velocityEntries.reduce((sum, e) => sum + e.completedCount, 0) / velocityEntries.length,
+        )
+      : null;
+
+    return suggestSprintScope(
+      backlog.map((t) => ({ id: t._id.toString(), storyPoints: t.storyPoints })),
+      sprint.capacityPoints,
+      averageVelocityPoints,
+      averageVelocityCount,
+    );
   }
 
   /** BRD 6.3's Sprint History: every past (Completed) sprint for a project, most-recent-last,
