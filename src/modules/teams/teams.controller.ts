@@ -15,6 +15,9 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { ORG_ROLES, Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { requireOrgId } from '../../common/utils/auth-user.util';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { AuditAction } from '../audit-log/schemas/audit-log-entry.schema';
 import { TeamsService } from './teams.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
@@ -23,13 +26,25 @@ import { UpdateTeamDto } from './dto/update-team.dto';
 @ApiBearerAuth()
 @Controller('teams')
 export class TeamsController {
-  constructor(private readonly teamsService: TeamsService) {}
+  constructor(
+    private readonly teamsService: TeamsService,
+    private readonly auditLogService: AuditLogService,
+  ) {}
 
   @Post()
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: 'Create a team (Module 6: Teams, Project Roles & Security Schemes)' })
   async create(@Body() dto: CreateTeamDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.teamsService.create(dto, user);
+    const created = await this.teamsService.create(dto, user);
+    await this.auditLogService.record({
+      organizationId: requireOrgId(user),
+      actorId: user.id,
+      action: AuditAction.TEAM_CREATED,
+      targetType: 'Team',
+      targetId: created.id,
+      targetLabel: created.name,
+    });
+    return created;
   }
 
   @Get()
@@ -54,7 +69,16 @@ export class TeamsController {
     @Body() dto: UpdateTeamDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.teamsService.update(id, dto, user);
+    const updated = await this.teamsService.update(id, dto, user);
+    await this.auditLogService.record({
+      organizationId: requireOrgId(user),
+      actorId: user.id,
+      action: AuditAction.TEAM_UPDATED,
+      targetType: 'Team',
+      targetId: updated.id,
+      targetLabel: updated.name,
+    });
+    return updated;
   }
 
   @Delete(':id')
@@ -62,6 +86,15 @@ export class TeamsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a team' })
   async remove(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    const existing = await this.teamsService.getOwnedOrThrow(id, user);
     await this.teamsService.remove(id, user);
+    await this.auditLogService.record({
+      organizationId: requireOrgId(user),
+      actorId: user.id,
+      action: AuditAction.TEAM_DELETED,
+      targetType: 'Team',
+      targetId: id,
+      targetLabel: existing.name,
+    });
   }
 }

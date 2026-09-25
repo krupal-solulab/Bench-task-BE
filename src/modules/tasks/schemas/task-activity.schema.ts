@@ -13,6 +13,10 @@ export enum TaskActivityAction {
   DELETED = 'deleted',
   SPRINT_ASSIGNED = 'sprint_assigned',
   SPRINT_REMOVED = 'sprint_removed',
+  // Module 7 - logged once per new comment (not on comment edit/delete, to keep the history
+  // signal-heavy rather than noisy); watch/vote/mention are deliberately NOT logged here, mirroring
+  // Jira's own History tab, which doesn't record those either.
+  COMMENTED = 'commented',
 }
 
 @Schema({

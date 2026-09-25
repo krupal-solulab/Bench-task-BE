@@ -32,16 +32,22 @@ export class TasksRepository {
   }
 
   findByIdActive(id: string): Promise<TaskDocument | null> {
-    return this.model
-      .findOne({ _id: id, deletedAt: null })
-      .populate('assignee', POPULATE_FIELDS)
-      .populate('createdBy', POPULATE_FIELDS)
-      .populate('project', 'name')
-      .populate('sprint', 'name')
-      .populate('parent', 'title issueKey')
-      .populate('fixVersions', RELEASE_POPULATE_FIELDS)
-      .populate('affectsVersions', RELEASE_POPULATE_FIELDS)
-      .exec();
+    return (
+      this.model
+        .findOne({ _id: id, deletedAt: null })
+        .populate('assignee', POPULATE_FIELDS)
+        .populate('createdBy', POPULATE_FIELDS)
+        .populate('project', 'name')
+        .populate('sprint', 'name')
+        .populate('parent', 'title issueKey')
+        .populate('fixVersions', RELEASE_POPULATE_FIELDS)
+        .populate('affectsVersions', RELEASE_POPULATE_FIELDS)
+        // Module 7 - only populated on the single-task detail fetch, not the list/search populate
+        // chains below, since watchers/voters are a detail-page-only concern.
+        .populate('watcherIds', POPULATE_FIELDS)
+        .populate('voterIds', POPULATE_FIELDS)
+        .exec()
+    );
   }
 
   findRawById(id: string): Promise<TaskDocument | null> {
@@ -92,6 +98,36 @@ export class TasksRepository {
 
   async updateById(id: string, update: Partial<Task>): Promise<TaskDocument | null> {
     await this.model.updateOne({ _id: id }, update).exec();
+    return this.findByIdActive(id);
+  }
+
+  /** `$addToSet`/`$pull` are idempotent by construction - calling add twice, or removing someone
+   * not currently in the list, is always a safe no-op, never an error. */
+  async addWatcher(id: string, userId: string): Promise<TaskDocument | null> {
+    await this.model
+      .updateOne({ _id: id }, { $addToSet: { watcherIds: new Types.ObjectId(userId) } })
+      .exec();
+    return this.findByIdActive(id);
+  }
+
+  async removeWatcher(id: string, userId: string): Promise<TaskDocument | null> {
+    await this.model
+      .updateOne({ _id: id }, { $pull: { watcherIds: new Types.ObjectId(userId) } })
+      .exec();
+    return this.findByIdActive(id);
+  }
+
+  async addVoter(id: string, userId: string): Promise<TaskDocument | null> {
+    await this.model
+      .updateOne({ _id: id }, { $addToSet: { voterIds: new Types.ObjectId(userId) } })
+      .exec();
+    return this.findByIdActive(id);
+  }
+
+  async removeVoter(id: string, userId: string): Promise<TaskDocument | null> {
+    await this.model
+      .updateOne({ _id: id }, { $pull: { voterIds: new Types.ObjectId(userId) } })
+      .exec();
     return this.findByIdActive(id);
   }
 

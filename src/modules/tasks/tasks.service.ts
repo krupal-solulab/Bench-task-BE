@@ -177,6 +177,13 @@ export class TasksService {
     const status = workflow.initialStatus;
     const statusCategory = categoryOf(workflow, status) ?? StatusCategory.TODO;
 
+    // Module 7's Watchers: the reporter is always auto-watching their own issue, plus the
+    // assignee if one is set at creation time (deduped - the creator may be assigning it to
+    // themselves) - see updateAssignee() for the equivalent auto-watch on a later reassignment.
+    const initialWatcherIds = [
+      ...new Set([actingUser.id, ...(dto.assignee ? [dto.assignee] : [])]),
+    ];
+
     const task = await this.tasksRepository.create({
       title: dto.title,
       description: dto.description ?? '',
@@ -185,6 +192,7 @@ export class TasksService {
       // A task created with no assignee starts its "became unassigned" episode immediately (BRD
       // 8's UnassignedForDuration trigger) - see updateAssignee's identical reasoning.
       assigneeClearedAt: dto.assignee ? null : new Date(),
+      watcherIds: initialWatcherIds.map((id) => new Types.ObjectId(id)),
       priority: dto.priority,
       status,
       statusCategory,
@@ -326,6 +334,36 @@ export class TasksService {
     const task = await this.getActiveOrThrow(id);
     await this.assertCanView(task, actingUser);
     return task;
+  }
+
+  /**
+   * Module 7's Watchers/Voting - self-service only (a user can only watch/vote for themselves,
+   * never add/remove anyone else), gated by the same view access as reading the task at all -
+   * you can't watch or vote for an issue you can't see. `$addToSet`/`$pull` make every one of
+   * these idempotent, so calling watch twice, or unwatch when not watching, is a safe no-op.
+   */
+  async addWatcher(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    return (await this.tasksRepository.addWatcher(id, actingUser.id))!;
+  }
+
+  async removeWatcher(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    return (await this.tasksRepository.removeWatcher(id, actingUser.id))!;
+  }
+
+  async addVoter(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    return (await this.tasksRepository.addVoter(id, actingUser.id))!;
+  }
+
+  async removeVoter(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    return (await this.tasksRepository.removeVoter(id, actingUser.id))!;
   }
 
   async update(
@@ -542,6 +580,15 @@ export class TasksService {
         toStatus: status,
       });
     }
+    // Module 7: broaden to every other watcher (the assignee, if also watching, already got the
+    // dedicated notification above).
+    await this.notificationsService.notifyWatchers({
+      taskId: id,
+      taskTitle: task.title,
+      watcherIds: task.watcherIds.map(extractId),
+      excludeUserIds: [actingUser.id, ...(task.assignee ? [extractId(task.assignee)] : [])],
+      message: `"${task.title}" moved from ${task.status} to ${status}`,
+    });
     // Unconditional on assignee (unlike the hardcoded notification above) - a role subscriber to
     // the Transitioned event cares about every status change on the project, not just tasks that
     // happen to be assigned.
@@ -602,7 +649,7 @@ export class TasksService {
 
     const previousAssignee = task.assignee ? extractId(task.assignee) : null;
     const becameUnassigned = !assignee && previousAssignee !== null;
-    const updated = await this.tasksRepository.updateById(id, {
+    let updated = await this.tasksRepository.updateById(id, {
       assignee: assignee ? new Types.ObjectId(assignee) : null,
       // A fresh "became unassigned" episode starts the clock for UnassignedForDuration rules;
       // reassigning clears both, so a later unassignment starts a genuinely new episode rather
@@ -622,6 +669,8 @@ export class TasksService {
     await this.invalidateDashboardCache();
 
     if (assignee && assignee !== previousAssignee) {
+      // Module 7: a newly-assigned user auto-watches their own issue (never auto-removed).
+      updated = await this.tasksRepository.addWatcher(id, assignee);
       await this.notificationsService.notifyTaskAssigned({
         taskId: id,
         taskTitle: task.title,

@@ -208,6 +208,39 @@ export class TasksController {
     await this.tasksService.softDelete(id, user);
   }
 
+  // Module 7: Watchers/Voting - self-service only, so there's no request body; the acting user is
+  // always the one being added/removed.
+  @Post(':id/watch')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Start watching this task (Module 7)' })
+  async watch(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.addWatcher(id, user);
+  }
+
+  @Delete(':id/watch')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Stop watching this task (Module 7)' })
+  async unwatch(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.removeWatcher(id, user);
+  }
+
+  @Post(':id/vote')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Vote for this task (Module 7)' })
+  async vote(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.addVoter(id, user);
+  }
+
+  @Delete(':id/vote')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Remove your vote from this task (Module 7)' })
+  async unvote(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.removeVoter(id, user);
+  }
+
   @Get(':id/activity')
   @ApiOperation({ summary: 'Paginated audit trail for a task' })
   async activity(

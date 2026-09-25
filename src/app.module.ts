@@ -39,6 +39,7 @@ import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates
 import { TeamsModule } from './modules/teams/teams.module';
 import { ProjectRolesModule } from './modules/project-roles/project-roles.module';
 import { SecuritySchemesModule } from './security-schemes/security-schemes.module';
+import { AuditLogModule } from './modules/audit-log/audit-log.module';
 
 @Module({
   imports: [
@@ -117,6 +118,7 @@ import { SecuritySchemesModule } from './security-schemes/security-schemes.modul
     TeamsModule,
     ProjectRolesModule,
     SecuritySchemesModule,
+    AuditLogModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

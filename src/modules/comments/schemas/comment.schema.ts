@@ -30,6 +30,13 @@ export class Comment {
   @Prop({ required: true, trim: true, minlength: 1, maxlength: 2000 })
   body!: string;
 
+  // Module 7's @mentions - derived server-side from `body`'s `@[Name](userId)` markup at
+  // create/update time (see mention.util.ts), never trusted as a separately client-supplied
+  // field. Empty for every comment written before this feature existed, and for any comment
+  // whose body contains no mention markup.
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  mentionedUserIds!: Types.ObjectId[];
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 
