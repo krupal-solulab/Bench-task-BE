@@ -39,6 +39,8 @@ describe('PermissionSchemesService', () => {
   >;
   let usersRepository: jest.Mocked<Pick<UsersRepository, 'findByIds'>>;
   let projectModel: { exists: jest.Mock };
+  let teamModel: { countDocuments: jest.Mock };
+  let projectRoleModel: { countDocuments: jest.Mock };
   let service: PermissionSchemesService;
 
   beforeEach(() => {
@@ -51,10 +53,14 @@ describe('PermissionSchemesService', () => {
     };
     usersRepository = { findByIds: jest.fn() };
     projectModel = { exists: jest.fn().mockResolvedValue(null) };
+    teamModel = { countDocuments: jest.fn().mockResolvedValue(0) };
+    projectRoleModel = { countDocuments: jest.fn().mockResolvedValue(0) };
     service = new PermissionSchemesService(
       repository as unknown as PermissionSchemesRepository,
       usersRepository as unknown as UsersRepository,
       projectModel as never,
+      teamModel as never,
+      projectRoleModel as never,
     );
   });
 

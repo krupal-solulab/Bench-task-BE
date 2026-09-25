@@ -36,6 +36,9 @@ import { CannedResponsesModule } from './modules/canned-responses/canned-respons
 import { EventsModule } from './events/events.module';
 import { PermissionSchemesModule } from './permission-schemes/permission-schemes.module';
 import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates.module';
+import { TeamsModule } from './modules/teams/teams.module';
+import { ProjectRolesModule } from './modules/project-roles/project-roles.module';
+import { SecuritySchemesModule } from './security-schemes/security-schemes.module';
 
 @Module({
   imports: [
@@ -111,6 +114,9 @@ import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates
     IntegrationHealthModule,
     CannedResponsesModule,
     ImportExportModule,
+    TeamsModule,
+    ProjectRolesModule,
+    SecuritySchemesModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

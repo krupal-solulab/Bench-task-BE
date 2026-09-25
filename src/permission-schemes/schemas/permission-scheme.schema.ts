@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { Role } from '../../common/enums/role.enum';
+import { GranteeContext, granteeMatchesGrant } from '../../common/utils/grant-matching.util';
 
 export type PermissionSchemeDocument = HydratedDocument<PermissionScheme>;
 
@@ -31,6 +32,15 @@ export class PermissionGrant {
 
   @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
   allowedUserIds!: Types.ObjectId[];
+
+  // Module 6: a whole Team, or every user currently filling a given (org-wide) Project Role on
+  // the project this scheme is assigned to - both resolved at check time, see
+  // ProjectsService.resolveGranteeContext.
+  @Prop({ type: [Types.ObjectId], ref: 'Team', default: [] })
+  allowedTeamIds!: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'ProjectRoleDefinition', default: [] })
+  allowedProjectRoleIds!: Types.ObjectId[];
 }
 
 export const PermissionGrantSchema = SchemaFactory.createForClass(PermissionGrant);
@@ -68,14 +78,14 @@ export const PermissionSchemeSchema = SchemaFactory.createForClass(PermissionSch
 
 PermissionSchemeSchema.index({ organizationId: 1 });
 
-/** Whether `actingUser` is granted `action` by this scheme - by role, or by individual user id. */
+/** Whether `ctx` is granted `action` by this scheme - by global role, individual user id, Team
+ * membership, or Project Role membership (see grant-matching.util.ts). */
 export function schemeGrants(
   scheme: PermissionScheme,
   action: SchemeAction,
-  actingUser: { id: string; role: Role },
+  ctx: GranteeContext,
 ): boolean {
   const grant = scheme.grants.find((g) => g.action === action);
   if (!grant) return false;
-  if (grant.allowedRoles.includes(actingUser.role)) return true;
-  return grant.allowedUserIds.some((userId) => userId.toString() === actingUser.id);
+  return granteeMatchesGrant(grant, ctx);
 }

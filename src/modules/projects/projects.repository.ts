@@ -37,6 +37,19 @@ export class ProjectsRepository {
     return this.model.findOne({ _id: id, deletedAt: null }).exec();
   }
 
+  /** Every active project in this org with a Security Scheme assigned - typically a small subset,
+   * used by TasksService to build a security-level exclusion filter for list/search endpoints
+   * that span multiple projects at once. */
+  findWithSecurityScheme(organizationId: string): Promise<ProjectDocument[]> {
+    return this.model
+      .find({
+        organizationId: new Types.ObjectId(organizationId),
+        securitySchemeId: { $ne: null },
+        deletedAt: null,
+      })
+      .exec();
+  }
+
   async paginate(
     query: ListProjectsDto,
     scope: FilterQuery<ProjectDocument>,

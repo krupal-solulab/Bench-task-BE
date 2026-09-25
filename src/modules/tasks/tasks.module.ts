@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ProjectsModule } from '../projects/projects.module';
+import { SecuritySchemesModule } from '../../security-schemes/security-schemes.module';
 import { SprintsModule } from '../sprints/sprints.module';
 import { ReleasesModule } from '../releases/releases.module';
 import { NotificationsModule } from '../../notifications/notifications.module';
@@ -24,6 +25,7 @@ import { AutomationJobProcessor } from './automation-job.processor';
 @Module({
   imports: [
     ProjectsModule,
+    SecuritySchemesModule,
     SprintsModule,
     ReleasesModule,
     NotificationsModule,

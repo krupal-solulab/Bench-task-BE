@@ -2018,6 +2018,92 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/security-scheme": {
+      "patch": {
+        "operationId": "ProjectsController_assignSecurityScheme",
+        "summary": "Assign (or, with null, unassign) an issue security scheme to this project (Module 6)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchSecuritySchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/role-assignments/{projectRoleId}": {
+      "patch": {
+        "operationId": "ProjectsController_setRoleAssignment",
+        "summary": "Replace a Project Role's userIds/teamIds on this project (Module 6)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "projectRoleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRoleAssignmentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/permission-schemes": {
       "post": {
         "operationId": "PermissionSchemesController_create",
@@ -2124,6 +2210,375 @@
         },
         "tags": [
           "permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/security-schemes": {
+      "post": {
+        "operationId": "SecuritySchemesController_create",
+        "summary": "Create a reusable issue security scheme (Module 6)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSecuritySchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "security-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "SecuritySchemesController_list",
+        "summary": "List this organization's security schemes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "security-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/security-schemes/{id}": {
+      "patch": {
+        "operationId": "SecuritySchemesController_update",
+        "summary": "Update a security scheme's name and/or levels",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSecuritySchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "security-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "SecuritySchemesController_remove",
+        "summary": "Delete a security scheme (must not be assigned to any project)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "security-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/teams": {
+      "post": {
+        "operationId": "TeamsController_create",
+        "summary": "Create a team (Module 6: Teams, Project Roles & Security Schemes)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTeamDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "teams"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "TeamsController_list",
+        "summary": "List this organization's teams",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "teams"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/teams/{id}": {
+      "get": {
+        "operationId": "TeamsController_get",
+        "summary": "Get a single team",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "teams"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "TeamsController_update",
+        "summary": "Update a team's name, description, lead, and/or members",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTeamDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "teams"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "TeamsController_remove",
+        "summary": "Delete a team",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "teams"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/project-roles": {
+      "post": {
+        "operationId": "ProjectRolesController_create",
+        "summary": "Create a reusable project role for this organization (Module 6)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-roles"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "ProjectRolesController_list",
+        "summary": "List this organization's project roles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-roles"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/project-roles/{id}": {
+      "patch": {
+        "operationId": "ProjectRolesController_update",
+        "summary": "Update a project role's name and/or description",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-roles"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ProjectRolesController_remove",
+        "summary": "Delete a project role (must not be assigned on any project)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-roles"
         ],
         "security": [
           {
@@ -7600,6 +8055,33 @@
           }
         }
       },
+      "PatchSecuritySchemeDto": {
+        "type": "object",
+        "properties": {
+          "securitySchemeId": {
+            "type": "object",
+            "nullable": true,
+            "description": "null to unassign (issues are then never view-restricted on this project)"
+          }
+        }
+      },
+      "SetRoleAssignmentDto": {
+        "type": "object",
+        "properties": {
+          "userIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "teamIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "PermissionGrantDto": {
         "type": "object",
         "properties": {
@@ -7628,6 +8110,20 @@
           },
           "allowedUserIds": {
             "description": "User ids individually granted this action",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedTeamIds": {
+            "description": "Team ids granted this action (Module 6)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedProjectRoleIds": {
+            "description": "Project Role ids granted this action (Module 6)",
             "type": "array",
             "items": {
               "type": "string"
@@ -7671,6 +8167,161 @@
             "items": {
               "$ref": "#/components/schemas/PermissionGrantDto"
             }
+          }
+        }
+      },
+      "SecurityLevelDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Confidential"
+          },
+          "allowedRoles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PlatformAdmin",
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          },
+          "allowedUserIds": {
+            "description": "User ids individually granted view access",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedTeamIds": {
+            "description": "Team ids granted view access (Module 6)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedProjectRoleIds": {
+            "description": "Project Role ids granted view access (Module 6)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "allowedRoles",
+          "allowedUserIds"
+        ]
+      },
+      "CreateSecuritySchemeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Standard confidentiality levels"
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SecurityLevelDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "levels"
+        ]
+      },
+      "UpdateSecuritySchemeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Standard confidentiality levels"
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SecurityLevelDto"
+            }
+          }
+        }
+      },
+      "CreateTeamDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Backend Guild"
+          },
+          "description": {
+            "type": "string"
+          },
+          "leadId": {
+            "type": "object",
+            "nullable": true
+          },
+          "memberIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateTeamDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Backend Guild"
+          },
+          "description": {
+            "type": "string"
+          },
+          "leadId": {
+            "type": "object",
+            "nullable": true
+          },
+          "memberIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateProjectRoleDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "QA Lead"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateProjectRoleDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "QA Lead"
+          },
+          "description": {
+            "type": "string"
           }
         }
       },
@@ -7795,6 +8446,11 @@
             "items": {
               "type": "string"
             }
+          },
+          "securityLevel": {
+            "type": "object",
+            "nullable": true,
+            "description": "A level name from the project's assigned Security Scheme (Module 6) - only valid when one is assigned; null means no view restriction."
           }
         },
         "required": [
@@ -7980,6 +8636,11 @@
             "items": {
               "type": "string"
             }
+          },
+          "securityLevel": {
+            "type": "object",
+            "nullable": true,
+            "description": "A level name from the project's assigned Security Scheme (Module 6) - only valid when one is assigned; null means no view restriction."
           }
         }
       },

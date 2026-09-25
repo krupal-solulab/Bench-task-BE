@@ -2,6 +2,9 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { UsersModule } from '../users/users.module';
 import { PermissionSchemesModule } from '../../permission-schemes/permission-schemes.module';
+import { SecuritySchemesModule } from '../../security-schemes/security-schemes.module';
+import { TeamsModule } from '../teams/teams.module';
+import { ProjectRolesModule } from '../project-roles/project-roles.module';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
 import { Sprint, SprintSchema } from '../sprints/schemas/sprint.schema';
@@ -15,6 +18,9 @@ import { ProjectsController } from './projects.controller';
   imports: [
     UsersModule,
     PermissionSchemesModule,
+    SecuritySchemesModule,
+    TeamsModule,
+    ProjectRolesModule,
     MongooseModule.forFeature([
       { name: Project.name, schema: ProjectSchema },
       { name: ProjectActivity.name, schema: ProjectActivitySchema },

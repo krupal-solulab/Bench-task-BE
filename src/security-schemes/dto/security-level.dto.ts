@@ -1,13 +1,23 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayUnique, IsArray, IsEnum, IsOptional } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { Role } from '../../common/enums/role.enum';
 import { IsObjectId } from '../../common/validators/is-object-id.validator';
-import { SchemeAction } from '../schemas/permission-scheme.schema';
 
-export class PermissionGrantDto {
-  @ApiProperty({ enum: SchemeAction })
-  @IsEnum(SchemeAction)
-  action!: SchemeAction;
+export class SecurityLevelDto {
+  @ApiProperty({ example: 'Confidential' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  name!: string;
 
   @ApiProperty({ enum: Role, isArray: true })
   @IsArray()
@@ -16,14 +26,14 @@ export class PermissionGrantDto {
   @IsEnum(Role, { each: true })
   allowedRoles!: Role[];
 
-  @ApiProperty({ type: [String], description: 'User ids individually granted this action' })
+  @ApiProperty({ type: [String], description: 'User ids individually granted view access' })
   @IsArray()
   @ArrayUnique()
   @ArrayMaxSize(200)
   @IsObjectId({ each: true })
   allowedUserIds!: string[];
 
-  @ApiPropertyOptional({ type: [String], description: 'Team ids granted this action (Module 6)' })
+  @ApiPropertyOptional({ type: [String], description: 'Team ids granted view access (Module 6)' })
   @IsOptional()
   @IsArray()
   @ArrayUnique()
@@ -33,7 +43,7 @@ export class PermissionGrantDto {
 
   @ApiPropertyOptional({
     type: [String],
-    description: 'Project Role ids granted this action (Module 6)',
+    description: 'Project Role ids granted view access (Module 6)',
   })
   @IsOptional()
   @IsArray()

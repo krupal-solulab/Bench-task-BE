@@ -78,6 +78,13 @@ import {
   SchemeAction,
   schemeGrants,
 } from '../../permission-schemes/schemas/permission-scheme.schema';
+import { PatchSecuritySchemeDto } from './dto/patch-security-scheme.dto';
+import { SetRoleAssignmentDto } from './dto/set-role-assignment.dto';
+import { SecuritySchemesService } from '../../security-schemes/security-schemes.service';
+import { TeamsService } from '../teams/teams.service';
+import { ProjectRolesService } from '../project-roles/project-roles.service';
+import { GranteeContext } from '../../common/utils/grant-matching.util';
+import { ProjectRoleAssignment, resolveUserProjectRoleIds } from './schemas/role-assignment.schema';
 
 interface ProjectMemberResponse {
   user: unknown;
@@ -104,8 +111,16 @@ export interface ProjectResponse {
   permissionSchemeId: string | null;
   notificationScheme: NotificationSchemeRule[];
   boardType: BoardType;
+  roleAssignments: RoleAssignmentResponse[];
+  securitySchemeId: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface RoleAssignmentResponse {
+  projectRoleId: string;
+  userIds: string[];
+  teamIds: string[];
 }
 
 @Injectable()
@@ -115,6 +130,9 @@ export class ProjectsService {
     private readonly usersRepository: UsersRepository,
     private readonly cacheService: CacheService,
     private readonly permissionSchemesService: PermissionSchemesService,
+    private readonly securitySchemesService: SecuritySchemesService,
+    private readonly teamsService: TeamsService,
+    private readonly projectRolesService: ProjectRolesService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     @InjectModel(Sprint.name) private readonly sprintModel: Model<SprintDocument>,
@@ -1195,7 +1213,114 @@ export class ProjectsService {
       extractId(project.permissionSchemeId),
     );
     if (!scheme) return false;
-    return schemeGrants(scheme, action, actingUser);
+    const ctx = await this.resolveGranteeContext(project, actingUser);
+    return schemeGrants(scheme, action, ctx);
+  }
+
+  /**
+   * Module 6: everything a Permission/Security Scheme grant might be scoped to for `actingUser` on
+   * this specific project - their global role (always), their current Team memberships (org-wide),
+   * and the org-wide Project Roles they fill *on this project* (resolved from `roleAssignments`,
+   * which is why this needs the project, not just the user). Exposed publicly so TasksService can
+   * reuse the exact same resolution for Security Scheme level checks, rather than duplicating it.
+   */
+  async resolveGranteeContext(
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<GranteeContext> {
+    const teamIds = await this.teamsService.findTeamIdsForUser(
+      extractId(project.organizationId),
+      actingUser.id,
+    );
+    const projectRoleIds = resolveUserProjectRoleIds(
+      project.roleAssignments,
+      actingUser.id,
+      teamIds,
+    );
+    return { role: actingUser.role, userId: actingUser.id, teamIds, projectRoleIds };
+  }
+
+  /** Replaces (not merges) one Project Role's userIds/teamIds on this project - omitting a field
+   * in the DTO leaves it unchanged. Gated by assertCanManage, same as every other project
+   * configuration surface (workflow, custom fields, automation rules, ...). */
+  async setRoleAssignment(
+    id: string,
+    projectRoleId: string,
+    dto: SetRoleAssignmentDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const role = await this.projectRolesService.findByIdOrNull(projectRoleId);
+    if (!role || extractId(role.organizationId) !== requireOrgId(actingUser)) {
+      throw new BadRequestException('Project role not found in this organization');
+    }
+
+    if (dto.userIds?.length)
+      await this.assertUsersExistInOrg(dto.userIds, requireOrgId(actingUser));
+    if (dto.teamIds?.length) {
+      const teamCount = await this.teamsService.countTeamsInOrg(
+        dto.teamIds,
+        requireOrgId(actingUser),
+      );
+      if (teamCount !== new Set(dto.teamIds).size) {
+        throw new BadRequestException('One or more teamIds do not exist in this organization');
+      }
+    }
+
+    const existing = project.roleAssignments.filter(
+      (a) => extractId(a.projectRoleId) !== projectRoleId,
+    );
+    const current = project.roleAssignments.find(
+      (a) => extractId(a.projectRoleId) === projectRoleId,
+    );
+    const next: ProjectRoleAssignment = {
+      projectRoleId: new Types.ObjectId(projectRoleId),
+      userIds: (dto.userIds ?? current?.userIds.map(extractId) ?? []).map(
+        (userId) => new Types.ObjectId(userId),
+      ),
+      teamIds: (dto.teamIds ?? current?.teamIds.map(extractId) ?? []).map(
+        (teamId) => new Types.ObjectId(teamId),
+      ),
+    };
+
+    const updated = await this.projectsRepository.updateById(id, {
+      roleAssignments: [...existing, next],
+    });
+    return this.toResponse(updated!);
+  }
+
+  /** Assign (or, with `null`, unassign) a reusable SecurityScheme to this project. Unassigning
+   * means every issue on this project is viewable by any project member again, regardless of any
+   * `securityLevel` left set on individual tasks - never a dead end. */
+  async assignSecurityScheme(
+    id: string,
+    dto: PatchSecuritySchemeDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    if (dto.securitySchemeId) {
+      const scheme = await this.securitySchemesService.findByIdOrNull(dto.securitySchemeId);
+      if (!scheme || extractId(scheme.organizationId) !== requireOrgId(actingUser)) {
+        throw new BadRequestException('Security scheme not found in this organization');
+      }
+    }
+
+    const updated = await this.projectsRepository.updateById(id, {
+      securitySchemeId: dto.securitySchemeId ? new Types.ObjectId(dto.securitySchemeId) : null,
+    });
+    return this.toResponse(updated!);
+  }
+
+  private async assertUsersExistInOrg(userIds: string[], organizationId: string): Promise<void> {
+    const unique = [...new Set(userIds)];
+    const users = await this.usersRepository.findByIds(unique, organizationId);
+    if (users.length !== unique.length) {
+      throw new BadRequestException('One or more users do not exist in this organization');
+    }
   }
 
   /** Whether a project member (by user id) was explicitly granted a specific capability on this
@@ -1212,6 +1337,12 @@ export class ProjectsService {
 
   isProjectMember(project: ProjectDocument, userId: string): boolean {
     return this.projectsRepository.isMember(project, userId);
+  }
+
+  /** Used by TasksService to build a security-level exclusion filter for list/search endpoints -
+   * every existing project (no scheme assigned) never appears here and needs no special handling. */
+  findProjectsWithSecurityScheme(organizationId: string): Promise<ProjectDocument[]> {
+    return this.projectsRepository.findWithSecurityScheme(organizationId);
   }
 
   /** Every project member (owner + members) whose global role matches - used by the automation
@@ -1330,6 +1461,12 @@ export class ProjectsService {
       permissionSchemeId: project.permissionSchemeId ? extractId(project.permissionSchemeId) : null,
       notificationScheme: project.notificationScheme,
       boardType: project.boardType,
+      roleAssignments: project.roleAssignments.map((a) => ({
+        projectRoleId: extractId(a.projectRoleId),
+        userIds: a.userIds.map(extractId),
+        teamIds: a.teamIds.map(extractId),
+      })),
+      securitySchemeId: project.securitySchemeId ? extractId(project.securitySchemeId) : null,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };

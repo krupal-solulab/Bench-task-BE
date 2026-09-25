@@ -15,6 +15,7 @@ import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { TasksService } from 'src/modules/tasks/tasks.service';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
 import { ProjectsService } from 'src/modules/projects/projects.service';
+import { SecuritySchemesService } from 'src/security-schemes/security-schemes.service';
 import { SprintsService } from 'src/modules/sprints/sprints.service';
 import { ReleasesService } from 'src/modules/releases/releases.service';
 import { CacheService } from 'src/redis/cache.service';
@@ -119,8 +120,11 @@ describe('TasksService', () => {
       | 'getOrAssignKey'
       | 'nextIssueNumber'
       | 'membersWithRole'
+      | 'findProjectsWithSecurityScheme'
+      | 'resolveGranteeContext'
     >
   >;
+  let securitySchemesService: jest.Mocked<Pick<SecuritySchemesService, 'findByIdOrNull'>>;
   let sprintsService: jest.Mocked<Pick<SprintsService, 'getActiveOrThrow'>>;
   let releasesService: jest.Mocked<Pick<ReleasesService, 'validateIdsForProject'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
@@ -168,7 +172,15 @@ describe('TasksService', () => {
       getOrAssignKey: jest.fn().mockResolvedValue('PRJ'),
       nextIssueNumber: jest.fn().mockResolvedValue(1),
       membersWithRole: jest.fn().mockResolvedValue([]),
+      findProjectsWithSecurityScheme: jest.fn().mockResolvedValue([]),
+      resolveGranteeContext: jest.fn().mockResolvedValue({
+        role: Role.DEVELOPER,
+        userId: DEV_ID,
+        teamIds: [],
+        projectRoleIds: [],
+      }),
     };
+    securitySchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     sprintsService = { getActiveOrThrow: jest.fn() };
     releasesService = { validateIdsForProject: jest.fn().mockResolvedValue(undefined) };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
@@ -188,6 +200,7 @@ describe('TasksService', () => {
     service = new TasksService(
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
+      securitySchemesService as unknown as SecuritySchemesService,
       sprintsService as unknown as SprintsService,
       releasesService as unknown as ReleasesService,
       cacheService as unknown as CacheService,

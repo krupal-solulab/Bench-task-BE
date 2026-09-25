@@ -152,6 +152,13 @@ export class Task {
   @Prop({ type: MongooseSchema.Types.Mixed, default: {} })
   customFieldValues!: Record<string, unknown>;
 
+  // Module 6's issue-level view restriction - a level *name* from the project's assigned
+  // SecurityScheme (same name-based convention as status/issueType), validated against it at
+  // create/update time. Null (every existing task, and any new one on a project with no scheme
+  // assigned) means "no restriction" - visible to any project member, completely unaffected.
+  @Prop({ type: String, default: null })
+  securityLevel!: string | null;
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 

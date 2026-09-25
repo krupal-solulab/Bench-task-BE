@@ -131,4 +131,15 @@ export class CreateTaskDto {
   @ArrayMaxSize(20)
   @IsObjectId({ each: true })
   affectsVersions?: string[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      "A level name from the project's assigned Security Scheme (Module 6) - only valid when " +
+      'one is assigned; null means no view restriction.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  securityLevel?: string | null;
 }

@@ -14,6 +14,7 @@ import { Workflow, WorkflowSchema, WorkflowByType, WorkflowByTypeSchema } from '
 import { IssueTypeDefinition, IssueTypeDefinitionSchema } from './issue-type.schema';
 import { NotificationSchemeRule, NotificationSchemeRuleSchema } from './notification-scheme.schema';
 import { SlaPolicyEntry, SlaPolicyEntrySchema } from './sla-policy.schema';
+import { ProjectRoleAssignment, ProjectRoleAssignmentSchema } from './role-assignment.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
 
@@ -156,6 +157,19 @@ export class Project {
   // nothing changes for anyone who doesn't opt in. See sla-policy.schema.ts.
   @Prop({ type: [SlaPolicyEntrySchema], default: [] })
   slaPolicy!: SlaPolicyEntry[];
+
+  // Module 6's per-project Role Assignments - empty for every existing project until an Admin/
+  // owning Manager assigns users/teams to an org-wide Project Role via
+  // ProjectsService.setRoleAssignment(). See role-assignment.schema.ts.
+  @Prop({ type: [ProjectRoleAssignmentSchema], default: [] })
+  roleAssignments!: ProjectRoleAssignment[];
+
+  // Null means "no issue-level view restriction" - every existing project, and any new one that
+  // never opens the security-scheme settings, is completely unaffected until an Admin/owning
+  // Manager assigns one via ProjectsService.assignSecurityScheme(). See
+  // security-schemes/schemas/security-scheme.schema.ts.
+  @Prop({ type: Types.ObjectId, ref: 'SecurityScheme', default: null })
+  securitySchemeId!: Types.ObjectId | null;
 
   createdAt!: Date;
   updatedAt!: Date;

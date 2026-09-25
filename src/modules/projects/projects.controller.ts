@@ -34,6 +34,8 @@ import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
 import { PutNotificationSchemeDto } from './dto/put-notification-scheme.dto';
 import { PutSlaPolicyDto } from './dto/put-sla-policy.dto';
 import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
+import { PatchSecuritySchemeDto } from './dto/patch-security-scheme.dto';
+import { SetRoleAssignmentDto } from './dto/set-role-assignment.dto';
 import { PutIssueTypesDto } from './dto/put-issue-types.dto';
 
 @ApiTags('projects')
@@ -372,5 +374,32 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.assignPermissionScheme(id, dto, user);
+  }
+
+  @Patch(':id/security-scheme')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary: 'Assign (or, with null, unassign) an issue security scheme to this project (Module 6)',
+  })
+  async assignSecurityScheme(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PatchSecuritySchemeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.assignSecurityScheme(id, dto, user);
+  }
+
+  @Patch(':id/role-assignments/:projectRoleId')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary: "Replace a Project Role's userIds/teamIds on this project (Module 6)",
+  })
+  async setRoleAssignment(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('projectRoleId', ParseObjectIdPipe) projectRoleId: string,
+    @Body() dto: SetRoleAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.setRoleAssignment(id, projectRoleId, dto, user);
   }
 }

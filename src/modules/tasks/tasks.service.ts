@@ -48,6 +48,8 @@ import {
 } from '../projects/schemas/automation-rule.schema';
 import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
 import { SchemeAction } from '../../permission-schemes/schemas/permission-scheme.schema';
+import { SecuritySchemesService } from '../../security-schemes/security-schemes.service';
+import { viewableLevelNames } from '../../security-schemes/schemas/security-scheme.schema';
 import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { ReleasesService } from '../releases/releases.service';
@@ -118,6 +120,7 @@ export class TasksService {
   constructor(
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
+    private readonly securitySchemesService: SecuritySchemesService,
     private readonly sprintsService: SprintsService,
     private readonly releasesService: ReleasesService,
     private readonly cacheService: CacheService,
@@ -144,6 +147,7 @@ export class TasksService {
     const issueType = dto.issueType ?? IssueType.TASK;
     const parent = await this.assertValidHierarchy(project, issueType, dto.parent);
     this.assertValidComponents(project, dto.components);
+    await this.assertValidSecurityLevel(project, dto.securityLevel);
     await this.releasesService.validateIdsForProject(project.id, [
       ...(dto.fixVersions ?? []),
       ...(dto.affectsVersions ?? []),
@@ -200,6 +204,7 @@ export class TasksService {
       fixVersions: (dto.fixVersions ?? []).map((id) => new Types.ObjectId(id)),
       affectsVersions: (dto.affectsVersions ?? []).map((id) => new Types.ObjectId(id)),
       customFieldValues: dto.customFieldValues ?? {},
+      securityLevel: dto.securityLevel ?? null,
     });
 
     await this.tasksRepository.logActivity(task.id, actingUser.id, TaskActivityAction.CREATED);
@@ -239,6 +244,7 @@ export class TasksService {
     const { data, total } = await this.tasksRepository.paginate(query, {
       assignee: new Types.ObjectId(actingUser.id),
       organizationId: new Types.ObjectId(requireOrgId(actingUser)),
+      ...(await this.buildSecurityExclusionFilter(actingUser)),
     });
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
   }
@@ -338,6 +344,7 @@ export class TasksService {
       );
     }
     this.assertValidComponents(project, dto.components);
+    await this.assertValidSecurityLevel(project, dto.securityLevel);
     await this.releasesService.validateIdsForProject(project.id, [
       ...(dto.fixVersions ?? []),
       ...(dto.affectsVersions ?? []),
@@ -386,6 +393,7 @@ export class TasksService {
       ...(dto.customFieldValues !== undefined
         ? { customFieldValues: { ...task.customFieldValues, ...dto.customFieldValues } }
         : {}),
+      ...(dto.securityLevel !== undefined ? { securityLevel: dto.securityLevel } : {}),
     });
 
     for (const [action, from, to] of activities) {
@@ -917,6 +925,46 @@ export class TasksService {
     }
   }
 
+  /** Module 6: `securityLevel` must be a level name from the project's assigned Security Scheme -
+   * `undefined` (not provided) is a no-op; explicit `null` always clears it and is always valid,
+   * even on a project with no scheme. A non-null value on a project with no scheme assigned is
+   * rejected the same way setting an unknown custom field would be. */
+  private async assertValidSecurityLevel(
+    project: ProjectDocument,
+    securityLevel: string | null | undefined,
+  ): Promise<void> {
+    if (securityLevel === undefined || securityLevel === null) return;
+    if (!project.securitySchemeId) {
+      throw new BadRequestException('This project has no security scheme assigned');
+    }
+    const scheme = await this.securitySchemesService.findByIdOrNull(
+      extractId(project.securitySchemeId),
+    );
+    const levelNames = scheme?.levels.map((l) => l.name) ?? [];
+    if (!levelNames.includes(securityLevel)) {
+      throw new BadRequestException(
+        `"${securityLevel}" is not a security level in this project's scheme. Allowed: ${levelNames.join(', ')}`,
+      );
+    }
+  }
+
+  /** The security level names `actingUser` may NOT view on `project` - empty when the project has
+   * no scheme assigned (every existing project) or the scheme grants every level. Used both for
+   * the single-task view check and to build the list/search exclusion filter. */
+  private async blockedSecurityLevels(
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<string[]> {
+    if (!project.securitySchemeId) return [];
+    const scheme = await this.securitySchemesService.findByIdOrNull(
+      extractId(project.securitySchemeId),
+    );
+    if (!scheme) return [];
+    const ctx = await this.projectsService.resolveGranteeContext(project, actingUser);
+    const viewable = new Set(viewableLevelNames(scheme, ctx));
+    return scheme.levels.map((l) => l.name).filter((name) => !viewable.has(name));
+  }
+
   /** Whether `issueType` resolves to the project's Standard level - project-scoped (not a fixed
    * 3-name list) so a custom Standard-level type an Admin added counts too. */
   private isStandardIssue(project: ProjectDocument, issueType: string): boolean {
@@ -977,15 +1025,43 @@ export class TasksService {
   }
 
   private async assertCanView(task: TaskDocument, actingUser: AuthenticatedUser): Promise<void> {
-    if (
-      actingUser.role === Role.ADMIN &&
-      extractId(task.organizationId) === requireOrgId(actingUser)
-    ) {
-      return;
-    }
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
-    if (this.projectsService.isProjectMember(project, actingUser.id)) return;
-    throw new ForbiddenException('You do not have access to this task');
+    const isSameOrgAdmin =
+      actingUser.role === Role.ADMIN && extractId(task.organizationId) === requireOrgId(actingUser);
+    if (!isSameOrgAdmin && !this.projectsService.isProjectMember(project, actingUser.id)) {
+      throw new ForbiddenException('You do not have access to this task');
+    }
+    // Module 6: project access alone isn't enough once a security level restricts this specific
+    // issue - a same-org Admin is NOT exempt here (unlike the project-membership check above),
+    // since a Security Scheme is explicitly about restricting who can see a given issue, not
+    // rederiving the org-wide admin bypass every other check already gives them.
+    if (task.securityLevel) {
+      const blocked = await this.blockedSecurityLevels(project, actingUser);
+      if (blocked.includes(task.securityLevel)) {
+        throw new ForbiddenException('You do not have access to this task');
+      }
+    }
+  }
+
+  /** ANDed into every list/search scope - excludes only (project, level) combinations the acting
+   * user's Security Scheme grants don't cover. A project with no scheme assigned (every existing
+   * project) contributes nothing here, so this is a no-op until an Admin opts in. */
+  private async buildSecurityExclusionFilter(
+    actingUser: AuthenticatedUser,
+  ): Promise<FilterQuery<TaskDocument>> {
+    const restrictedProjects = await this.projectsService.findProjectsWithSecurityScheme(
+      requireOrgId(actingUser),
+    );
+    if (restrictedProjects.length === 0) return {};
+
+    const clauses: FilterQuery<TaskDocument>[] = [];
+    for (const project of restrictedProjects) {
+      const blocked = await this.blockedSecurityLevels(project, actingUser);
+      if (blocked.length > 0) {
+        clauses.push({ project: project._id, securityLevel: { $in: blocked } });
+      }
+    }
+    return clauses.length > 0 ? { $nor: clauses } : {};
   }
 
   private async buildScope(actingUser: AuthenticatedUser) {
@@ -993,6 +1069,7 @@ export class TasksService {
     return {
       project: { $in: projectIds.map((p) => new Types.ObjectId(p)) },
       organizationId: new Types.ObjectId(requireOrgId(actingUser)),
+      ...(await this.buildSecurityExclusionFilter(actingUser)),
     };
   }
 

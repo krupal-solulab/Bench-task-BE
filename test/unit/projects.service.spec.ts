@@ -27,6 +27,9 @@ import {
 } from 'src/modules/projects/schemas/notification-scheme.schema';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { PermissionSchemesService } from 'src/permission-schemes/permission-schemes.service';
+import { SecuritySchemesService } from 'src/security-schemes/security-schemes.service';
+import { TeamsService } from 'src/modules/teams/teams.service';
+import { ProjectRolesService } from 'src/modules/project-roles/project-roles.service';
 import { CacheService } from 'src/redis/cache.service';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
 import { CommentDocument } from 'src/modules/comments/schemas/comment.schema';
@@ -57,6 +60,8 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     automationRules: [],
     workflowsByType: [],
     permissionSchemeId: null,
+    roleAssignments: [],
+    securitySchemeId: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     ...overrides,
@@ -103,6 +108,9 @@ describe('ProjectsService', () => {
   let usersRepository: jest.Mocked<Pick<UsersRepository, 'findById' | 'findByIds'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
   let permissionSchemesService: jest.Mocked<Pick<PermissionSchemesService, 'findByIdOrNull'>>;
+  let securitySchemesService: jest.Mocked<Pick<SecuritySchemesService, 'findByIdOrNull'>>;
+  let teamsService: jest.Mocked<Pick<TeamsService, 'findTeamIdsForUser' | 'countTeamsInOrg'>>;
+  let projectRolesService: jest.Mocked<Pick<ProjectRolesService, 'findByIdOrNull'>>;
   let taskModel: {
     countDocuments: jest.Mock;
     find: jest.Mock;
@@ -131,6 +139,12 @@ describe('ProjectsService', () => {
     usersRepository = { findById: jest.fn(), findByIds: jest.fn() };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
     permissionSchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
+    securitySchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
+    teamsService = {
+      findTeamIdsForUser: jest.fn().mockResolvedValue([]),
+      countTeamsInOrg: jest.fn().mockResolvedValue(0),
+    };
+    projectRolesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     taskModel = {
       countDocuments: jest.fn().mockResolvedValue(0),
       find: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue([]) }),
@@ -150,6 +164,9 @@ describe('ProjectsService', () => {
       usersRepository as unknown as UsersRepository,
       cacheService as unknown as CacheService,
       permissionSchemesService as unknown as PermissionSchemesService,
+      securitySchemesService as unknown as SecuritySchemesService,
+      teamsService as unknown as TeamsService,
+      projectRolesService as unknown as ProjectRolesService,
       taskModel as unknown as Model<TaskDocument>,
       commentModel as unknown as Model<CommentDocument>,
       sprintModel as unknown as Model<SprintDocument>,
