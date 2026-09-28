@@ -152,6 +152,76 @@ describe('auth flow (integration)', () => {
     expect(res.body.data.passwordHash).toBeUndefined();
   });
 
+  describe('PATCH /auth/me (Module 11 self-service profile editing)', () => {
+    it("updates the caller's own name and email", async () => {
+      const org = await seedOrganization(app);
+      const { accessToken } = await seedUserAndLogin(app, {
+        name: 'Original Name',
+        email: 'selfupdate1@example.com',
+        password: 'Password123',
+        role: Role.DEVELOPER,
+        organizationId: org.id,
+      });
+
+      const res = await api(app)
+        .patch(`/${API_PREFIX}/auth/me`)
+        .set(...authHeader(accessToken))
+        .send({ name: 'Updated Name', email: 'selfupdate1-new@example.com' });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({
+        name: 'Updated Name',
+        email: 'selfupdate1-new@example.com',
+      });
+
+      const meRes = await api(app)
+        .get(`/${API_PREFIX}/auth/me`)
+        .set(...authHeader(accessToken));
+      expect(meRes.body.data).toMatchObject({
+        name: 'Updated Name',
+        email: 'selfupdate1-new@example.com',
+      });
+    });
+
+    it('rejects updating to an email already used by another user (409)', async () => {
+      const org = await seedOrganization(app);
+      await seedUser(app, {
+        email: 'taken@example.com',
+        password: 'Password123',
+        role: Role.DEVELOPER,
+        organizationId: org.id,
+      });
+      const { accessToken } = await seedUserAndLogin(app, {
+        email: 'selfupdate2@example.com',
+        password: 'Password123',
+        role: Role.DEVELOPER,
+        organizationId: org.id,
+      });
+
+      const res = await api(app)
+        .patch(`/${API_PREFIX}/auth/me`)
+        .set(...authHeader(accessToken))
+        .send({ email: 'taken@example.com' });
+      expect(res.status).toBe(409);
+    });
+
+    it('also works for a PlatformAdmin, who has no organizationId at all', async () => {
+      const { accessToken, userDoc } = await seedUserAndLogin(app, {
+        name: 'Platform Original',
+        email: 'selfupdate-platform@example.com',
+        password: 'Password123',
+        role: Role.PLATFORM_ADMIN,
+        organizationId: null,
+      });
+
+      const res = await api(app)
+        .patch(`/${API_PREFIX}/auth/me`)
+        .set(...authHeader(accessToken))
+        .send({ name: 'Platform Updated' });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ id: userDoc.id, name: 'Platform Updated' });
+    });
+  });
+
   describe('PATCH /auth/me/password', () => {
     it('rejects with 409 when the current password is wrong', async () => {
       const org = await seedOrganization(app);

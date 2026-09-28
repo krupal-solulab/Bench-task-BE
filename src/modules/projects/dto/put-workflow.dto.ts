@@ -16,6 +16,7 @@ import {
 } from 'class-validator';
 import { StatusCategory } from '../../../common/enums/status-category.enum';
 import { Role } from '../../../common/enums/role.enum';
+import { IsObjectId } from '../../../common/validators/is-object-id.validator';
 
 export class WorkflowStatusDto {
   @ApiProperty({ example: 'Blocked' })
@@ -79,6 +80,44 @@ export class WorkflowTransitionDto {
   @ArrayUnique()
   @IsString({ each: true })
   requiredCustomFieldIds?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      "Module 12: don't apply this transition immediately - wait for a separate approve/reject " +
+      'call from an eligible approver (see the 4 approver* fields below). Omit/false for ' +
+      'immediate application (default).',
+  })
+  @IsOptional()
+  @IsBoolean()
+  requiresApproval?: boolean;
+
+  @ApiPropertyOptional({ enum: Role, isArray: true, description: 'Who may approve/reject' })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsEnum(Role, { each: true })
+  approverRoles?: Role[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsObjectId({ each: true })
+  approverUserIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsObjectId({ each: true })
+  approverTeamIds?: string[];
+
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsObjectId({ each: true })
+  approverProjectRoleIds?: string[];
 }
 
 export class PutWorkflowDto {

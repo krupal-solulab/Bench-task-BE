@@ -29,6 +29,12 @@ export enum AuditAction {
   PROJECT_ROLE_CREATED = 'ProjectRoleCreated',
   PROJECT_ROLE_UPDATED = 'ProjectRoleUpdated',
   PROJECT_ROLE_DELETED = 'ProjectRoleDeleted',
+  ISSUE_TEMPLATE_CREATED = 'IssueTemplateCreated',
+  ISSUE_TEMPLATE_UPDATED = 'IssueTemplateUpdated',
+  ISSUE_TEMPLATE_DELETED = 'IssueTemplateDeleted',
+  FIELD_PERMISSION_SCHEME_CREATED = 'FieldPermissionSchemeCreated',
+  FIELD_PERMISSION_SCHEME_UPDATED = 'FieldPermissionSchemeUpdated',
+  FIELD_PERMISSION_SCHEME_DELETED = 'FieldPermissionSchemeDeleted',
 }
 
 export const AUDIT_ACTIONS = Object.values(AuditAction);

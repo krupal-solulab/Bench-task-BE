@@ -32,9 +32,11 @@ export class NotificationsRepository {
     page: number,
     limit: number,
     unreadOnly: boolean,
+    type?: NotificationType,
   ): Promise<{ data: NotificationDocument[]; total: number }> {
     const filter: Record<string, unknown> = { recipient: new Types.ObjectId(recipientId) };
     if (unreadOnly) filter.readAt = null;
+    if (type) filter.type = type;
 
     const skip = (page - 1) * limit;
     const [data, total] = await Promise.all([

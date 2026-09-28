@@ -383,7 +383,13 @@
                 "TeamDeleted",
                 "ProjectRoleCreated",
                 "ProjectRoleUpdated",
-                "ProjectRoleDeleted"
+                "ProjectRoleDeleted",
+                "IssueTemplateCreated",
+                "IssueTemplateUpdated",
+                "IssueTemplateDeleted",
+                "FieldPermissionSchemeCreated",
+                "FieldPermissionSchemeUpdated",
+                "FieldPermissionSchemeDeleted"
               ],
               "type": "string"
             }
@@ -2301,6 +2307,45 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/field-permission-scheme": {
+      "patch": {
+        "operationId": "ProjectsController_assignFieldPermissionScheme",
+        "summary": "Assign (or, with null, unassign) a field-level view/edit permission scheme to this project (Module 12)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchFieldPermissionSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{id}/role-assignments/{projectRoleId}": {
       "patch": {
         "operationId": "ProjectsController_setRoleAssignment",
@@ -2568,6 +2613,120 @@
         },
         "tags": [
           "security-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/field-permission-schemes": {
+      "post": {
+        "operationId": "FieldPermissionSchemesController_create",
+        "summary": "Create a reusable field-level view/edit permission scheme (Module 12)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFieldPermissionSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "field-permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "FieldPermissionSchemesController_list",
+        "summary": "List this organization's field permission schemes - open to any org member (not just Admin) since TaskForm needs it to compute per-field view/edit access for every role.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "field-permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/field-permission-schemes/{id}": {
+      "patch": {
+        "operationId": "FieldPermissionSchemesController_update",
+        "summary": "Update a field permission scheme's name and/or rules",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFieldPermissionSchemeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "field-permission-schemes"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "FieldPermissionSchemesController_remove",
+        "summary": "Delete a field permission scheme (must not be assigned to any project)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "field-permission-schemes"
         ],
         "security": [
           {
@@ -2969,6 +3128,34 @@
         "operationId": "AuthController_me",
         "summary": "Get the current authenticated user",
         "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "AuthController_updateMe",
+        "summary": "Update own name/email (Module 11's self-service profile editing)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""
@@ -4164,6 +4351,64 @@
         ]
       }
     },
+    "/api/v1/tasks/{id}/approval/approve": {
+      "post": {
+        "operationId": "TasksController_approveApproval",
+        "summary": "Approve a transition awaiting approval (Module 12)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/approval/reject": {
+      "post": {
+        "operationId": "TasksController_rejectApproval",
+        "summary": "Reject a transition awaiting approval (Module 12)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{id}/assignee": {
       "patch": {
         "operationId": "TasksController_updateAssignee",
@@ -5238,6 +5483,27 @@
             "description": "true = only unread notifications",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "description": "Module 11 - filter to one type",
+            "schema": {
+              "enum": [
+                "TaskAssigned",
+                "StatusChanged",
+                "CommentAdded",
+                "DueSoon",
+                "Automation",
+                "Scheme",
+                "Mentioned",
+                "WatchedTaskUpdated",
+                "ApprovalRequested",
+                "ApprovalDecided"
+              ],
+              "type": "string"
             }
           }
         ],
@@ -7749,6 +8015,162 @@
           }
         ]
       }
+    },
+    "/api/v1/search": {
+      "get": {
+        "operationId": "SearchController_search",
+        "summary": "Module 11: search tasks, projects, and users in one call",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "description": "Free-text search term",
+            "schema": {
+              "example": "login",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 20,
+              "default": 5,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "search"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/issue-templates": {
+      "post": {
+        "operationId": "IssueTemplatesController_create",
+        "summary": "Create a reusable issue template (Module 12)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "issue-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "IssueTemplatesController_list",
+        "summary": "List issue templates - pass projectId to include ones scoped to that project",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "issue-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/issue-templates/{id}": {
+      "patch": {
+        "operationId": "IssueTemplatesController_update",
+        "summary": "Update an issue template",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIssueTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "issue-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "IssueTemplatesController_remove",
+        "summary": "Delete an issue template",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "issue-templates"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -8130,6 +8552,41 @@
           },
           "requiredCustomFieldIds": {
             "description": "Validator: custom field ids that must already have a value before this transition is allowed.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requiresApproval": {
+            "type": "boolean",
+            "description": "Module 12: don't apply this transition immediately - wait for a separate approve/reject call from an eligible approver (see the 4 approver* fields below). Omit/false for immediate application (default)."
+          },
+          "approverRoles": {
+            "type": "array",
+            "description": "Who may approve/reject",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PlatformAdmin",
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          },
+          "approverUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "approverTeamIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "approverProjectRoleIds": {
             "type": "array",
             "items": {
               "type": "string"
@@ -8573,6 +9030,16 @@
           }
         }
       },
+      "PatchFieldPermissionSchemeDto": {
+        "type": "object",
+        "properties": {
+          "fieldPermissionSchemeId": {
+            "type": "object",
+            "nullable": true,
+            "description": "null to unassign (no field is view/edit-restricted on this project)"
+          }
+        }
+      },
       "SetRoleAssignmentDto": {
         "type": "object",
         "properties": {
@@ -8755,6 +9222,79 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/SecurityLevelDto"
+            }
+          }
+        }
+      },
+      "FieldPermissionRuleDto": {
+        "type": "object",
+        "properties": {
+          "fieldId": {
+            "type": "string",
+            "example": "priority",
+            "description": "A built-in field id or a custom field id"
+          },
+          "hiddenFromRoles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PlatformAdmin",
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          },
+          "readOnlyForRoles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PlatformAdmin",
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          }
+        },
+        "required": [
+          "fieldId",
+          "hiddenFromRoles",
+          "readOnlyForRoles"
+        ]
+      },
+      "CreateFieldPermissionSchemeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Support field restrictions"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldPermissionRuleDto"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "rules"
+        ]
+      },
+      "UpdateFieldPermissionSchemeDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Support field restrictions"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldPermissionRuleDto"
             }
           }
         }
@@ -9299,7 +9839,9 @@
                 "Automation",
                 "Scheme",
                 "Mentioned",
-                "WatchedTaskUpdated"
+                "WatchedTaskUpdated",
+                "ApprovalRequested",
+                "ApprovalDecided"
               ]
             }
           }
@@ -9637,6 +10179,97 @@
         "required": [
           "csv"
         ]
+      },
+      "CreateIssueTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Customer-reported bug"
+          },
+          "projectId": {
+            "type": "object",
+            "nullable": true,
+            "description": "Scope this template to one project; omit/null for org-wide"
+          },
+          "issueType": {
+            "type": "string",
+            "example": "Bug"
+          },
+          "titleTemplate": {
+            "type": "string",
+            "example": "[Bug] "
+          },
+          "description": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "nullable": true
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "customFieldValues": {
+            "type": "object",
+            "description": "Keyed by the target project's custom field ids - not validated until applied"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateIssueTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Customer-reported bug"
+          },
+          "projectId": {
+            "type": "object",
+            "nullable": true,
+            "description": "Scope this template to one project; omit/null for org-wide"
+          },
+          "issueType": {
+            "type": "string",
+            "example": "Bug"
+          },
+          "titleTemplate": {
+            "type": "string",
+            "example": "[Bug] "
+          },
+          "description": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "nullable": true
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "customFieldValues": {
+            "type": "object",
+            "description": "Keyed by the target project's custom field ids - not validated until applied"
+          }
+        }
       }
     }
   }

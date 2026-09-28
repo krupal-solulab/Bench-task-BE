@@ -24,7 +24,7 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
-import { categoryOf, resolveWorkflow } from '../projects/schemas/workflow.schema';
+import { categoryOf, resolveWorkflow, Workflow } from '../projects/schemas/workflow.schema';
 import {
   NotificationSchemeEvent,
   resolveNotificationSchemeRule,
@@ -51,11 +51,18 @@ import { IssueLink, IssueLinkDocument } from '../planning/schemas/issue-link.sch
 import { SchemeAction } from '../../permission-schemes/schemas/permission-scheme.schema';
 import { SecuritySchemesService } from '../../security-schemes/security-schemes.service';
 import { viewableLevelNames } from '../../security-schemes/schemas/security-scheme.schema';
+import { FieldPermissionSchemesService } from '../../field-permission-schemes/field-permission-schemes.service';
+import {
+  BUILT_IN_TASK_FIELD_IDS,
+  canEditField,
+  canViewField,
+} from '../../field-permission-schemes/schemas/field-permission-scheme.schema';
+import { granteeMatchesGrant } from '../../common/utils/grant-matching.util';
 import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { ReleasesService } from '../releases/releases.service';
 import { TasksRepository, RankScope } from './tasks.repository';
-import { TaskDocument } from './schemas/task.schema';
+import { PendingApproval, TaskDocument } from './schemas/task.schema';
 import { TaskActivityAction } from './schemas/task-activity.schema';
 import {
   AutomationExecutionLog,
@@ -124,6 +131,7 @@ export class TasksService {
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
     private readonly securitySchemesService: SecuritySchemesService,
+    private readonly fieldPermissionSchemesService: FieldPermissionSchemesService,
     private readonly sprintsService: SprintsService,
     private readonly releasesService: ReleasesService,
     private readonly cacheService: CacheService,
@@ -334,10 +342,46 @@ export class TasksService {
     );
   }
 
-  async findOneScoped(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
+  async findOneScoped(
+    id: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<TaskDocument | Record<string, unknown>> {
     const task = await this.getActiveOrThrow(id);
     await this.assertCanView(task, actingUser);
-    return task;
+    const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+    return this.redactHiddenFields(task, project, actingUser);
+  }
+
+  /**
+   * Module 12's Field-Level Permissions - VIEW side. Deliberately scoped to this single-task read
+   * only, not every list/search endpoint too: those return full documents to many different
+   * consumers (dashboards, JQL search, board views, bulk exports), and redacting per-field across
+   * every one of them risks real regressions disproportionate to the value - a documented scope
+   * decision, not a silent gap. EDIT enforcement (see assertFieldsEditable, called from update())
+   * has no such gap: it's the single choke point every field write already goes through.
+   */
+  private async redactHiddenFields(
+    task: TaskDocument,
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<TaskDocument | Record<string, unknown>> {
+    if (!project.fieldPermissionSchemeId) return task;
+    const scheme = await this.fieldPermissionSchemesService.findByIdOrNull(
+      extractId(project.fieldPermissionSchemeId),
+    );
+    if (!scheme) return task;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const plain = task.toJSON() as Record<string, any>;
+    for (const rule of scheme.rules) {
+      if (canViewField(scheme, rule.fieldId, actingUser.role)) continue;
+      if ((BUILT_IN_TASK_FIELD_IDS as readonly string[]).includes(rule.fieldId)) {
+        plain[rule.fieldId] = null;
+      } else if (plain.customFieldValues && typeof plain.customFieldValues === 'object') {
+        delete plain.customFieldValues[rule.fieldId];
+      }
+    }
+    return plain;
   }
 
   /**
@@ -385,6 +429,7 @@ export class TasksService {
         'canEditAnyTask',
       );
     }
+    await this.assertFieldsEditable(project, actingUser, dto, automation);
     this.assertValidComponents(project, dto.components);
     await this.assertValidSecurityLevel(project, dto.securityLevel);
     await this.releasesService.validateIdsForProject(project.id, [
@@ -506,6 +551,16 @@ export class TasksService {
       );
     }
 
+    // Module 12's Approval Workflows - a task with a transition already awaiting a decision is
+    // frozen from any OTHER status change (including automation-driven ones) until that decision
+    // is made, so a stale approval can never be granted against a status the task has since moved
+    // away from. Approve/reject go through their own dedicated methods, not this one.
+    if (task.pendingApproval) {
+      throw new ConflictException(
+        `This task has a transition to "${task.pendingApproval.toStatus}" pending approval - approve or reject it first`,
+      );
+    }
+
     // Transition Conditions/Validators - additive to the permission gate above, and only ever
     // narrow a transition further (never widen), so a transition with neither field set behaves
     // exactly as before this feature existed. Automation-driven transitions bypass both, same as
@@ -542,12 +597,178 @@ export class TasksService {
       }
     }
 
+    if (!automation?.bypassPermission && transitionRule?.requiresApproval) {
+      const pendingApproval = {
+        toStatus: status,
+        requestedBy: new Types.ObjectId(actingUser.id),
+        requestedAt: new Date(),
+        approverRoles: transitionRule.approverRoles ?? [],
+        approverUserIds: transitionRule.approverUserIds ?? [],
+        approverTeamIds: transitionRule.approverTeamIds ?? [],
+        approverProjectRoleIds: transitionRule.approverProjectRoleIds ?? [],
+      };
+      const updated = await this.tasksRepository.updateById(id, { pendingApproval });
+      await this.tasksRepository.logActivity(
+        id,
+        actingUser.id,
+        TaskActivityAction.APPROVAL_REQUESTED,
+        task.status,
+        status,
+        null,
+      );
+      await this.invalidateDashboardCache();
+      // Notification fan-out is deliberately scoped to explicit approverUserIds plus the project
+      // members already resolvable via ProjectsService.membersWithRole (the same helper
+      // notifyScheme already uses) - it does NOT resolve approverTeamIds/approverProjectRoleIds
+      // into concrete recipients. This narrows only who gets PINGED, never who's actually eligible
+      // to decide: approveTransition/rejectTransition below check all 4 grantee kinds via
+      // granteeMatchesGrant regardless of who was notified.
+      const roleRecipients = (
+        await Promise.all(
+          pendingApproval.approverRoles.map((role) =>
+            this.projectsService.membersWithRole(project, role),
+          ),
+        )
+      ).flat();
+      const approverIds = [
+        ...new Set([
+          ...roleRecipients.map((u) => u.id),
+          ...pendingApproval.approverUserIds.map(extractId),
+        ]),
+      ];
+      await this.notificationsService.notifyApprovalRequested({
+        taskId: id,
+        taskTitle: task.title,
+        toStatus: status,
+        approverIds,
+      });
+      return updated!;
+    }
+
+    return this.applyStatusChange(
+      id,
+      project,
+      task,
+      status,
+      workflow,
+      newCategory,
+      actingUser,
+      TaskActivityAction.STATUS_CHANGED,
+      automation,
+    );
+  }
+
+  /** Module 12's Approval Workflows - the approve half of a `requiresApproval` transition. Shares
+   * every side effect (websocket push, notifications, automations) with an ordinary immediate
+   * status change via applyStatusChange, so an approved transition behaves identically to one
+   * that never needed approval in the first place, once it actually applies. */
+  async approveTransition(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
+    const { task, project } = await this.getPendingApprovalOrThrow(id, actingUser);
+    const pendingApproval = task.pendingApproval!;
+    const workflow = resolveWorkflow(project, task.issueType);
+    const newCategory = categoryOf(workflow, pendingApproval.toStatus)!;
+
+    const updated = await this.applyStatusChange(
+      id,
+      project,
+      task,
+      pendingApproval.toStatus,
+      workflow,
+      newCategory,
+      actingUser,
+      TaskActivityAction.APPROVAL_GRANTED,
+    );
+    await this.notificationsService.notifyApprovalDecided({
+      taskId: id,
+      taskTitle: task.title,
+      requesterId: extractId(pendingApproval.requestedBy),
+      toStatus: pendingApproval.toStatus,
+      approved: true,
+    });
+    return updated;
+  }
+
+  /** The other half - clears the pending request without ever changing the task's status. */
+  async rejectTransition(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
+    const { task, pendingApproval } = await this.getPendingApprovalOrThrow(id, actingUser);
+    const updated = await this.tasksRepository.updateById(id, { pendingApproval: null });
+    await this.tasksRepository.logActivity(
+      id,
+      actingUser.id,
+      TaskActivityAction.APPROVAL_REJECTED,
+      task.status,
+      pendingApproval.toStatus,
+      null,
+    );
+    await this.notificationsService.notifyApprovalDecided({
+      taskId: id,
+      taskTitle: task.title,
+      requesterId: extractId(pendingApproval.requestedBy),
+      toStatus: pendingApproval.toStatus,
+      approved: false,
+    });
+    return updated!;
+  }
+
+  /** Shared eligibility gate for approve/reject: the task must actually have a pending request,
+   * the acting user must match one of its 4 snapshotted grantee kinds (via the same
+   * granteeMatchesGrant every other scheme in this codebase uses), and the requester may never
+   * decide their own request - approval only means something when a second person confirms it. */
+  private async getPendingApprovalOrThrow(
+    id: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<{ task: TaskDocument; project: ProjectDocument; pendingApproval: PendingApproval }> {
+    const task = await this.getActiveOrThrow(id);
+    const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+    const pendingApproval = task.pendingApproval;
+    if (!pendingApproval) {
+      throw new BadRequestException('This task has no transition pending approval');
+    }
+    if (extractId(pendingApproval.requestedBy) === actingUser.id) {
+      throw new ForbiddenException('You cannot decide your own approval request');
+    }
+    const ctx = await this.projectsService.resolveGranteeContext(project, actingUser);
+    const isEligible = granteeMatchesGrant(
+      {
+        allowedRoles: pendingApproval.approverRoles,
+        allowedUserIds: pendingApproval.approverUserIds,
+        allowedTeamIds: pendingApproval.approverTeamIds,
+        allowedProjectRoleIds: pendingApproval.approverProjectRoleIds,
+      },
+      ctx,
+    );
+    if (!isEligible) {
+      throw new ForbiddenException('You are not an eligible approver for this transition');
+    }
+    return { task, project, pendingApproval };
+  }
+
+  /**
+   * The side effects of an applied status change - persisting the new status/category, logging
+   * activity (under whichever `logAction` the caller wants: STATUS_CHANGED for an immediate
+   * change, APPROVAL_GRANTED for one that just cleared approval), the websocket push, the
+   * hardcoded assignee/watcher notifications, the project's Notification Scheme, and automations.
+   * Extracted from updateStatus() so approveTransition() gets byte-identical behavior once a
+   * transition actually applies, rather than a second, driftable copy of ~80 lines.
+   */
+  private async applyStatusChange(
+    id: string,
+    project: ProjectDocument,
+    task: TaskDocument,
+    status: string,
+    workflow: Workflow,
+    newCategory: StatusCategory,
+    actingUser: AuthenticatedUser,
+    logAction: TaskActivityAction,
+    automation?: AutomationContext,
+  ): Promise<TaskDocument> {
     const previousCategory = categoryOf(workflow, task.status);
     const update: Partial<{
       status: string;
       statusCategory: StatusCategory;
       completedAt: Date | null;
-    }> = { status, statusCategory: newCategory };
+      pendingApproval: null;
+    }> = { status, statusCategory: newCategory, pendingApproval: null };
     if (newCategory === StatusCategory.DONE) update.completedAt = new Date();
     else if (previousCategory === StatusCategory.DONE) update.completedAt = null;
 
@@ -555,7 +776,7 @@ export class TasksService {
     await this.tasksRepository.logActivity(
       id,
       actingUser.id,
-      TaskActivityAction.STATUS_CHANGED,
+      logAction,
       task.status,
       status,
       automation?.viaRuleName ?? null,
@@ -1064,6 +1285,40 @@ export class TasksService {
       throw new BadRequestException(
         `"${securityLevel}" is not a security level in this project's scheme. Allowed: ${levelNames.join(', ')}`,
       );
+    }
+  }
+
+  /**
+   * Module 12's Field-Level Permissions - EDIT side. Only checks fields `dto` actually provides
+   * (partial-patch semantics, same as everywhere else in this method) - omitting a restricted
+   * field is never itself an error, only trying to *change* one you're not allowed to touch is.
+   * `customFieldValues` is checked per-key (each project custom field id is its own "field" for
+   * this scheme), not as one field literally named "customFieldValues".
+   */
+  private async assertFieldsEditable(
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+    dto: UpdateTaskDto,
+    automation?: AutomationContext,
+  ): Promise<void> {
+    if (automation?.bypassPermission) return;
+    if (!project.fieldPermissionSchemeId) return;
+    const scheme = await this.fieldPermissionSchemesService.findByIdOrNull(
+      extractId(project.fieldPermissionSchemeId),
+    );
+    if (!scheme) return;
+
+    const dtoRecord = dto as unknown as Record<string, unknown>;
+    const fieldIds: string[] = BUILT_IN_TASK_FIELD_IDS.filter(
+      (fieldId) => dtoRecord[fieldId] !== undefined,
+    );
+    if (dto.customFieldValues) fieldIds.push(...Object.keys(dto.customFieldValues));
+
+    const blocked = [...new Set(fieldIds)].filter(
+      (fieldId) => !canEditField(scheme, fieldId, actingUser.role),
+    );
+    if (blocked.length > 0) {
+      throw new ForbiddenException(`You do not have permission to edit: ${blocked.join(', ')}`);
     }
   }
 

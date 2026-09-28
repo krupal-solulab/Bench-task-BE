@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Types } from 'mongoose';
 import { StatusCategory } from '../../../common/enums/status-category.enum';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
 import { Role } from '../../../common/enums/role.enum';
@@ -48,6 +49,30 @@ export class WorkflowTransition {
   // (see custom-field.schema.ts). Unset/empty means no requirement, identical to today.
   @Prop({ type: [String], default: [] })
   requiredCustomFieldIds?: string[];
+
+  // Module 12's Approval Workflows - when true, this transition doesn't apply immediately: it
+  // stamps `Task.pendingApproval` (a snapshot of the 4 approver-grantee fields below, taken at
+  // request time) and waits for a separate approve/reject call from an eligible approver. Unset/
+  // false (every existing transition) means immediate application, identical to today. Deliberately
+  // a SEPARATE grantee set from `allowedRoles` above (which gates who may *request* the transition)
+  // - the requester and the approver are meant to be different people; see TasksService.
+  @Prop({ type: Boolean })
+  requiresApproval?: boolean;
+
+  // The 4 grantee kinds below mirror SecurityLevel/PermissionGrant's own shape exactly (see
+  // grant-matching.util.ts's GrantLike) so approval eligibility is checked with the same
+  // `granteeMatchesGrant` every other scheme already uses, rather than a third bespoke check.
+  @Prop({ type: [String], enum: Role, default: [] })
+  approverRoles?: Role[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  approverUserIds?: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'Team', default: [] })
+  approverTeamIds?: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'ProjectRoleDefinition', default: [] })
+  approverProjectRoleIds?: Types.ObjectId[];
 }
 
 export const WorkflowTransitionSchema = SchemaFactory.createForClass(WorkflowTransition);
@@ -152,5 +177,58 @@ export function assertValidWorkflowShape(workflow: Workflow): void {
         `Transition ${t.from} -> ${t.to} references a status that isn't in this workflow`,
       );
     }
+    // A `requiresApproval` transition with nobody who could ever approve it would be permanently
+    // stuck the first time it's requested - reject that misconfiguration up front rather than
+    // discovering it only when a real task gets wedged.
+    if (
+      t.requiresApproval &&
+      !t.approverRoles?.length &&
+      !t.approverUserIds?.length &&
+      !t.approverTeamIds?.length &&
+      !t.approverProjectRoleIds?.length
+    ) {
+      throw new BadRequestException(
+        `Transition ${t.from} -> ${t.to} requires approval but has no approver roles/users/teams/project roles configured`,
+      );
+    }
   }
+}
+
+/** A transition as it arrives over HTTP (PutWorkflowDto's shape - approver ids as plain strings)
+ * - converts the 3 ObjectId-typed approver fields, shared by ProjectsService.updateWorkflow() and
+ * WorkflowTemplatesService so the conversion can't drift between the two call sites. */
+export interface WorkflowTransitionInput {
+  from: string;
+  to: string;
+  allowedRoles?: Role[];
+  requireComment?: boolean;
+  requiredCustomFieldIds?: string[];
+  requiresApproval?: boolean;
+  approverRoles?: Role[];
+  approverUserIds?: string[];
+  approverTeamIds?: string[];
+  approverProjectRoleIds?: string[];
+}
+
+export function toWorkflowTransitions(inputs: WorkflowTransitionInput[]): WorkflowTransition[] {
+  return inputs.map((t) => ({
+    from: t.from,
+    to: t.to,
+    ...(t.allowedRoles !== undefined ? { allowedRoles: t.allowedRoles } : {}),
+    ...(t.requireComment !== undefined ? { requireComment: t.requireComment } : {}),
+    ...(t.requiredCustomFieldIds !== undefined
+      ? { requiredCustomFieldIds: t.requiredCustomFieldIds }
+      : {}),
+    ...(t.requiresApproval !== undefined ? { requiresApproval: t.requiresApproval } : {}),
+    ...(t.approverRoles !== undefined ? { approverRoles: t.approverRoles } : {}),
+    ...(t.approverUserIds?.length
+      ? { approverUserIds: t.approverUserIds.map((id) => new Types.ObjectId(id)) }
+      : {}),
+    ...(t.approverTeamIds?.length
+      ? { approverTeamIds: t.approverTeamIds.map((id) => new Types.ObjectId(id)) }
+      : {}),
+    ...(t.approverProjectRoleIds?.length
+      ? { approverProjectRoleIds: t.approverProjectRoleIds.map((id) => new Types.ObjectId(id)) }
+      : {}),
+  })) as WorkflowTransition[];
 }

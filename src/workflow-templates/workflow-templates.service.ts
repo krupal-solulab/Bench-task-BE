@@ -5,6 +5,7 @@ import {
   DEFAULT_WORKFLOW,
   Workflow,
   assertValidWorkflowShape,
+  toWorkflowTransitions,
 } from '../modules/projects/schemas/workflow.schema';
 import { WorkflowTemplatesRepository } from './workflow-templates.repository';
 import { WorkflowTemplate, WorkflowTemplateDocument } from './schemas/workflow-template.schema';
@@ -100,7 +101,7 @@ export class WorkflowTemplatesService {
   private toWorkflow(dto: CreateWorkflowTemplateDto['workflow']): Workflow {
     return {
       statuses: dto.statuses,
-      transitions: dto.transitions,
+      transitions: toWorkflowTransitions(dto.transitions),
       initialStatus: dto.initialStatus,
     };
   }

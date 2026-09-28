@@ -95,6 +95,23 @@ export class UsersService {
     return updated;
   }
 
+  /**
+   * Module 11's self-service profile update (`PATCH auth/me`) - same field set and validation as
+   * the Admin-facing `update()` above, but deliberately org-agnostic (no `findByIdInOrgOrThrow`
+   * existence check): the caller is always updating themselves, already resolved from their own
+   * JWT, so there's no id to validate against an org - this is also what lets a PlatformAdmin
+   * (who has no organizationId at all) use the same self-service route.
+   */
+  async updateOwnProfile(id: string, dto: UpdateUserDto): Promise<UserDocument> {
+    if (dto.email) await this.assertEmailAvailable(dto.email, id);
+    const updated = await this.usersRepository.updateById(id, {
+      ...(dto.name ? { name: dto.name } : {}),
+      ...(dto.email ? { email: dto.email.toLowerCase() } : {}),
+    });
+    if (!updated) throw new NotFoundException('User not found');
+    return updated;
+  }
+
   async updateRole(
     id: string,
     role: Role,
