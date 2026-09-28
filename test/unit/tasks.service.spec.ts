@@ -16,6 +16,7 @@ import { TasksService } from 'src/modules/tasks/tasks.service';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
 import { ProjectsService } from 'src/modules/projects/projects.service';
 import { SecuritySchemesService } from 'src/security-schemes/security-schemes.service';
+import { FieldPermissionSchemesService } from 'src/field-permission-schemes/field-permission-schemes.service';
 import { SprintsService } from 'src/modules/sprints/sprints.service';
 import { ReleasesService } from 'src/modules/releases/releases.service';
 import { CacheService } from 'src/redis/cache.service';
@@ -131,6 +132,9 @@ describe('TasksService', () => {
     >
   >;
   let securitySchemesService: jest.Mocked<Pick<SecuritySchemesService, 'findByIdOrNull'>>;
+  let fieldPermissionSchemesService: jest.Mocked<
+    Pick<FieldPermissionSchemesService, 'findByIdOrNull'>
+  >;
   let sprintsService: jest.Mocked<Pick<SprintsService, 'getActiveOrThrow'>>;
   let releasesService: jest.Mocked<Pick<ReleasesService, 'validateIdsForProject'>>;
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
@@ -196,6 +200,7 @@ describe('TasksService', () => {
       }),
     };
     securitySchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
+    fieldPermissionSchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     sprintsService = { getActiveOrThrow: jest.fn() };
     releasesService = { validateIdsForProject: jest.fn().mockResolvedValue(undefined) };
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
@@ -219,6 +224,7 @@ describe('TasksService', () => {
       tasksRepository as unknown as TasksRepository,
       projectsService as unknown as ProjectsService,
       securitySchemesService as unknown as SecuritySchemesService,
+      fieldPermissionSchemesService as unknown as FieldPermissionSchemesService,
       sprintsService as unknown as SprintsService,
       releasesService as unknown as ReleasesService,
       cacheService as unknown as CacheService,

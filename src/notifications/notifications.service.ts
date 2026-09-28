@@ -74,6 +74,21 @@ export interface AutomationRoleNotification {
   ruleName: string;
 }
 
+export interface ApprovalRequestedNotification {
+  taskId: string;
+  taskTitle: string;
+  toStatus: string;
+  approverIds: string[];
+}
+
+export interface ApprovalDecidedNotification {
+  taskId: string;
+  taskTitle: string;
+  requesterId: string;
+  toStatus: string;
+  approved: boolean;
+}
+
 export interface SchemeEventNotification {
   recipient: { id: string; email: string; organizationId: string };
   event: NotificationSchemeEvent;
@@ -271,6 +286,57 @@ export class NotificationsService {
         { taskId: notification.taskId },
       );
     }
+  }
+
+  /** Module 12's Approval Workflows - notifies every eligible approver that a transition needs a
+   * decision. In-app only (like WATCHED_TASK_UPDATED), never email - the same per-recipient
+   * "one failed lookup never stops the rest" contract as notifyWatchers. */
+  async notifyApprovalRequested(notification: ApprovalRequestedNotification): Promise<void> {
+    for (const approverId of new Set(notification.approverIds)) {
+      let approver: UserDocument | null = null;
+      try {
+        approver = await this.usersRepository.findById(approverId);
+      } catch (err) {
+        this.logger.warn(
+          { err, taskId: notification.taskId, approverId },
+          'failed to look up an approver, ignoring',
+        );
+      }
+      if (!approver) continue;
+      await this.createInAppNotification(
+        approverId,
+        extractId(approver.organizationId),
+        NotificationType.APPROVAL_REQUESTED,
+        'Approval requested',
+        `"${notification.taskTitle}" needs your approval to move to ${notification.toStatus}`,
+        { taskId: notification.taskId },
+      );
+    }
+  }
+
+  /** The other half of notifyApprovalRequested - tells the original requester whether their
+   * transition was granted or rejected. */
+  async notifyApprovalDecided(notification: ApprovalDecidedNotification): Promise<void> {
+    let requester: UserDocument | null = null;
+    try {
+      requester = await this.usersRepository.findById(notification.requesterId);
+    } catch (err) {
+      this.logger.warn(
+        { err, taskId: notification.taskId },
+        'failed to look up an approval requester, ignoring',
+      );
+    }
+    if (!requester) return;
+    await this.createInAppNotification(
+      notification.requesterId,
+      extractId(requester.organizationId),
+      NotificationType.APPROVAL_DECIDED,
+      notification.approved ? 'Approval granted' : 'Approval rejected',
+      notification.approved
+        ? `"${notification.taskTitle}" was approved to move to ${notification.toStatus}`
+        : `"${notification.taskTitle}"'s move to ${notification.toStatus} was rejected`,
+      { taskId: notification.taskId },
+    );
   }
 
   /** Sent by an automation rule's NotifyRole post-function action (Workflow Engine v2) - in-app

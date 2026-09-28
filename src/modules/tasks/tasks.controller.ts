@@ -164,6 +164,28 @@ export class TasksController {
     return this.tasksService.updateStatus(id, dto.status, user);
   }
 
+  // Module 12's Approval Workflows - self-service like watch/vote below (no request body; the
+  // acting user is always the one deciding, resolved from their own JWT).
+  @Post(':id/approval/approve')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Approve a transition awaiting approval (Module 12)' })
+  async approveApproval(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.approveTransition(id, user);
+  }
+
+  @Post(':id/approval/reject')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Reject a transition awaiting approval (Module 12)' })
+  async rejectApproval(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.rejectTransition(id, user);
+  }
+
   @Patch(':id/assignee')
   @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Reassign a task (assignee must be owner or project member)' })

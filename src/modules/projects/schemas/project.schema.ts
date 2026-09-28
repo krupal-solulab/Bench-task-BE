@@ -171,6 +171,13 @@ export class Project {
   @Prop({ type: Types.ObjectId, ref: 'SecurityScheme', default: null })
   securitySchemeId!: Types.ObjectId | null;
 
+  // Module 12's Field-Level Permissions - null (every existing project, and any new one that
+  // never opens the field-permission-scheme settings) means no field is view/edit-restricted
+  // beyond what Security/Permission Schemes already cover. See
+  // field-permission-schemes/schemas/field-permission-scheme.schema.ts.
+  @Prop({ type: Types.ObjectId, ref: 'FieldPermissionScheme', default: null })
+  fieldPermissionSchemeId!: Types.ObjectId | null;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

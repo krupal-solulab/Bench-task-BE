@@ -4,8 +4,43 @@ import { IssueType } from '../../../common/enums/issue-type.enum';
 import { StatusCategory } from '../../../common/enums/status-category.enum';
 import { TaskPriority } from '../../../common/enums/task-priority.enum';
 import { TaskStatus } from '../../../common/enums/task-status.enum';
+import { Role } from '../../../common/enums/role.enum';
 
 export type TaskDocument = HydratedDocument<Task>;
+
+/**
+ * Module 12's Approval Workflows - set by `TasksService.updateStatus()` instead of applying the
+ * status change immediately, when the matched `WorkflowTransition.requiresApproval` is true. The
+ * 4 approver-grantee fields are a SNAPSHOT of the transition rule at request time (not a live
+ * reference back to the workflow), so editing the rule later never changes who can decide an
+ * already-in-flight request - the same "resolved once, trusted after" convention this codebase
+ * already uses for denormalized fields like Task.organizationId.
+ */
+@Schema({ _id: false })
+export class PendingApproval {
+  @Prop({ required: true, trim: true, maxlength: 40 })
+  toStatus!: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  requestedBy!: Types.ObjectId;
+
+  @Prop({ type: Date, required: true })
+  requestedAt!: Date;
+
+  @Prop({ type: [String], enum: Role, default: [] })
+  approverRoles!: Role[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  approverUserIds!: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'Team', default: [] })
+  approverTeamIds!: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'ProjectRoleDefinition', default: [] })
+  approverProjectRoleIds!: Types.ObjectId[];
+}
+
+export const PendingApprovalSchema = SchemaFactory.createForClass(PendingApproval);
 
 @Schema({
   timestamps: true,
@@ -170,6 +205,12 @@ export class Task {
   // interest with no permission effect. Empty for every existing task.
   @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
   voterIds!: Types.ObjectId[];
+
+  // Module 12's Approval Workflows - null (every existing task, and any task never attempting a
+  // `requiresApproval` transition) means no transition is currently awaiting a decision. See
+  // PendingApproval's own doc comment above.
+  @Prop({ type: PendingApprovalSchema, default: null })
+  pendingApproval!: PendingApproval | null;
 
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;

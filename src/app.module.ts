@@ -39,8 +39,10 @@ import { WorkflowTemplatesModule } from './workflow-templates/workflow-templates
 import { TeamsModule } from './modules/teams/teams.module';
 import { ProjectRolesModule } from './modules/project-roles/project-roles.module';
 import { SecuritySchemesModule } from './security-schemes/security-schemes.module';
+import { FieldPermissionSchemesModule } from './field-permission-schemes/field-permission-schemes.module';
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { SearchModule } from './modules/search/search.module';
+import { IssueTemplatesModule } from './modules/issue-templates/issue-templates.module';
 
 @Module({
   imports: [
@@ -119,8 +121,10 @@ import { SearchModule } from './modules/search/search.module';
     TeamsModule,
     ProjectRolesModule,
     SecuritySchemesModule,
+    FieldPermissionSchemesModule,
     AuditLogModule,
     SearchModule,
+    IssueTemplatesModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

@@ -43,6 +43,7 @@ import {
   resolveWorkflow,
   categoryOf,
   assertValidWorkflowShape,
+  toWorkflowTransitions,
 } from './schemas/workflow.schema';
 import { CfdPoint, CfdTaskHistory, computeCfd } from './cfd-report.util';
 import { computeCycleTime } from './cycle-time.util';
@@ -89,6 +90,8 @@ import {
 import { PatchSecuritySchemeDto } from './dto/patch-security-scheme.dto';
 import { SetRoleAssignmentDto } from './dto/set-role-assignment.dto';
 import { SecuritySchemesService } from '../../security-schemes/security-schemes.service';
+import { PatchFieldPermissionSchemeDto } from './dto/patch-field-permission-scheme.dto';
+import { FieldPermissionSchemesService } from '../../field-permission-schemes/field-permission-schemes.service';
 import { TeamsService } from '../teams/teams.service';
 import { ProjectRolesService } from '../project-roles/project-roles.service';
 import { GranteeContext } from '../../common/utils/grant-matching.util';
@@ -121,6 +124,7 @@ export interface ProjectResponse {
   boardType: BoardType;
   roleAssignments: RoleAssignmentResponse[];
   securitySchemeId: string | null;
+  fieldPermissionSchemeId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -139,6 +143,7 @@ export class ProjectsService {
     private readonly cacheService: CacheService,
     private readonly permissionSchemesService: PermissionSchemesService,
     private readonly securitySchemesService: SecuritySchemesService,
+    private readonly fieldPermissionSchemesService: FieldPermissionSchemesService,
     private readonly teamsService: TeamsService,
     private readonly projectRolesService: ProjectRolesService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
@@ -809,7 +814,7 @@ export class ProjectsService {
 
     const workflow: Workflow = {
       statuses: dto.statuses,
-      transitions: dto.transitions,
+      transitions: toWorkflowTransitions(dto.transitions),
       initialStatus: dto.initialStatus,
     };
     this.assertValidWorkflow(workflow);
@@ -1497,6 +1502,31 @@ export class ProjectsService {
     return this.toResponse(updated!);
   }
 
+  async assignFieldPermissionScheme(
+    id: string,
+    dto: PatchFieldPermissionSchemeDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    if (dto.fieldPermissionSchemeId) {
+      const scheme = await this.fieldPermissionSchemesService.findByIdOrNull(
+        dto.fieldPermissionSchemeId,
+      );
+      if (!scheme || extractId(scheme.organizationId) !== requireOrgId(actingUser)) {
+        throw new BadRequestException('Field permission scheme not found in this organization');
+      }
+    }
+
+    const updated = await this.projectsRepository.updateById(id, {
+      fieldPermissionSchemeId: dto.fieldPermissionSchemeId
+        ? new Types.ObjectId(dto.fieldPermissionSchemeId)
+        : null,
+    });
+    return this.toResponse(updated!);
+  }
+
   private async assertUsersExistInOrg(userIds: string[], organizationId: string): Promise<void> {
     const unique = [...new Set(userIds)];
     const users = await this.usersRepository.findByIds(unique, organizationId);
@@ -1649,6 +1679,9 @@ export class ProjectsService {
         teamIds: a.teamIds.map(extractId),
       })),
       securitySchemeId: project.securitySchemeId ? extractId(project.securitySchemeId) : null,
+      fieldPermissionSchemeId: project.fieldPermissionSchemeId
+        ? extractId(project.fieldPermissionSchemeId)
+        : null,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };

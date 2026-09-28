@@ -35,6 +35,7 @@ import { PutNotificationSchemeDto } from './dto/put-notification-scheme.dto';
 import { PutSlaPolicyDto } from './dto/put-sla-policy.dto';
 import { PatchPermissionSchemeDto } from './dto/patch-permission-scheme.dto';
 import { PatchSecuritySchemeDto } from './dto/patch-security-scheme.dto';
+import { PatchFieldPermissionSchemeDto } from './dto/patch-field-permission-scheme.dto';
 import { SetRoleAssignmentDto } from './dto/set-role-assignment.dto';
 import { PutIssueTypesDto } from './dto/put-issue-types.dto';
 
@@ -419,6 +420,20 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.assignSecurityScheme(id, dto, user);
+  }
+
+  @Patch(':id/field-permission-scheme')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary:
+      'Assign (or, with null, unassign) a field-level view/edit permission scheme to this project (Module 12)',
+  })
+  async assignFieldPermissionScheme(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PatchFieldPermissionSchemeDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.assignFieldPermissionScheme(id, dto, user);
   }
 
   @Patch(':id/role-assignments/:projectRoleId')

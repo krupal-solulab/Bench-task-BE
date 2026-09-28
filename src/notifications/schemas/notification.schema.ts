@@ -20,6 +20,10 @@ export enum NotificationType {
   // assignee already gets their own TASK_ASSIGNED/STATUS_CHANGED/COMMENT_ADDED notification, so
   // this is scoped to watchers who aren't also the assignee, to avoid a duplicate).
   WATCHED_TASK_UPDATED = 'WatchedTaskUpdated',
+  // Module 12's Approval Workflows: sent to eligible approvers when a transition needs their
+  // sign-off, and to the original requester once it's been granted or rejected.
+  APPROVAL_REQUESTED = 'ApprovalRequested',
+  APPROVAL_DECIDED = 'ApprovalDecided',
 }
 
 export const NOTIFICATION_TYPES = Object.values(NotificationType);

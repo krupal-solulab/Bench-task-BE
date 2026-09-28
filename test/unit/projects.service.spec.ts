@@ -28,6 +28,7 @@ import {
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { PermissionSchemesService } from 'src/permission-schemes/permission-schemes.service';
 import { SecuritySchemesService } from 'src/security-schemes/security-schemes.service';
+import { FieldPermissionSchemesService } from 'src/field-permission-schemes/field-permission-schemes.service';
 import { TeamsService } from 'src/modules/teams/teams.service';
 import { ProjectRolesService } from 'src/modules/project-roles/project-roles.service';
 import { CacheService } from 'src/redis/cache.service';
@@ -110,6 +111,9 @@ describe('ProjectsService', () => {
   let cacheService: jest.Mocked<Pick<CacheService, 'delByPattern'>>;
   let permissionSchemesService: jest.Mocked<Pick<PermissionSchemesService, 'findByIdOrNull'>>;
   let securitySchemesService: jest.Mocked<Pick<SecuritySchemesService, 'findByIdOrNull'>>;
+  let fieldPermissionSchemesService: jest.Mocked<
+    Pick<FieldPermissionSchemesService, 'findByIdOrNull'>
+  >;
   let teamsService: jest.Mocked<Pick<TeamsService, 'findTeamIdsForUser' | 'countTeamsInOrg'>>;
   let projectRolesService: jest.Mocked<Pick<ProjectRolesService, 'findByIdOrNull'>>;
   let taskModel: {
@@ -142,6 +146,7 @@ describe('ProjectsService', () => {
     cacheService = { delByPattern: jest.fn().mockResolvedValue(0) };
     permissionSchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     securitySchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
+    fieldPermissionSchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     teamsService = {
       findTeamIdsForUser: jest.fn().mockResolvedValue([]),
       countTeamsInOrg: jest.fn().mockResolvedValue(0),
@@ -175,6 +180,7 @@ describe('ProjectsService', () => {
       cacheService as unknown as CacheService,
       permissionSchemesService as unknown as PermissionSchemesService,
       securitySchemesService as unknown as SecuritySchemesService,
+      fieldPermissionSchemesService as unknown as FieldPermissionSchemesService,
       teamsService as unknown as TeamsService,
       projectRolesService as unknown as ProjectRolesService,
       taskModel as unknown as Model<TaskDocument>,
