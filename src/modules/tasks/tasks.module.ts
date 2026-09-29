@@ -15,7 +15,9 @@ import {
   AutomationExecutionLog,
   AutomationExecutionLogSchema,
 } from './schemas/automation-execution-log.schema';
+import { BulkOperationLog, BulkOperationLogSchema } from './schemas/bulk-operation-log.schema';
 import { TasksRepository } from './tasks.repository';
+import { BulkOperationLogsRepository } from './bulk-operation-logs.repository';
 import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
 import { AutomationLogController } from './automation-log.controller';
@@ -44,11 +46,13 @@ import { AutomationJobProcessor } from './automation-job.processor';
       // Same reasoning, for Module 10's issue summary (comment/linked-issue counts): PlanningModule
       // (issue-links) already imports TasksModule, so importing it back here would also cycle.
       { name: IssueLink.name, schema: IssueLinkSchema },
+      { name: BulkOperationLog.name, schema: BulkOperationLogSchema },
     ]),
   ],
   controllers: [TasksController, AutomationLogController],
   providers: [
     TasksRepository,
+    BulkOperationLogsRepository,
     TasksService,
     TasksDueDateReminderService,
     UnassignedAutomationTriggerService,

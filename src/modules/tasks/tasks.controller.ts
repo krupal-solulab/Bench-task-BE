@@ -34,6 +34,11 @@ import { BulkRelabelDto } from './dto/bulk-relabel.dto';
 import { BulkStatusDto } from './dto/bulk-status.dto';
 import { BulkPriorityDto } from './dto/bulk-priority.dto';
 import { BulkDeleteDto } from './dto/bulk-delete.dto';
+import { BulkFixVersionDto } from './dto/bulk-fix-version.dto';
+import { BulkCustomFieldDto } from './dto/bulk-custom-field.dto';
+import { BulkMoveProjectDto } from './dto/bulk-move-project.dto';
+import { PreviewBulkStatusDto } from './dto/preview-bulk-status.dto';
+import { MoveTaskProjectDto } from './dto/move-task-project.dto';
 
 @ApiTags('tasks')
 @ApiBearerAuth()
@@ -127,6 +132,19 @@ export class TasksController {
     return this.tasksService.bulkStatus(dto, user);
   }
 
+  // Distinct 2-segment shape from the 1-segment "bulk-status" above - no route-ordering concern.
+  @Post('bulk-status/preview')
+  @ApiOperation({
+    summary:
+      'Dry-run a bulk status transition (Module 5 gap-closure) - which tasks would succeed/fail, without changing anything',
+  })
+  async previewBulkStatus(
+    @Body() dto: PreviewBulkStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.previewBulkStatus(dto, user);
+  }
+
   @Patch('bulk-priority')
   @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Set the priority of multiple tasks at once (Module 5)' })
@@ -139,6 +157,46 @@ export class TasksController {
   @ApiOperation({ summary: 'Soft-delete multiple tasks at once (Module 5)' })
   async bulkDelete(@Body() dto: BulkDeleteDto, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.bulkDelete(dto, user);
+  }
+
+  @Patch('bulk-fix-version')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Add a Fix Version to multiple tasks at once (Module 5 gap-closure)' })
+  async bulkFixVersion(@Body() dto: BulkFixVersionDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkFixVersion(dto, user);
+  }
+
+  @Patch('bulk-custom-field')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({
+    summary:
+      'Set one custom field to one value across multiple tasks at once (Module 5 gap-closure)',
+  })
+  async bulkCustomField(@Body() dto: BulkCustomFieldDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkCustomField(dto, user);
+  }
+
+  @Patch('bulk-move-project')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({
+    summary: 'Move multiple tasks to a different project at once (Module 5 gap-closure)',
+  })
+  async bulkMoveProject(@Body() dto: BulkMoveProjectDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.bulkMoveProject(dto, user);
+  }
+
+  // 2 literal segments plus a :logId param in the middle - a distinct shape from every bulk-*
+  // route above (which are all exactly 1 literal segment), so no ordering concern.
+  @Post('bulk-operations/:logId/undo')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({
+    summary: "Undo a bulk-* action's changes within its undo window (Module 5 gap-closure)",
+  })
+  async undoBulkOperation(
+    @Param('logId', ParseObjectIdPipe) logId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.undoBulkOperation(logId, user);
   }
 
   @Get(':id')
@@ -224,6 +282,17 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.tasksService.updateRank(id, dto, user);
+  }
+
+  @Patch(':id/move-project')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Move a task to a different project (Module 5 gap-closure)' })
+  async moveProject(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: MoveTaskProjectDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.moveToProject(id, dto.targetProjectId, user);
   }
 
   @Delete(':id')
