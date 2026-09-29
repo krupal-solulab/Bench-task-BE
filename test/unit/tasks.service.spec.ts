@@ -14,6 +14,7 @@ import { TaskActivityAction } from 'src/modules/tasks/schemas/task-activity.sche
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
 import { TasksService } from 'src/modules/tasks/tasks.service';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
+import { BulkOperationLogsRepository } from 'src/modules/tasks/bulk-operation-logs.repository';
 import { ProjectsService } from 'src/modules/projects/projects.service';
 import { SecuritySchemesService } from 'src/security-schemes/security-schemes.service';
 import { FieldPermissionSchemesService } from 'src/field-permission-schemes/field-permission-schemes.service';
@@ -112,7 +113,12 @@ describe('TasksService', () => {
       | 'removeWatcher'
       | 'addVoter'
       | 'removeVoter'
+      | 'hasChildren'
+      | 'restoreById'
     >
+  >;
+  let bulkOperationLogsRepository: jest.Mocked<
+    Pick<BulkOperationLogsRepository, 'create' | 'findByIdInOrg' | 'markUndone'>
   >;
   let projectsService: jest.Mocked<
     Pick<
@@ -120,6 +126,8 @@ describe('TasksService', () => {
       | 'getActiveProjectOrThrow'
       | 'assertUserCanManageOrGranted'
       | 'assertUserCanAssignOrGranted'
+      | 'assertUserCanManage'
+      | 'assertUserCanView'
       | 'hasSchemeGrant'
       | 'memberHasCapability'
       | 'isProjectMember'
@@ -179,11 +187,20 @@ describe('TasksService', () => {
       removeWatcher: jest.fn().mockResolvedValue(makeTask()),
       addVoter: jest.fn().mockResolvedValue(makeTask()),
       removeVoter: jest.fn().mockResolvedValue(makeTask()),
+      hasChildren: jest.fn().mockResolvedValue(false),
+      restoreById: jest.fn().mockResolvedValue(undefined),
+    };
+    bulkOperationLogsRepository = {
+      create: jest.fn().mockResolvedValue({ id: 'log-1' }),
+      findByIdInOrg: jest.fn(),
+      markUndone: jest.fn().mockResolvedValue(undefined),
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
       assertUserCanManageOrGranted: jest.fn(),
       assertUserCanAssignOrGranted: jest.fn(),
+      assertUserCanManage: jest.fn(),
+      assertUserCanView: jest.fn(),
       hasSchemeGrant: jest.fn().mockResolvedValue(false),
       memberHasCapability: jest.fn().mockReturnValue(false),
       isProjectMember: jest.fn(),
@@ -222,6 +239,7 @@ describe('TasksService', () => {
     issueLinkModel = { countDocuments: jest.fn().mockResolvedValue(0) };
     service = new TasksService(
       tasksRepository as unknown as TasksRepository,
+      bulkOperationLogsRepository as unknown as BulkOperationLogsRepository,
       projectsService as unknown as ProjectsService,
       securitySchemesService as unknown as SecuritySchemesService,
       fieldPermissionSchemesService as unknown as FieldPermissionSchemesService,

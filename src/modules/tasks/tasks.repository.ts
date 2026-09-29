@@ -151,6 +151,22 @@ export class TasksRepository {
     await this.model.updateOne({ _id: id }, { deletedAt: new Date() }).exec();
   }
 
+  /** Module 5 gap-closure: the undo half of softDelete - reachable only via a bulk operation's
+   * undo, not a standalone "restore" endpoint (a deliberate scope line - see BulkOperationLog's own
+   * doc comment). */
+  async restoreById(id: string): Promise<void> {
+    await this.model.updateOne({ _id: id }, { deletedAt: null }).exec();
+  }
+
+  /** Whether a task has any non-deleted children (sub-tasks, or Standard-level issues linked to an
+   * Epic) - Module 5's move-project blocks moving a task with children, since a child's parent must
+   * stay in the same project as the child (assertValidHierarchy). */
+  async hasChildren(taskId: string): Promise<boolean> {
+    return (
+      (await this.model.exists({ parent: new Types.ObjectId(taskId), deletedAt: null })) !== null
+    );
+  }
+
   /** Assigned, not-yet-Done, not-yet-notified tasks whose due date falls within the given window. */
   findDueSoonUnnotified(now: Date, threshold: Date): Promise<TaskDocument[]> {
     return this.model

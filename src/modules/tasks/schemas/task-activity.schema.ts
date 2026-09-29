@@ -24,6 +24,9 @@ export enum TaskActivityAction {
   APPROVAL_REQUESTED = 'approval_requested',
   APPROVAL_GRANTED = 'approval_granted',
   APPROVAL_REJECTED = 'approval_rejected',
+  // Module 5 gap-closure - `from`/`to` carry the old/new issueKey (the most visible thing that
+  // changed), not the project ids.
+  MOVED_PROJECT = 'moved_project',
 }
 
 @Schema({

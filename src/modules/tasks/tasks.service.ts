@@ -62,6 +62,7 @@ import { SprintsService } from '../sprints/sprints.service';
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { ReleasesService } from '../releases/releases.service';
 import { TasksRepository, RankScope } from './tasks.repository';
+import { BulkOperationLogsRepository } from './bulk-operation-logs.repository';
 import { PendingApproval, TaskDocument } from './schemas/task.schema';
 import { TaskActivityAction } from './schemas/task-activity.schema';
 import {
@@ -86,6 +87,10 @@ import { BulkRelabelDto } from './dto/bulk-relabel.dto';
 import { BulkStatusDto } from './dto/bulk-status.dto';
 import { BulkPriorityDto } from './dto/bulk-priority.dto';
 import { BulkDeleteDto } from './dto/bulk-delete.dto';
+import { BulkFixVersionDto } from './dto/bulk-fix-version.dto';
+import { BulkCustomFieldDto } from './dto/bulk-custom-field.dto';
+import { BulkMoveProjectDto } from './dto/bulk-move-project.dto';
+import { PreviewBulkStatusDto } from './dto/preview-bulk-status.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 import { SearchTasksDto } from './dto/search-tasks.dto';
 import { buildCsv } from '../import-export/csv.util';
@@ -120,9 +125,29 @@ interface AutomationContext {
 
 /** Per-task outcome of a bulk backlog action (BRD 6.2) - a single unauthorized/invalid id never
  * fails the whole batch, so callers can show "12 of 13 moved, 1 failed: <reason>". */
+/** Module 5 gap-closure: how long a bulk-* action's changes stay undoable. Short and fixed
+ * deliberately - this is an "oops, wrong value" safety net, not a general-purpose revert window. */
+const UNDO_WINDOW_MS = 5 * 60 * 1000;
+
 export interface BulkOperationResult {
   succeeded: string[];
   failed: Array<{ taskId: string; message: string }>;
+  /** Module 5 gap-closure: the id of the BulkOperationLog capturing this call's successful
+   * changes, passable to undoBulkOperation() within the undo window - null when nothing succeeded
+   * (nothing to undo). */
+  undoToken: string | null;
+}
+
+export interface BulkStatusPreviewEntry {
+  taskId: string;
+  willSucceed: boolean;
+  reason: string | null;
+}
+
+export interface BulkStatusPreviewResult {
+  entries: BulkStatusPreviewEntry[];
+  willSucceedCount: number;
+  willFailCount: number;
 }
 
 @Injectable()
@@ -131,6 +156,7 @@ export class TasksService {
 
   constructor(
     private readonly tasksRepository: TasksRepository,
+    private readonly bulkOperationLogsRepository: BulkOperationLogsRepository,
     private readonly projectsService: ProjectsService,
     private readonly securitySchemesService: SecuritySchemesService,
     private readonly fieldPermissionSchemesService: FieldPermissionSchemesService,
@@ -1008,21 +1034,31 @@ export class TasksService {
   /**
    * Runs `perTask` once per id, collecting which ids succeeded and which failed (with a message)
    * rather than letting one bad/unauthorized id abort the whole batch - the same
-   * one-failure-doesn't-block-the-rest philosophy `runAutomations` already uses. Backs all three
-   * bulk backlog actions below (BRD 6.2's "move multiple issues into a sprint, bulk-assign,
-   * bulk-relabel"), each of which is just this loop calling the existing single-task method, so
+   * one-failure-doesn't-block-the-rest philosophy `runAutomations` already uses. Backs every bulk-*
+   * action below, each of which is just this loop calling the existing single-task method, so
    * per-task permission/validation logic is never duplicated.
+   *
+   * Module 5 gap-closure (undo window): `perTask` also returns the field it changed and that
+   * field's value BEFORE the change, for every task it succeeds on. Once the whole batch finishes,
+   * those captures are written as one BulkOperationLog, whose id comes back as `undoToken` -
+   * `undoBulkOperation()` replays them in reverse within a short time window. A `perTask` that
+   * returns `null` (bulkDelete's own semantics don't need this, but the shape stays uniform)
+   * simply isn't captured for undo.
    */
   private async runBulk(
     taskIds: string[],
-    perTask: (taskId: string) => Promise<unknown>,
+    action: string,
+    actingUser: AuthenticatedUser,
+    perTask: (taskId: string) => Promise<{ field: string; previousValue: unknown } | null>,
   ): Promise<BulkOperationResult> {
     const succeeded: string[] = [];
     const failed: Array<{ taskId: string; message: string }> = [];
+    const changes: Array<{ taskId: string; field: string; previousValue: unknown }> = [];
     for (const taskId of taskIds) {
       try {
-        await perTask(taskId);
+        const capture = await perTask(taskId);
         succeeded.push(taskId);
+        if (capture) changes.push({ taskId, ...capture });
       } catch (err) {
         failed.push({
           taskId,
@@ -1030,63 +1066,401 @@ export class TasksService {
         });
       }
     }
-    return { succeeded, failed };
+
+    let undoToken: string | null = null;
+    if (changes.length > 0) {
+      const log = await this.bulkOperationLogsRepository.create({
+        organizationId: new Types.ObjectId(requireOrgId(actingUser)),
+        actor: new Types.ObjectId(actingUser.id),
+        action,
+        changes: changes.map((c) => ({
+          taskId: new Types.ObjectId(c.taskId),
+          field: c.field,
+          previousValue: c.previousValue,
+        })),
+        undoneAt: null,
+      });
+      undoToken = log.id;
+    }
+    return { succeeded, failed, undoToken };
   }
 
   async bulkMoveSprint(
     dto: BulkMoveSprintDto,
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
-    return this.runBulk(dto.taskIds, (taskId) =>
-      this.updateSprint(taskId, { sprintId: dto.sprintId }, actingUser),
-    );
+    return this.runBulk(dto.taskIds, 'bulk-move-sprint', actingUser, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const previousValue = task.sprint ? extractId(task.sprint) : null;
+      await this.updateSprint(taskId, { sprintId: dto.sprintId }, actingUser);
+      return { field: 'sprintId', previousValue };
+    });
   }
 
   async bulkAssign(
     dto: BulkAssignDto,
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
-    return this.runBulk(dto.taskIds, (taskId) =>
-      this.updateAssignee(taskId, dto.assignee, actingUser),
-    );
+    return this.runBulk(dto.taskIds, 'bulk-assign', actingUser, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const previousValue = task.assignee ? extractId(task.assignee) : null;
+      await this.updateAssignee(taskId, dto.assignee, actingUser);
+      return { field: 'assignee', previousValue };
+    });
   }
 
   async bulkRelabel(
     dto: BulkRelabelDto,
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
-    return this.runBulk(dto.taskIds, async (taskId) => {
+    return this.runBulk(dto.taskIds, 'bulk-relabel', actingUser, async (taskId) => {
       const task = await this.getActiveOrThrow(taskId);
+      const previousValue = task.labels;
       const labels = [...new Set([...task.labels, ...dto.labels])];
       await this.update(taskId, { labels }, actingUser);
+      return { field: 'labels', previousValue };
     });
   }
 
   /** Module 5's bulk transition - each task's workflow legality is checked independently (a
    * custom-workflow project may not even have this status), so one illegal transition among many
    * selected tasks fails only that task, matching every other bulk-* endpoint's partial-success
-   * shape. */
+   * shape. See previewBulkStatus() for the gap-closure "see what would fail before committing"
+   * half of this same BRD line. */
   async bulkStatus(
     dto: BulkStatusDto,
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
-    return this.runBulk(dto.taskIds, (taskId) => this.updateStatus(taskId, dto.status, actingUser));
+    return this.runBulk(dto.taskIds, 'bulk-status', actingUser, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const previousValue = task.status;
+      await this.updateStatus(taskId, dto.status, actingUser);
+      return { field: 'status', previousValue };
+    });
+  }
+
+  /**
+   * Module 5 gap-closure: "no pre-validation before a bulk transition" - a read-only pass over the
+   * same two most common failure reasons bulkStatus's real per-task call would hit (an unknown
+   * status name for that task's own workflow, or a transition its workflow doesn't allow from the
+   * task's current status), without ever calling updateStatus(). Deliberately NOT a byte-for-byte
+   * simulation of every guard updateStatus enforces (role-gated transitions, requireComment,
+   * required custom fields, an in-flight approval) - those are comparatively rare blockers, and
+   * duplicating updateStatus's entire rule engine a second time here would be a second place for
+   * the two to drift out of sync. This closes "no way to know before committing", not "a perfect
+   * dry-run".
+   */
+  async previewBulkStatus(
+    dto: PreviewBulkStatusDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkStatusPreviewResult> {
+    const entries: BulkStatusPreviewEntry[] = [];
+    for (const taskId of dto.taskIds) {
+      try {
+        const task = await this.getActiveOrThrow(taskId);
+        const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+        this.projectsService.assertUserCanView(project, actingUser);
+        const workflow = resolveWorkflow(project, task.issueType);
+        if (categoryOf(workflow, dto.status) == null) {
+          entries.push({
+            taskId,
+            willSucceed: false,
+            reason: `"${dto.status}" is not a valid status for this task's workflow`,
+          });
+          continue;
+        }
+        if (!isLegalTaskTransition(workflow, task.status, dto.status)) {
+          entries.push({
+            taskId,
+            willSucceed: false,
+            reason:
+              `Cannot transition from "${task.status}" to "${dto.status}" - allowed: ` +
+              `${legalTaskTransitions(workflow, task.status).join(', ') || 'none'}`,
+          });
+          continue;
+        }
+        entries.push({ taskId, willSucceed: true, reason: null });
+      } catch (err) {
+        entries.push({
+          taskId,
+          willSucceed: false,
+          reason: err instanceof Error ? err.message : 'Unknown error',
+        });
+      }
+    }
+    return {
+      entries,
+      willSucceedCount: entries.filter((e) => e.willSucceed).length,
+      willFailCount: entries.filter((e) => !e.willSucceed).length,
+    };
   }
 
   async bulkPriority(
     dto: BulkPriorityDto,
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
-    return this.runBulk(dto.taskIds, (taskId) =>
-      this.update(taskId, { priority: dto.priority }, actingUser),
-    );
+    return this.runBulk(dto.taskIds, 'bulk-priority', actingUser, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const previousValue = task.priority;
+      await this.update(taskId, { priority: dto.priority }, actingUser);
+      return { field: 'priority', previousValue };
+    });
   }
 
   async bulkDelete(
     dto: BulkDeleteDto,
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
-    return this.runBulk(dto.taskIds, (taskId) => this.softDelete(taskId, actingUser));
+    return this.runBulk(dto.taskIds, 'bulk-delete', actingUser, async (taskId) => {
+      await this.softDelete(taskId, actingUser);
+      return { field: 'deletedAt', previousValue: null };
+    });
+  }
+
+  /** Module 5 gap-closure: bulk fix-version edit - same "add to existing" union semantics as
+   * bulkRelabel, reusing update()'s existing per-task releasesService.validateIdsForProject check
+   * (rejects a release id that doesn't belong to that specific task's own project). */
+  async bulkFixVersion(
+    dto: BulkFixVersionDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, 'bulk-fix-version', actingUser, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const previousValue = task.fixVersions.map((v) => extractId(v));
+      const fixVersions = [...new Set([...previousValue, ...dto.fixVersions])];
+      await this.update(taskId, { fixVersions }, actingUser);
+      return { field: 'fixVersions', previousValue };
+    });
+  }
+
+  /** Module 5 gap-closure: bulk custom-field edit - sets one field to one value across every
+   * selected task, reusing update()'s existing per-task validateCustomFieldValues check (rejects a
+   * value invalid for that specific task's own project+issueType field schema). */
+  async bulkCustomField(
+    dto: BulkCustomFieldDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, 'bulk-custom-field', actingUser, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const previousValue = task.customFieldValues;
+      const customFieldValues = { ...task.customFieldValues, [dto.fieldId]: dto.value };
+      await this.update(taskId, { customFieldValues }, actingUser);
+      return { field: 'customFieldValues', previousValue };
+    });
+  }
+
+  /**
+   * Module 5 gap-closure: moves a single task to a different project - no prior single- or
+   * multi-task equivalent existed anywhere in this codebase (`UpdateTaskDto` deliberately omits
+   * `project`). Requires manage access on BOTH projects (the stricter assertUserCanManage, not the
+   * grant-extensible assertUserCanManageOrGranted every other field edit uses here - moving a task
+   * out of one project and into another is a bigger action than a normal field edit, a deliberate,
+   * conservative scope choice). Every project-scoped reference the task carried is re-validated (or
+   * cleared, when it has no equivalent in the destination) rather than left silently dangling:
+   * - issueKey is regenerated under the destination project's own key/sequence (a moved task's key
+   *   encoding the OLD project's prefix would be actively misleading).
+   * - sprint, components, fixVersions/affectsVersions, customFieldValues, securityLevel are cleared
+   *   - every one of these is validated against the project's own schema at write time, and none of
+   *     the source project's values have any guaranteed meaning in the destination.
+   * - status resets to the destination workflow's initial status (the source status name may not
+   *   even exist in the destination project's workflow for this issue type).
+   * - issueType falls back to the built-in Task type if the source type isn't enabled in the
+   *   destination project.
+   * - assignee is kept only if still a member of the destination project, else cleared.
+   * - a task with children is rejected outright - assertValidHierarchy requires a parent and its
+   *   children to share one project, so moving a parent alone would orphan its children's hierarchy
+   *   invariant; the caller must move a whole subtree leaf-first, one issue at a time.
+   */
+  async moveToProject(
+    taskId: string,
+    targetProjectId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(taskId);
+    const sourceProjectId = extractId(task.project);
+    if (sourceProjectId === targetProjectId) {
+      throw new BadRequestException('Task is already in this project');
+    }
+
+    const sourceProject = await this.projectsService.getActiveProjectOrThrow(sourceProjectId);
+    const targetProject = await this.projectsService.getActiveProjectOrThrow(targetProjectId);
+    this.projectsService.assertUserCanManage(sourceProject, actingUser);
+    this.projectsService.assertUserCanManage(targetProject, actingUser);
+
+    if (targetProject.status === ProjectStatus.COMPLETED) {
+      throw new ConflictException('Cannot move a task into a Completed project');
+    }
+    if (await this.tasksRepository.hasChildren(taskId)) {
+      throw new ConflictException(
+        'Cannot move a task that has sub-tasks or Epic-linked children - move them individually first',
+      );
+    }
+
+    const destIssueTypes = resolveIssueTypes(targetProject);
+    const issueType = destIssueTypes.some((t) => t.name === task.issueType)
+      ? task.issueType
+      : IssueType.TASK;
+
+    const workflow = resolveWorkflow(targetProject, issueType);
+    const status = workflow.initialStatus;
+    const statusCategory = categoryOf(workflow, status) ?? StatusCategory.TODO;
+
+    const assigneeId = task.assignee ? extractId(task.assignee) : null;
+    const assigneeStillEligible =
+      assigneeId != null && this.projectsService.isProjectMember(targetProject, assigneeId);
+
+    let rank = task.rank;
+    if (this.isStandardIssue(targetProject, issueType)) {
+      const backlogScope: RankScope = {
+        project: new Types.ObjectId(targetProjectId),
+        sprint: null,
+      };
+      const maxRank = await this.tasksRepository.findMaxRank(backlogScope);
+      rank = nextAppendRank(maxRank);
+    }
+
+    const keyPrefix = await this.projectsService.getOrAssignKey(targetProject);
+    const seq = await this.projectsService.nextIssueNumber(targetProjectId);
+    const oldIssueKey = task.issueKey;
+    const newIssueKey = `${keyPrefix}-${seq}`;
+
+    const updated = await this.tasksRepository.updateById(taskId, {
+      project: new Types.ObjectId(targetProjectId),
+      organizationId: targetProject.organizationId,
+      issueKey: newIssueKey,
+      issueType,
+      status,
+      statusCategory,
+      sprint: null,
+      parent: null,
+      rank,
+      components: [],
+      fixVersions: [],
+      affectsVersions: [],
+      customFieldValues: {},
+      securityLevel: null,
+      assignee: assigneeStillEligible ? task.assignee : null,
+      assigneeClearedAt: assigneeStillEligible ? task.assigneeClearedAt : new Date(),
+    });
+
+    await this.tasksRepository.logActivity(
+      taskId,
+      actingUser.id,
+      TaskActivityAction.MOVED_PROJECT,
+      oldIssueKey,
+      newIssueKey,
+    );
+    await this.invalidateDashboardCache();
+    return updated!;
+  }
+
+  /** Module 5 gap-closure: bulk move-between-projects - a thin wrapper over moveToProject(), same
+   * partial-success shape as every other bulk-* action. Undoing a project move returns the task to
+   * its ORIGINAL project, but the per-project fields moveToProject() clears (sprint, components,
+   * fixVersions/affectsVersions, custom fields, security level) are not restored - a project move
+   * is not a fully symmetric operation, documented here rather than silently implied by "undo". */
+  async bulkMoveProject(
+    dto: BulkMoveProjectDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    return this.runBulk(dto.taskIds, 'bulk-move-project', actingUser, async (taskId) => {
+      const task = await this.getActiveOrThrow(taskId);
+      const previousValue = extractId(task.project);
+      await this.moveToProject(taskId, dto.targetProjectId, actingUser);
+      return { field: 'project', previousValue };
+    });
+  }
+
+  /** Dispatches a single captured BulkOperationLog change back through the SAME single-task update
+   * method the original bulk-* action used - so an undo re-runs every permission/validation guard
+   * that method has, exactly like the original action did. */
+  private async revertChange(
+    change: { taskId: string; field: string; previousValue: unknown },
+    actingUser: AuthenticatedUser,
+  ): Promise<void> {
+    switch (change.field) {
+      case 'status':
+        await this.updateStatus(change.taskId, change.previousValue as string, actingUser);
+        return;
+      case 'priority':
+        await this.update(
+          change.taskId,
+          { priority: change.previousValue as TaskPriority },
+          actingUser,
+        );
+        return;
+      case 'assignee':
+        await this.updateAssignee(change.taskId, change.previousValue as string | null, actingUser);
+        return;
+      case 'sprintId':
+        await this.updateSprint(
+          change.taskId,
+          { sprintId: change.previousValue as string | null },
+          actingUser,
+        );
+        return;
+      case 'labels':
+        await this.update(change.taskId, { labels: change.previousValue as string[] }, actingUser);
+        return;
+      case 'fixVersions':
+        await this.update(
+          change.taskId,
+          { fixVersions: change.previousValue as string[] },
+          actingUser,
+        );
+        return;
+      case 'customFieldValues':
+        await this.update(
+          change.taskId,
+          { customFieldValues: change.previousValue as Record<string, unknown> },
+          actingUser,
+        );
+        return;
+      case 'deletedAt':
+        await this.tasksRepository.restoreById(change.taskId);
+        return;
+      case 'project':
+        await this.moveToProject(change.taskId, change.previousValue as string, actingUser);
+        return;
+      default:
+        throw new BadRequestException(`Cannot undo unknown field "${change.field}"`);
+    }
+  }
+
+  /** Module 5 gap-closure: the undo window itself - replays a BulkOperationLog's captured changes
+   * in reverse, one task at a time, tolerating individual failures the same partial-success way the
+   * original bulk call did (e.g. a task whose workflow changed since may no longer legally accept
+   * its old status back). Time-boxed and single-use: expired or already-undone logs are rejected. */
+  async undoBulkOperation(
+    logId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<BulkOperationResult> {
+    const log = await this.bulkOperationLogsRepository.findByIdInOrg(
+      logId,
+      requireOrgId(actingUser),
+    );
+    if (!log) throw new NotFoundException('Undo record not found');
+    if (log.undoneAt) throw new ConflictException('This action was already undone');
+    if (Date.now() - log.createdAt.getTime() > UNDO_WINDOW_MS) {
+      throw new ConflictException('The undo window for this action has expired');
+    }
+
+    const succeeded: string[] = [];
+    const failed: Array<{ taskId: string; message: string }> = [];
+    for (const change of log.changes) {
+      const taskId = extractId(change.taskId);
+      try {
+        await this.revertChange(
+          { taskId, field: change.field, previousValue: change.previousValue },
+          actingUser,
+        );
+        succeeded.push(taskId);
+      } catch (err) {
+        failed.push({ taskId, message: err instanceof Error ? err.message : 'Unknown error' });
+      }
+    }
+    await this.bulkOperationLogsRepository.markUndone(logId);
+    return { succeeded, failed, undoToken: null };
   }
 
   async updateRank(
