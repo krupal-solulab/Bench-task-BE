@@ -52,6 +52,7 @@ export class FieldPermissionSchemesService {
     await this.getOwnedOrThrow(id, actingUser);
     const inUse = await this.projectModel.exists({
       fieldPermissionSchemeId: new Types.ObjectId(id),
+      deletedAt: null,
     });
     if (inUse) {
       throw new BadRequestException(

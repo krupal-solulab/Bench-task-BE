@@ -294,6 +294,30 @@ describe('field permission schemes (Module 12 - integration)', () => {
     expect(deleted.status).toBe(400);
   });
 
+  // Regression: `remove()`'s "in use" check queried Project without excluding soft-deleted rows,
+  // so a scheme assigned to a since-deleted project could never be deleted again.
+  it('allows deleting a scheme once the only project it was assigned to has been deleted', async () => {
+    const { admin, manager } = await seedFixtures('orphaned');
+    const project = await createProject(app, manager.accessToken, { name: 'Soon Deleted Project' });
+    const scheme = await api(app)
+      .post(`/${API_PREFIX}/field-permission-schemes`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Orphaned by deletion', rules: [] });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/field-permission-scheme`)
+      .set(...authHeader(admin.accessToken))
+      .send({ fieldPermissionSchemeId: scheme.body.data.id });
+
+    await api(app)
+      .delete(`/${API_PREFIX}/projects/${project.id}`)
+      .set(...authHeader(admin.accessToken));
+
+    const deleted = await api(app)
+      .delete(`/${API_PREFIX}/field-permission-schemes/${scheme.body.data.id}`)
+      .set(...authHeader(admin.accessToken));
+    expect(deleted.status).toBe(204);
+  });
+
   it('rejects a scheme with duplicate fieldIds', async () => {
     const { admin } = await seedFixtures('dupes');
     const res = await api(app)

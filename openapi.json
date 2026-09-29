@@ -2538,7 +2538,7 @@
       },
       "get": {
         "operationId": "SecuritySchemesController_list",
-        "summary": "List this organization's security schemes",
+        "summary": "List this organization's security schemes - open to any org role (not just Admin) since a Manager can assign a scheme to their own project and needs to pick from this list.",
         "parameters": [],
         "responses": {
           "200": {

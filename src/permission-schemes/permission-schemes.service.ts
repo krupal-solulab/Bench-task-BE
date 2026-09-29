@@ -60,7 +60,10 @@ export class PermissionSchemesService {
 
   async remove(id: string, actingUser: AuthenticatedUser): Promise<void> {
     await this.getOwnedOrThrow(id, actingUser);
-    const inUse = await this.projectModel.exists({ permissionSchemeId: new Types.ObjectId(id) });
+    const inUse = await this.projectModel.exists({
+      permissionSchemeId: new Types.ObjectId(id),
+      deletedAt: null,
+    });
     if (inUse) {
       throw new BadRequestException(
         'This scheme is assigned to one or more projects - unassign it from every project first',

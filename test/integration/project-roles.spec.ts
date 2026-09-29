@@ -182,4 +182,28 @@ describe('project roles (Module 6 - Teams, Project Roles & Security Schemes)', (
       .set(...authHeader(admin.accessToken));
     expect(deleted.status).toBe(400);
   });
+
+  // Regression: `remove()`'s "in use" check queried Project without excluding soft-deleted rows,
+  // so a role assigned on a since-deleted project could never be deleted again.
+  it('allows deleting a project role once the only project it was assigned on has been deleted', async () => {
+    const { admin, manager } = await seedFixtures();
+    const project = await createProject(app, manager.accessToken, { name: 'Soon Deleted Project' });
+    const role = await api(app)
+      .post(`/${API_PREFIX}/project-roles`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Orphaned by deletion' });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/role-assignments/${role.body.data.id}`)
+      .set(...authHeader(manager.accessToken))
+      .send({ userIds: [] });
+
+    await api(app)
+      .delete(`/${API_PREFIX}/projects/${project.id}`)
+      .set(...authHeader(admin.accessToken));
+
+    const deleted = await api(app)
+      .delete(`/${API_PREFIX}/project-roles/${role.body.data.id}`)
+      .set(...authHeader(admin.accessToken));
+    expect(deleted.status).toBe(204);
+  });
 });

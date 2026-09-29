@@ -73,6 +73,45 @@ describe('security schemes (Module 6 - Teams, Project Roles & Security Schemes)'
     expect(res.status).toBe(403);
   });
 
+  it('lets a Manager (not just Admin) read the scheme list - a Manager can assign a scheme to their own project and needs this to populate the picker', async () => {
+    const { admin, manager, developer } = await seedFixtures();
+    await api(app)
+      .post(`/${API_PREFIX}/security-schemes`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Readable by all', levels: [] });
+
+    const managerList = await api(app)
+      .get(`/${API_PREFIX}/security-schemes`)
+      .set(...authHeader(manager.accessToken));
+    expect(managerList.status).toBe(200);
+    expect(managerList.body.data).toHaveLength(1);
+
+    const devList = await api(app)
+      .get(`/${API_PREFIX}/security-schemes`)
+      .set(...authHeader(developer.accessToken));
+    expect(devList.status).toBe(200);
+    expect(devList.body.data).toHaveLength(1);
+  });
+
+  it('rejects updating or deleting a scheme from a Manager (Admin-only)', async () => {
+    const { admin, manager } = await seedFixtures();
+    const scheme = await api(app)
+      .post(`/${API_PREFIX}/security-schemes`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Gate check', levels: [] });
+
+    const update = await api(app)
+      .patch(`/${API_PREFIX}/security-schemes/${scheme.body.data.id}`)
+      .set(...authHeader(manager.accessToken))
+      .send({ name: 'Hijacked' });
+    expect(update.status).toBe(403);
+
+    const remove = await api(app)
+      .delete(`/${API_PREFIX}/security-schemes/${scheme.body.data.id}`)
+      .set(...authHeader(manager.accessToken));
+    expect(remove.status).toBe(403);
+  });
+
   it('a task with no securityLevel is unaffected by a scheme (regression)', async () => {
     const { admin, manager, developer } = await seedFixtures();
     const project = await createProject(app, manager.accessToken, {
@@ -267,6 +306,31 @@ describe('security schemes (Module 6 - Teams, Project Roles & Security Schemes)'
       .delete(`/${API_PREFIX}/security-schemes/${scheme.body.data.id}`)
       .set(...authHeader(admin.accessToken));
     expect(deleted.status).toBe(400);
+  });
+
+  // Regression: `remove()`'s "in use" check queried Project without excluding soft-deleted rows,
+  // so a scheme assigned to a since-deleted project could never be deleted again - a permanent,
+  // silent lockout since nothing in the UI shows a deleted project still holding the reference.
+  it('allows deleting a scheme once the only project it was assigned to has been deleted', async () => {
+    const { admin, manager } = await seedFixtures();
+    const project = await createProject(app, manager.accessToken, { name: 'Soon Deleted Project' });
+    const scheme = await api(app)
+      .post(`/${API_PREFIX}/security-schemes`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Orphaned by deletion', levels: [] });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/security-scheme`)
+      .set(...authHeader(admin.accessToken))
+      .send({ securitySchemeId: scheme.body.data.id });
+
+    await api(app)
+      .delete(`/${API_PREFIX}/projects/${project.id}`)
+      .set(...authHeader(admin.accessToken));
+
+    const deleted = await api(app)
+      .delete(`/${API_PREFIX}/security-schemes/${scheme.body.data.id}`)
+      .set(...authHeader(admin.accessToken));
+    expect(deleted.status).toBe(204);
   });
 
   it('rejects a scheme with duplicate level names', async () => {
