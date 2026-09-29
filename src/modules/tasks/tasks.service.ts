@@ -88,6 +88,8 @@ import { BulkPriorityDto } from './dto/bulk-priority.dto';
 import { BulkDeleteDto } from './dto/bulk-delete.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 import { SearchTasksDto } from './dto/search-tasks.dto';
+import { buildCsv } from '../import-export/csv.util';
+import type { CsvExportResult } from '../import-export/import-export.service';
 import {
   analyzeCurrentSprintUsage,
   assertValidJqlOrderBy,
@@ -281,8 +283,14 @@ export class TasksService {
    * to a Mongo filter and ANDed with the same org/accessible-project scope every other list
    * endpoint already enforces.
    */
-  async search(dto: SearchTasksDto, actingUser: AuthenticatedUser) {
-    const { ast: parsedAst, orderBy } = parseJql(dto.jql);
+  /** Shared by `search()` and `exportSearchCsv()` - parses+compiles a JQL string into a Mongo
+   * filter/sort pair, scoped to what the acting user may see. Kept private since both callers
+   * need the exact same currentSprint/scope handling and neither should be able to drift. */
+  private async buildJqlSearchFilter(
+    jql: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<{ filter: FilterQuery<TaskDocument>; sort: Record<string, 1 | -1> }> {
+    const { ast: parsedAst, orderBy } = parseJql(jql);
     assertValidJqlOrderBy(orderBy);
 
     // `sprint = current` (BRD 7) resolves to "this project's active sprint" - meaningless without
@@ -306,11 +314,14 @@ export class TasksService {
     const compiled = compileJqlAst(ast, actingUser);
     const scope = await this.buildScope(actingUser);
 
-    const filter: FilterQuery<TaskDocument> = {
-      $and: [{ deletedAt: null, ...scope }, compiled],
+    return {
+      filter: { $and: [{ deletedAt: null, ...scope }, compiled] },
+      sort: buildJqlSort(orderBy),
     };
-    const sort = buildJqlSort(orderBy);
+  }
 
+  async search(dto: SearchTasksDto, actingUser: AuthenticatedUser) {
+    const { filter, sort } = await this.buildJqlSearchFilter(dto.jql, actingUser);
     const { data, total } = await this.tasksRepository.paginateWithFilter(
       filter,
       sort,
@@ -318,6 +329,36 @@ export class TasksService {
       dto.limit,
     );
     return { data, meta: buildPaginationMeta(total, dto.page, dto.limit) };
+  }
+
+  /** Module 4 gap-closure: exports a JQL search's FULL matching set (not just the current page) as
+   * CSV - reuses Module 5's `buildCsv()` and `{filename, csv}` shape exactly, the same pattern
+   * WorkLogsService's own CSV export (Module 3 gap-closure) already established. Cross-project by
+   * design, since a JQL search itself is never project-scoped. */
+  async exportSearchCsv(jql: string, actingUser: AuthenticatedUser): Promise<CsvExportResult> {
+    const { filter, sort } = await this.buildJqlSearchFilter(jql, actingUser);
+    const tasks = await this.tasksRepository.findAllWithFilter(filter, sort);
+
+    const rows: string[][] = [
+      ['issueKey', 'title', 'issueType', 'status', 'priority', 'project', 'assignee', 'dueDate'],
+      ...tasks.map((t) => {
+        const assignee = t.assignee as unknown as { name?: string } | null;
+        const project = t.project as unknown as { name?: string } | null;
+        return [
+          t.issueKey ?? '',
+          t.title,
+          t.issueType,
+          t.status,
+          t.priority,
+          project?.name ?? '',
+          assignee?.name ?? '',
+          t.dueDate ? t.dueDate.toISOString().slice(0, 10) : '',
+        ];
+      }),
+    ];
+
+    const datePart = new Date().toISOString().slice(0, 10);
+    return { filename: `jql-search-${datePart}.csv`, csv: buildCsv(rows) };
   }
 
   /** Static field/operator/keyword metadata for the Issue Navigator's JQL autocomplete (Module 4)

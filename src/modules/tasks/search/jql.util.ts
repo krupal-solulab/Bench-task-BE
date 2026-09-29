@@ -10,7 +10,14 @@ import { escapeRegex } from '../utils/task-filter.util';
  * `field operator value` clauses combined with AND/OR (AND binds tighter than OR), parentheses,
  * a `NOT (...)` prefix, `IN (...)`/`NOT IN (...)` value lists (Module 4's "real JQL engine" -
  * previously deferred in favor of `field = a OR field = b`), multi-key `ORDER BY`, and
- * `currentUser()` (valid only for `assignee`/`createdBy`). Not building: issue-history functions.
+ * `currentUser()` (valid only for `assignee`/`createdBy`), and three date functions valid only for
+ * `dueDate` - `now()`, `startOfDay()`, `endOfDay()` (computed in UTC, so results don't depend on
+ * the server's local timezone). Not building: issue-history functions.
+ *
+ * Every syntax error (tokenizer or parser stage) throws `JqlSyntaxError`, which carries the
+ * 0-indexed character offset the error occurred at - `AllExceptionsFilter` passes that through as
+ * a `position` field on the JSON error body, and the Issue Navigator uses it to highlight the
+ * exact bad token in the query input rather than just showing the message text.
  *
  * Grammar (case-insensitive keywords; field names case-insensitive; values case-sensitive):
  *   query      := orExpr ( 'ORDER' 'BY' orderTerm ( ',' orderTerm )* )?
@@ -20,8 +27,20 @@ import { escapeRegex } from '../utils/task-filter.util';
  *   notExpr    := 'NOT' notExpr | primary
  *   primary    := '(' orExpr ')' | comparison
  *   comparison := FIELD OPERATOR value | FIELD ( 'IN' | 'NOT' 'IN' ) '(' value ( ',' value )* ')'
- *   value      := STRING | BAREWORD | 'currentUser' '(' ')'
+ *   value      := STRING | BAREWORD | 'currentUser' '(' ')' | 'now' '(' ')'
+ *                 | 'startOfDay' '(' ')' | 'endOfDay' '(' ')'
  */
+
+/** Every syntax error the tokenizer/parser can throw carries the character offset it occurred at,
+ * so a client can highlight the exact bad token - see AllExceptionsFilter's `position` passthrough. */
+export class JqlSyntaxError extends BadRequestException {
+  constructor(
+    message: string,
+    public readonly position: number,
+  ) {
+    super({ statusCode: 400, message, error: 'Bad Request', position });
+  }
+}
 
 export const JQL_FIELDS = [
   'project',
@@ -81,7 +100,12 @@ export type JqlScalarValue =
   // compiler. The service layer substitutes it for a real sprint id (via `substituteCurrentSprint`)
   // before `compileJqlAst` ever sees it - `resolveValue` below only guards against a caller that
   // skipped that step.
-  | { kind: 'currentSprint' };
+  | { kind: 'currentSprint' }
+  // The three date functions (valid only for `dueDate`) - all pure and synchronous (unlike
+  // currentSprint), so they resolve directly inside `resolveValue` with no service-layer pre-pass.
+  | { kind: 'now' }
+  | { kind: 'startOfDay' }
+  | { kind: 'endOfDay' };
 
 export type JqlValue = JqlScalarValue | { kind: 'list'; values: JqlScalarValue[] };
 
@@ -112,6 +136,9 @@ type TokenType = 'ident' | 'string' | 'operator' | 'lparen' | 'rparen' | 'comma'
 interface Token {
   type: TokenType;
   value: string;
+  /** The 0-indexed character offset this token starts at in the original query string - see
+   * JqlSyntaxError's own doc comment for why every token carries this. */
+  pos: number;
 }
 
 const OPERATORS = ['!=', '>=', '<=', '=', '~', '>', '<'];
@@ -126,21 +153,22 @@ function tokenize(input: string): Token[] {
       continue;
     }
     if (ch === '(') {
-      tokens.push({ type: 'lparen', value: '(' });
+      tokens.push({ type: 'lparen', value: '(', pos: i });
       i++;
       continue;
     }
     if (ch === ')') {
-      tokens.push({ type: 'rparen', value: ')' });
+      tokens.push({ type: 'rparen', value: ')', pos: i });
       i++;
       continue;
     }
     if (ch === ',') {
-      tokens.push({ type: 'comma', value: ',' });
+      tokens.push({ type: 'comma', value: ',', pos: i });
       i++;
       continue;
     }
     if (ch === '"' || ch === "'") {
+      const start = i;
       const quote = ch;
       let j = i + 1;
       let value = '';
@@ -149,27 +177,27 @@ function tokenize(input: string): Token[] {
         j++;
       }
       if (j >= input.length) {
-        throw new BadRequestException(`Unterminated string starting at position ${i}`);
+        throw new JqlSyntaxError(`Unterminated string starting at position ${start}`, start);
       }
-      tokens.push({ type: 'string', value });
+      tokens.push({ type: 'string', value, pos: start });
       i = j + 1;
       continue;
     }
     const op = OPERATORS.find((o) => input.startsWith(o, i));
     if (op) {
-      tokens.push({ type: 'operator', value: op });
+      tokens.push({ type: 'operator', value: op, pos: i });
       i += op.length;
       continue;
     }
     const bareMatch = /^[A-Za-z0-9_\-:.]+/.exec(input.slice(i));
     if (bareMatch) {
-      tokens.push({ type: 'ident', value: bareMatch[0] });
+      tokens.push({ type: 'ident', value: bareMatch[0], pos: i });
       i += bareMatch[0].length;
       continue;
     }
-    throw new BadRequestException(`Unexpected character "${ch}" at position ${i}`);
+    throw new JqlSyntaxError(`Unexpected character "${ch}" at position ${i}`, i);
   }
-  tokens.push({ type: 'eof', value: '' });
+  tokens.push({ type: 'eof', value: '', pos: input.length });
   return tokens;
 }
 
@@ -193,9 +221,8 @@ class Parser {
 
   private consumeKeyword(word: string): void {
     if (!this.isKeyword(word)) {
-      throw new BadRequestException(
-        `Expected "${word}" but got "${this.peek().value || 'end of query'}"`,
-      );
+      const t = this.peek();
+      throw new JqlSyntaxError(`Expected "${word}" but got "${t.value || 'end of query'}"`, t.pos);
     }
     this.pos++;
   }
@@ -219,9 +246,8 @@ class Parser {
       }
     }
     if (this.peek().type !== 'eof') {
-      throw new BadRequestException(
-        `Unexpected token "${this.peek().value}" - query did not fully parse`,
-      );
+      const t = this.peek();
+      throw new JqlSyntaxError(`Unexpected token "${t.value}" - query did not fully parse`, t.pos);
     }
     return { ast, orderBy };
   }
@@ -229,12 +255,13 @@ class Parser {
   private parseOrderTerm(): JqlOrderBy {
     const fieldToken = this.advance();
     if (fieldToken.type !== 'ident') {
-      throw new BadRequestException('Expected a field name after ORDER BY');
+      throw new JqlSyntaxError('Expected a field name after ORDER BY', fieldToken.pos);
     }
     const field = JQL_SORT_FIELD_BY_LOWER[fieldToken.value.toLowerCase()];
     if (!field) {
-      throw new BadRequestException(
+      throw new JqlSyntaxError(
         `Cannot ORDER BY "${fieldToken.value}" - expected one of: ${JQL_SORT_FIELDS.join(', ')}`,
+        fieldToken.pos,
       );
     }
     let direction: 'asc' | 'desc' = 'asc';
@@ -280,7 +307,7 @@ class Parser {
       this.pos++;
       const inner = this.parseOr();
       if (this.peek().type !== 'rparen') {
-        throw new BadRequestException('Expected a closing ")"');
+        throw new JqlSyntaxError('Expected a closing ")"', this.peek().pos);
       }
       this.pos++;
       return inner;
@@ -291,14 +318,16 @@ class Parser {
   private parseComparison(): JqlAst {
     const fieldToken = this.advance();
     if (fieldToken.type !== 'ident') {
-      throw new BadRequestException(
+      throw new JqlSyntaxError(
         `Expected a field name but got "${fieldToken.value || 'end of query'}"`,
+        fieldToken.pos,
       );
     }
     const field = JQL_FIELD_BY_LOWER[fieldToken.value.toLowerCase()];
     if (!field) {
-      throw new BadRequestException(
+      throw new JqlSyntaxError(
         `Unknown field "${fieldToken.value}" - expected one of: ${JQL_FIELDS.join(', ')}`,
+        fieldToken.pos,
       );
     }
 
@@ -317,7 +346,7 @@ class Parser {
     } else {
       const opToken = this.advance();
       if (opToken.type !== 'operator') {
-        throw new BadRequestException(`Expected an operator after "${fieldToken.value}"`);
+        throw new JqlSyntaxError(`Expected an operator after "${fieldToken.value}"`, opToken.pos);
       }
       const operator = opToken.value as JqlOperator;
       const value = this.parseValue();
@@ -325,7 +354,10 @@ class Parser {
     }
 
     if (this.peek().type !== 'lparen') {
-      throw new BadRequestException(`Expected "(" after ${negatedIn ? 'NOT IN' : 'IN'}`);
+      throw new JqlSyntaxError(
+        `Expected "(" after ${negatedIn ? 'NOT IN' : 'IN'}`,
+        this.peek().pos,
+      );
     }
     this.pos++;
     const values: JqlScalarValue[] = [this.parseValue()];
@@ -334,7 +366,7 @@ class Parser {
       values.push(this.parseValue());
     }
     if (this.peek().type !== 'rparen') {
-      throw new BadRequestException('Expected a closing ")" after the IN value list');
+      throw new JqlSyntaxError('Expected a closing ")" after the IN value list', this.peek().pos);
     }
     this.pos++;
     return {
@@ -345,35 +377,58 @@ class Parser {
     };
   }
 
+  /** Parses a zero-argument function call's `()`, positioned right after the function name token
+   * has already been consumed - shared by currentUser()/now()/startOfDay()/endOfDay() so each one
+   * doesn't repeat the same two-token dance. */
+  private parseNoArgCallParens(functionName: string): void {
+    if (this.peek().type !== 'lparen') {
+      throw new JqlSyntaxError(`Expected "()" after ${functionName}`, this.peek().pos);
+    }
+    this.pos++;
+    if (this.peek().type !== 'rparen') {
+      throw new JqlSyntaxError(`${functionName}() takes no arguments`, this.peek().pos);
+    }
+    this.pos++;
+  }
+
   private parseValue(): JqlScalarValue {
     const token = this.advance();
     if (token.type === 'string') {
       return { kind: 'literal', value: token.value };
     }
     if (token.type === 'ident') {
-      if (token.value.toLowerCase() === 'currentuser') {
-        if (this.peek().type !== 'lparen') {
-          throw new BadRequestException('Expected "()" after currentUser');
-        }
-        this.pos++;
-        if (this.peek().type !== 'rparen') {
-          throw new BadRequestException('currentUser() takes no arguments');
-        }
-        this.pos++;
+      const lower = token.value.toLowerCase();
+      if (lower === 'currentuser') {
+        this.parseNoArgCallParens('currentUser');
         return { kind: 'currentUser' };
       }
-      if (token.value.toLowerCase() === 'current') {
+      if (lower === 'now') {
+        this.parseNoArgCallParens('now');
+        return { kind: 'now' };
+      }
+      if (lower === 'startofday') {
+        this.parseNoArgCallParens('startOfDay');
+        return { kind: 'startOfDay' };
+      }
+      if (lower === 'endofday') {
+        this.parseNoArgCallParens('endOfDay');
+        return { kind: 'endOfDay' };
+      }
+      if (lower === 'current') {
         return { kind: 'currentSprint' };
       }
       return { kind: 'literal', value: token.value };
     }
-    throw new BadRequestException(`Expected a value but got "${token.value || 'end of query'}"`);
+    throw new JqlSyntaxError(
+      `Expected a value but got "${token.value || 'end of query'}"`,
+      token.pos,
+    );
   }
 }
 
 export function parseJql(input: string): JqlQuery {
   if (!input.trim()) {
-    throw new BadRequestException('Query cannot be empty');
+    throw new JqlSyntaxError('Query cannot be empty', 0);
   }
   return new Parser(tokenize(input)).parse();
 }
@@ -399,6 +454,20 @@ const OBJECT_ID_FIELDS: ReadonlySet<JqlField> = new Set([
 ]);
 const NUMERIC_FIELDS: ReadonlySet<JqlField> = new Set(['storyPoints']);
 const CURRENT_USER_FIELDS: ReadonlySet<JqlField> = new Set(['assignee', 'createdBy']);
+// The three date functions are valid only for `dueDate` - the one date-typed JQL field.
+const DATE_FUNCTION_FIELDS: ReadonlySet<JqlField> = new Set(['dueDate']);
+
+/** `now()`/`startOfDay()`/`endOfDay()` are computed in UTC (not the server's local timezone),
+ * matching this codebase's existing convention (see lib/date.ts's own `en-US`-pinned formatters on
+ * the frontend) of keeping date-derived behavior independent of the host environment. */
+function startOfDayUtc(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+function endOfDayUtc(now: Date): Date {
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999),
+  );
+}
 
 function resolveValue(
   field: JqlField,
@@ -414,6 +483,15 @@ function resolveValue(
   if (value.kind === 'currentSprint') {
     // Reachable only if a caller compiles an AST that skipped substituteCurrentSprint() first.
     throw new BadRequestException('"current" is not valid for field "' + field + '"');
+  }
+  if (value.kind === 'now' || value.kind === 'startOfDay' || value.kind === 'endOfDay') {
+    if (!DATE_FUNCTION_FIELDS.has(field)) {
+      throw new BadRequestException(`${value.kind}() is not valid for field "${field}"`);
+    }
+    const now = new Date();
+    if (value.kind === 'now') return now.toISOString();
+    if (value.kind === 'startOfDay') return startOfDayUtc(now).toISOString();
+    return endOfDayUtc(now).toISOString();
   }
   return value.value;
 }

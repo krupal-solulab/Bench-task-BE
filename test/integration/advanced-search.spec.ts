@@ -240,6 +240,17 @@ describe('advanced search (integration)', () => {
       expect(res.status).toBe(400);
     });
 
+    it('a JQL syntax error response includes a "position" field for inline highlighting (Module 4 gap-closure)', async () => {
+      const { manager } = await seedManager();
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/tasks/search`)
+        .query({ jql: 'status = Done AND bogus = 1' })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(400);
+      expect(res.body.position).toBe('status = Done AND '.length);
+    });
+
     it('rejects an unknown field with 400', async () => {
       const { manager } = await seedManager();
 
@@ -454,6 +465,124 @@ describe('advanced search (integration)', () => {
           .query({ jql: 'priority IN P1' })
           .set(...authHeader(manager.accessToken));
         expect(res.status).toBe(400);
+      });
+    });
+
+    describe('Module 4 gap-closure: date functions', () => {
+      it('"dueDate < now()" matches an overdue task and excludes a future one', async () => {
+        const { manager } = await seedManager();
+        const project = await createProject(app, manager.accessToken, { name: 'Now Project' });
+        const overdue = await createTask(app, manager.accessToken, {
+          title: 'Overdue task',
+          project: project.id,
+          priority: TaskPriority.P2,
+          dueDate: '2020-01-01',
+        });
+        await createTask(app, manager.accessToken, {
+          title: 'Future task',
+          project: project.id,
+          priority: TaskPriority.P2,
+          dueDate: '2099-01-01',
+        });
+
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search`)
+          .query({ jql: `project = "${project.id}" AND dueDate < now()` })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(200);
+        expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([overdue.id]);
+      });
+
+      it('"dueDate >= startOfDay()" matches a task due today', async () => {
+        const { manager } = await seedManager();
+        const project = await createProject(app, manager.accessToken, {
+          name: 'Start Of Day Project',
+        });
+        const today = new Date().toISOString().slice(0, 10);
+        const dueToday = await createTask(app, manager.accessToken, {
+          title: 'Due today',
+          project: project.id,
+          priority: TaskPriority.P2,
+          dueDate: today,
+        });
+        await createTask(app, manager.accessToken, {
+          title: 'Due yesterday',
+          project: project.id,
+          priority: TaskPriority.P2,
+          dueDate: '2020-01-01',
+        });
+
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search`)
+          .query({ jql: `project = "${project.id}" AND dueDate >= startOfDay()` })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(200);
+        expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([dueToday.id]);
+      });
+
+      it('rejects a date function on a non-dueDate field with 400', async () => {
+        const { manager } = await seedManager();
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search`)
+          .query({ jql: 'storyPoints = now()' })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(400);
+      });
+    });
+
+    describe('GET /tasks/search/export (Module 4 gap-closure)', () => {
+      it("exports a JQL search's full matching set as CSV", async () => {
+        const { manager } = await seedManager();
+        const project = await createProject(app, manager.accessToken, { name: 'Export Project' });
+        const task = await createTask(app, manager.accessToken, {
+          title: 'Exportable task',
+          project: project.id,
+          priority: TaskPriority.P1,
+        });
+
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search/export`)
+          .query({ jql: `project = "${project.id}"` })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(200);
+        expect(res.body.data.filename).toContain('.csv');
+        expect(res.body.data.csv).toContain('issueKey,title,issueType,status,priority');
+        expect(res.body.data.csv).toContain('Exportable task');
+        expect(res.body.data.csv).toContain(task.issueKey);
+      });
+
+      it('rejects a syntactically invalid query with 400, same as the search endpoint', async () => {
+        const { manager } = await seedManager();
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search/export`)
+          .query({ jql: 'not a valid query (((' })
+          .set(...authHeader(manager.accessToken));
+        expect(res.status).toBe(400);
+      });
+
+      it("never exports a task from a project outside the caller's accessible scope", async () => {
+        const { org, manager } = await seedManager();
+        const project = await createProject(app, manager.accessToken, {
+          name: 'Export Scope Project',
+        });
+        await createTask(app, manager.accessToken, {
+          title: 'Visible only to the org',
+          project: project.id,
+          priority: TaskPriority.P2,
+        });
+        const outsider = await seedUserAndLogin(app, {
+          email: 'export-outsider@example.com',
+          password: 'Password123',
+          role: Role.DEVELOPER,
+          organizationId: org.id,
+        });
+
+        const res = await api(app)
+          .get(`/${API_PREFIX}/tasks/search/export`)
+          .query({ jql: `project = "${project.id}"` })
+          .set(...authHeader(outsider.accessToken));
+        expect(res.status).toBe(200);
+        expect(res.body.data.csv.split('\n')).toHaveLength(1); // header row only
       });
     });
   });

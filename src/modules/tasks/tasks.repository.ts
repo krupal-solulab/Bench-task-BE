@@ -96,6 +96,22 @@ export class TasksRepository {
     return { data, total };
   }
 
+  /** Same populate shape as `paginateWithFilter`, but unpaginated (hard-capped) - the JQL search
+   * export's row source, mirroring `findAllForProject`'s own "unpaginated but bounded" shape. */
+  async findAllWithFilter(
+    filter: FilterQuery<TaskDocument>,
+    sort: Record<string, 1 | -1>,
+    limit = 5000,
+  ): Promise<TaskDocument[]> {
+    return this.model
+      .find(filter)
+      .populate('assignee', POPULATE_FIELDS)
+      .populate('project', 'name')
+      .sort(sort)
+      .limit(limit)
+      .exec();
+  }
+
   async updateById(id: string, update: Partial<Task>): Promise<TaskDocument | null> {
     await this.model.updateOne({ _id: id }, update).exec();
     return this.findByIdActive(id);

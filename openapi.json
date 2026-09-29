@@ -4039,6 +4039,36 @@
         ]
       }
     },
+    "/api/v1/tasks/search/export": {
+      "get": {
+        "operationId": "TasksController_exportSearch",
+        "summary": "A JQL search's full matching set as a downloadable CSV (Module 4)",
+        "parameters": [
+          {
+            "name": "jql",
+            "required": true,
+            "in": "query",
+            "description": "The same JQL-lite query GET /tasks/search accepts.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/bulk-move-sprint": {
       "patch": {
         "operationId": "TasksController_bulkMoveSprint",
@@ -6505,6 +6535,58 @@
         ]
       }
     },
+    "/api/v1/worklogs/my-timesheet": {
+      "get": {
+        "operationId": "WorkLogsController_myTimesheet",
+        "summary": "The caller's own work logs across every project, bucketed by week or month",
+        "parameters": [
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "groupBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "week",
+              "enum": [
+                "week",
+                "month"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/worklogs/{id}": {
       "patch": {
         "operationId": "WorkLogsController_update",
@@ -6697,6 +6779,119 @@
             "in": "query",
             "schema": {
               "example": "2026-03-31",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/worklogs/correlation": {
+      "get": {
+        "operationId": "WorkLogsController_correlationForProject",
+        "summary": "Story-point-to-time correlation: every story-pointed task's points vs. actual logged hours",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/worklogs/export": {
+      "get": {
+        "operationId": "WorkLogsController_exportProjectCsv",
+        "summary": "A project's timesheet as a downloadable CSV",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "2026-03-31",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "worklogs"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/sprints/{sprintId}/worklogs/report": {
+      "get": {
+        "operationId": "WorkLogsController_reportForSprint",
+        "summary": "Time-spent-vs-estimate for every task in one sprint",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": true,
+            "in": "path",
+            "schema": {
               "type": "string"
             }
           }
