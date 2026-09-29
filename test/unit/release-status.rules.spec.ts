@@ -22,8 +22,11 @@ describe('release-status.rules', () => {
       ]);
     });
 
-    it('Archived is terminal', () => {
-      expect(legalReleaseTransitions(ReleaseStatus.ARCHIVED)).toEqual([]);
+    it('Archived can be restored to Unreleased or Released (the BRD\'s "restore" action)', () => {
+      expect(legalReleaseTransitions(ReleaseStatus.ARCHIVED)).toEqual([
+        ReleaseStatus.UNRELEASED,
+        ReleaseStatus.RELEASED,
+      ]);
     });
   });
 
@@ -40,8 +43,8 @@ describe('release-status.rules', () => {
         [ReleaseStatus.ARCHIVED]: true,
       },
       [ReleaseStatus.ARCHIVED]: {
-        [ReleaseStatus.UNRELEASED]: false,
-        [ReleaseStatus.RELEASED]: false,
+        [ReleaseStatus.UNRELEASED]: true,
+        [ReleaseStatus.RELEASED]: true,
         [ReleaseStatus.ARCHIVED]: false,
       },
     };

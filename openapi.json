@@ -5755,6 +5755,53 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/releases/compare": {
+      "get": {
+        "operationId": "ReleasesController_compare",
+        "summary": "Scope-diff two of a project's releases (issues only in A, only in B, or in both)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "a",
+            "required": true,
+            "in": "query",
+            "description": "First release id to compare",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "b",
+            "required": true,
+            "in": "query",
+            "description": "Second release id to compare",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{projectId}/releases/{releaseId}": {
       "get": {
         "operationId": "ReleasesController_findOne",
@@ -5793,7 +5840,7 @@
       },
       "patch": {
         "operationId": "ReleasesController_update",
-        "summary": "Update release name/description/target date",
+        "summary": "Update release name/description/target date/owner",
         "parameters": [
           {
             "name": "projectId",
@@ -5949,7 +5996,44 @@
     "/api/v1/projects/{projectId}/releases/{releaseId}/archive": {
       "post": {
         "operationId": "ReleasesController_archive",
-        "summary": "Archive a release (terminal - cannot be un-archived)",
+        "summary": "Archive a release",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "releaseId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/releases/{releaseId}/unarchive": {
+      "post": {
+        "operationId": "ReleasesController_unarchive",
+        "summary": "Restore an archived release (back to Released if it had already shipped, else Unreleased)",
         "parameters": [
           {
             "name": "projectId",
@@ -6264,6 +6348,15 @@
                 "In Progress",
                 "Done"
               ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamId",
+            "required": false,
+            "in": "query",
+            "description": "Restrict to projects this team is granted a role assignment on",
+            "schema": {
               "type": "string"
             }
           }
@@ -9864,6 +9957,11 @@
             "type": "object",
             "description": "Target ship date",
             "nullable": true
+          },
+          "ownerId": {
+            "type": "object",
+            "description": "The person responsible for shipping this release",
+            "nullable": true
           }
         },
         "required": [
@@ -9883,6 +9981,11 @@
           "releaseDate": {
             "type": "object",
             "description": "Target ship date",
+            "nullable": true
+          },
+          "ownerId": {
+            "type": "object",
+            "description": "The person responsible for shipping this release",
             "nullable": true
           }
         }

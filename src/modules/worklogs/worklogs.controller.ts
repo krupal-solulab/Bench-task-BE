@@ -20,11 +20,14 @@ import { CreateWorkLogDto } from './dto/create-work-log.dto';
 import { UpdateWorkLogDto } from './dto/update-work-log.dto';
 import { ListWorkLogsDto } from './dto/list-work-logs.dto';
 import { WorkLogReportQueryDto } from './dto/work-log-report-query.dto';
+import { MyTimesheetQueryDto } from './dto/my-timesheet-query.dto';
 
 /**
- * Module 3's Time Tracking & Work Logs. One controller spanning three path shapes - mirrors
+ * Module 3's Time Tracking & Work Logs. One controller spanning several path shapes - mirrors
  * CommentsController's own `tasks/:taskId/comments` + `comments/:id` split, extended with the
- * project-wide timesheet views (`projects/:id/worklogs[/report]`).
+ * project-wide timesheet views (`projects/:id/worklogs[/report|/correlation|/export]`), the
+ * sprint-level report (`projects/:id/sprints/:sprintId/worklogs/report`), and the personal
+ * cross-project timesheet (`worklogs/my-timesheet`).
  */
 @ApiTags('worklogs')
 @ApiBearerAuth()
@@ -63,6 +66,14 @@ export class WorkLogsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.worklogsService.summaryForTask(taskId, user);
+  }
+
+  @Get('worklogs/my-timesheet')
+  @ApiOperation({
+    summary: "The caller's own work logs across every project, bucketed by week or month",
+  })
+  async myTimesheet(@Query() query: MyTimesheetQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.worklogsService.myTimesheet(user, query);
   }
 
   @Patch('worklogs/:id')
@@ -105,5 +116,37 @@ export class WorkLogsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.worklogsService.reportForProject(projectId, query, user);
+  }
+
+  @Get('projects/:id/worklogs/correlation')
+  @ApiOperation({
+    summary:
+      "Story-point-to-time correlation: every story-pointed task's points vs. actual logged hours",
+  })
+  async correlationForProject(
+    @Param('id', ParseObjectIdPipe) projectId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.worklogsService.correlationForProject(projectId, user);
+  }
+
+  @Get('projects/:id/worklogs/export')
+  @ApiOperation({ summary: "A project's timesheet as a downloadable CSV" })
+  async exportProjectCsv(
+    @Param('id', ParseObjectIdPipe) projectId: string,
+    @Query() query: WorkLogReportQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.worklogsService.exportProjectCsv(projectId, query, user);
+  }
+
+  @Get('projects/:id/sprints/:sprintId/worklogs/report')
+  @ApiOperation({ summary: 'Time-spent-vs-estimate for every task in one sprint' })
+  async reportForSprint(
+    @Param('id', ParseObjectIdPipe) projectId: string,
+    @Param('sprintId', ParseObjectIdPipe) sprintId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.worklogsService.reportForSprint(projectId, sprintId, user);
   }
 }

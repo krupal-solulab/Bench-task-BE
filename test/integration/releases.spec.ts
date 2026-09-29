@@ -98,7 +98,7 @@ describe('releases & version management (integration)', () => {
     expect(res.status).toBe(409);
   });
 
-  it('walks the release lifecycle: Unreleased -> Released -> Unreleased -> Archived', async () => {
+  it('walks the release lifecycle: Unreleased -> Released -> Unreleased -> Archived -> Released', async () => {
     const { manager } = await seedManager();
     const project = await createProject(app, manager.accessToken, { name: 'Lifecycle Project' });
     const release = await createRelease(manager.accessToken, project.id);
@@ -121,10 +121,13 @@ describe('releases & version management (integration)', () => {
       .set(...authHeader(manager.accessToken));
     expect(archived.body.data.status).toBe('Archived');
 
+    // Archived is no longer terminal - the BRD's restore action means Archived -> Released is a
+    // legal direct transition too, not just via the dedicated /unarchive route.
     const reRelease = await api(app)
       .post(`/${API_PREFIX}/projects/${project.id}/releases/${release.id}/release`)
       .set(...authHeader(manager.accessToken));
-    expect(reRelease.status).toBe(409);
+    expect(reRelease.status).toBe(201);
+    expect(reRelease.body.data.status).toBe('Released');
   });
 
   it('rejects editing an archived release', async () => {
@@ -279,7 +282,7 @@ describe('releases & version management (integration)', () => {
         priority: TaskPriority.P2,
         fixVersions: [release.id],
       });
-      await createTask(app, manager.accessToken, {
+      const taskB = await createTask(app, manager.accessToken, {
         title: 'Task B',
         project: project.id,
         priority: TaskPriority.P2,
@@ -308,6 +311,15 @@ describe('releases & version management (integration)', () => {
         totalIssues: 2,
         doneIssues: 1,
         progress: 50,
+        unreleasedIssues: [
+          {
+            id: taskB.id,
+            issueKey: taskB.issueKey,
+            title: 'Task B',
+            status: 'Todo',
+            statusCategory: 'To Do',
+          },
+        ],
       });
     });
 
@@ -349,6 +361,136 @@ describe('releases & version management (integration)', () => {
       expect(res.body.data.markdown).toContain('v3.0.0');
       expect(res.body.data.markdown).toContain('Fix the login bug');
       expect(res.body.data.markdown).not.toContain('Still in progress task');
+    });
+  });
+
+  describe('owner field', () => {
+    it('persists a valid owner on create and update', async () => {
+      const { org, manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'Owner Project' });
+      const owner = await seedUserAndLogin(app, {
+        email: 'release-owner@example.com',
+        password: 'Password123',
+        role: Role.DEVELOPER,
+        organizationId: org.id,
+      });
+
+      const created = await createRelease(manager.accessToken, project.id, {
+        ownerId: owner.userDoc.id,
+      });
+      expect(created.ownerId).toBe(owner.userDoc.id);
+
+      const anotherOwner = await seedUserAndLogin(app, {
+        email: 'release-owner-2@example.com',
+        password: 'Password123',
+        role: Role.MANAGER,
+        organizationId: org.id,
+      });
+      const updated = await api(app)
+        .patch(`/${API_PREFIX}/projects/${project.id}/releases/${created.id}`)
+        .set(...authHeader(manager.accessToken))
+        .send({ ownerId: anotherOwner.userDoc.id });
+      expect(updated.body.data.ownerId).toBe(anotherOwner.userDoc.id);
+
+      const cleared = await api(app)
+        .patch(`/${API_PREFIX}/projects/${project.id}/releases/${created.id}`)
+        .set(...authHeader(manager.accessToken))
+        .send({ ownerId: null });
+      expect(cleared.body.data.ownerId).toBeNull();
+    });
+
+    it('rejects an owner id from a different organization', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, {
+        name: 'Cross Org Owner Project',
+      });
+      const otherOrg = await seedOrganization(app);
+      const outsider = await seedUserAndLogin(app, {
+        email: 'outside-owner@example.com',
+        password: 'Password123',
+        role: Role.DEVELOPER,
+        organizationId: otherOrg.id,
+      });
+
+      const res = await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/releases`)
+        .set(...authHeader(manager.accessToken))
+        .send({ name: 'v1.0.0', ownerId: outsider.userDoc.id });
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe('unarchive (restore from Archived)', () => {
+    it('restores an archived release to Unreleased when it had never shipped', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'Restore Project' });
+      const release = await createRelease(manager.accessToken, project.id);
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/releases/${release.id}/archive`)
+        .set(...authHeader(manager.accessToken));
+
+      const restored = await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/releases/${release.id}/unarchive`)
+        .set(...authHeader(manager.accessToken));
+      expect(restored.status).toBe(201);
+      expect(restored.body.data.status).toBe('Unreleased');
+    });
+
+    it('restores an archived release to Released when it had already shipped', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, {
+        name: 'Restore Released Project',
+      });
+      const release = await createRelease(manager.accessToken, project.id);
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/releases/${release.id}/release`)
+        .set(...authHeader(manager.accessToken));
+      await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/releases/${release.id}/archive`)
+        .set(...authHeader(manager.accessToken));
+
+      const restored = await api(app)
+        .post(`/${API_PREFIX}/projects/${project.id}/releases/${release.id}/unarchive`)
+        .set(...authHeader(manager.accessToken));
+      expect(restored.status).toBe(201);
+      expect(restored.body.data.status).toBe('Released');
+    });
+  });
+
+  describe('compare (version scope diff)', () => {
+    it('scope-diffs two releases into onlyInA/onlyInB/inBoth', async () => {
+      const { manager } = await seedManager();
+      const project = await createProject(app, manager.accessToken, { name: 'Compare Project' });
+      const releaseA = await createRelease(manager.accessToken, project.id, { name: 'v1.0.0' });
+      const releaseB = await createRelease(manager.accessToken, project.id, { name: 'v2.0.0' });
+
+      const onlyA = await createTask(app, manager.accessToken, {
+        title: 'Only in A',
+        project: project.id,
+        priority: TaskPriority.P2,
+        fixVersions: [releaseA.id],
+      });
+      const onlyB = await createTask(app, manager.accessToken, {
+        title: 'Only in B',
+        project: project.id,
+        priority: TaskPriority.P2,
+        fixVersions: [releaseB.id],
+      });
+      const both = await createTask(app, manager.accessToken, {
+        title: 'In both',
+        project: project.id,
+        priority: TaskPriority.P2,
+        fixVersions: [releaseA.id, releaseB.id],
+      });
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/releases/compare`)
+        .query({ a: releaseA.id, b: releaseB.id })
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(200);
+      expect(res.body.data.onlyInA.map((i: { id: string }) => i.id)).toEqual([onlyA.id]);
+      expect(res.body.data.onlyInB.map((i: { id: string }) => i.id)).toEqual([onlyB.id]);
+      expect(res.body.data.inBoth.map((i: { id: string }) => i.id)).toEqual([both.id]);
     });
   });
 });

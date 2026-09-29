@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ProjectsModule } from '../projects/projects.module';
+import { UsersModule } from '../users/users.module';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { Release, ReleaseSchema } from './schemas/release.schema';
 import { ReleasesRepository } from './releases.repository';
@@ -13,6 +14,7 @@ import { ReleasesController } from './releases.controller';
 @Module({
   imports: [
     ProjectsModule,
+    UsersModule,
     MongooseModule.forFeature([
       { name: Release.name, schema: ReleaseSchema },
       { name: Task.name, schema: TaskSchema },

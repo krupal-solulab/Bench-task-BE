@@ -51,6 +51,12 @@ export class Release {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   createdBy!: Types.ObjectId;
 
+  // The person responsible for shipping this release - purely informational (doesn't gate any
+  // action the way Project.owner does), so it's nullable and defaults unset rather than defaulting
+  // to the creator.
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  ownerId!: Types.ObjectId | null;
+
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;
 

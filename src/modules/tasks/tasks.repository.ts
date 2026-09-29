@@ -298,6 +298,44 @@ export class TasksRepository {
       .exec();
   }
 
+  /** Every non-deleted task in a sprint, projected down to just what Module 3's sprint-level
+   * time-spent-vs-estimate report needs. */
+  findBySprintRaw(sprintId: string): Promise<TaskDocument[]> {
+    return this.model
+      .find({ sprint: new Types.ObjectId(sprintId), deletedAt: null })
+      .select('issueKey title storyPoints originalEstimateHours')
+      .exec();
+  }
+
+  /** Every non-deleted, story-pointed task in a project - the population Module 3's story-point-
+   * to-time correlation report scatters against actual logged hours. */
+  findWithStoryPointsForProject(projectId: string): Promise<TaskDocument[]> {
+    return this.model
+      .find({
+        project: new Types.ObjectId(projectId),
+        deletedAt: null,
+        storyPoints: { $ne: null },
+      })
+      .select('issueKey title storyPoints')
+      .exec();
+  }
+
+  /** Sum of every non-deleted task's original estimate in a project - the project-wide half of
+   * Module 3's estimate-vs-actual rollup (the "actual" half comes from WorkLog, not Task). */
+  async sumEstimateHoursForProject(projectId: string): Promise<number> {
+    const rows = await this.model.aggregate<{ _id: null; total: number }>([
+      {
+        $match: {
+          project: new Types.ObjectId(projectId),
+          deletedAt: null,
+          originalEstimateHours: { $ne: null },
+        },
+      },
+      { $group: { _id: null, total: { $sum: '$originalEstimateHours' } } },
+    ]);
+    return rows[0]?.total ?? 0;
+  }
+
   /** Distinct, currently-in-use values for a JQL autocomplete field, scoped to the org - e.g. the
    * real status names or issue types staff have actually used, rather than a fixed enum (both are
    * project-workflow-customizable, so there's no single fixed list to offer instead). */
