@@ -6266,6 +6266,15 @@
               ],
               "type": "string"
             }
+          },
+          {
+            "name": "teamId",
+            "required": false,
+            "in": "query",
+            "description": "Restrict to projects this team is granted a role assignment on",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {

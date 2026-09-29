@@ -133,10 +133,50 @@ describe('cross-project roadmap (integration)', () => {
     expect(capacityByProject[projectA.id]).toMatchObject({
       activeSprintId: sprint.id,
       committedPoints: 5,
+      isOverCommitted: false,
     });
     expect(capacityByProject[projectB.id]).toMatchObject({
       activeSprintId: null,
       committedPoints: 0,
+      isOverCommitted: false,
+    });
+  });
+
+  it('flags a project as over-committed when its active sprint has more committed points than capacity', async () => {
+    const { manager } = await seedManager();
+    const project = await createProject(app, manager.accessToken, { name: 'Overcommit Project' });
+    const sprint = await createSprint(app, manager.accessToken, project.id, {
+      name: 'Sprint 1',
+      startDate: '2026-01-01',
+      endDate: '2026-01-14',
+      capacityPoints: 3,
+    });
+    await api(app)
+      .post(`/${API_PREFIX}/projects/${project.id}/sprints/${sprint.id}/start`)
+      .set(...authHeader(manager.accessToken));
+    const task = await createTask(app, manager.accessToken, {
+      title: 'Overcommitted task',
+      project: project.id,
+      priority: TaskPriority.P2,
+      storyPoints: 8,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${task.id}/sprint`)
+      .set(...authHeader(manager.accessToken))
+      .send({ sprintId: sprint.id });
+
+    const res = await api(app)
+      .get(`/${API_PREFIX}/projects/reports/roadmap`)
+      .set(...authHeader(manager.accessToken));
+    expect(res.status).toBe(200);
+
+    const capacity = res.body.data.capacity.find(
+      (c: { projectId: string }) => c.projectId === project.id,
+    );
+    expect(capacity).toMatchObject({
+      capacityPoints: 3,
+      committedPoints: 8,
+      isOverCommitted: true,
     });
   });
 
@@ -219,5 +259,53 @@ describe('cross-project roadmap (integration)', () => {
       .set(...authHeader(outsider.accessToken));
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual({ projects: [], epics: [], capacity: [] });
+  });
+
+  it('filters the roadmap to only projects a given team is granted a role on', async () => {
+    const { org, manager } = await seedManager();
+    const admin = await seedUserAndLogin(app, {
+      email: 'roadmap-admin@example.com',
+      password: 'Password123',
+      role: Role.ADMIN,
+      organizationId: org.id,
+    });
+
+    const teamProject = await createProject(app, manager.accessToken, { name: 'Team Project' });
+    const otherProject = await createProject(app, manager.accessToken, { name: 'Other Project' });
+    await createTask(app, manager.accessToken, {
+      title: 'Team epic',
+      project: teamProject.id,
+      priority: TaskPriority.P2,
+      issueType: IssueType.EPIC,
+    });
+    await createTask(app, manager.accessToken, {
+      title: 'Other epic',
+      project: otherProject.id,
+      priority: TaskPriority.P2,
+      issueType: IssueType.EPIC,
+    });
+
+    const team = await api(app)
+      .post(`/${API_PREFIX}/teams`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Platform Team' });
+    const role = await api(app)
+      .post(`/${API_PREFIX}/project-roles`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Contributor' });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${teamProject.id}/role-assignments/${role.body.data.id}`)
+      .set(...authHeader(manager.accessToken))
+      .send({ teamIds: [team.body.data.id] });
+
+    const res = await api(app)
+      .get(`/${API_PREFIX}/projects/reports/roadmap`)
+      .query({ teamId: team.body.data.id })
+      .set(...authHeader(manager.accessToken));
+    expect(res.status).toBe(200);
+    expect(res.body.data.projects).toEqual([
+      expect.objectContaining({ id: teamProject.id, name: 'Team Project' }),
+    ]);
+    expect(res.body.data.epics.map((e: { title: string }) => e.title)).toEqual(['Team epic']);
   });
 });

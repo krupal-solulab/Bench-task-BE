@@ -62,6 +62,7 @@ export interface RoadmapProjectCapacity {
   activeSprintId: string | null;
   capacityPoints: number | null;
   committedPoints: number;
+  isOverCommitted: boolean;
 }
 
 export interface RoadmapData {
@@ -173,9 +174,23 @@ export class RoadmapService {
 
   async getRoadmap(query: RoadmapQueryDto, actingUser: AuthenticatedUser): Promise<RoadmapData> {
     const accessibleIds = await this.projectsService.getAccessibleProjectIds(actingUser);
-    const projectIds = query.projectIds?.length
+    let projectIds = query.projectIds?.length
       ? accessibleIds.filter((id) => query.projectIds!.includes(id))
       : accessibleIds;
+
+    if (query.teamId) {
+      const teamObjectId = new Types.ObjectId(query.teamId);
+      const teamProjects = await this.projectModel
+        .find({
+          _id: { $in: projectIds.map((id) => new Types.ObjectId(id)) },
+          'roleAssignments.teamIds': teamObjectId,
+        })
+        .select('_id')
+        .exec();
+      const teamProjectIdSet = new Set(teamProjects.map((p) => p.id));
+      projectIds = projectIds.filter((id) => teamProjectIdSet.has(id));
+    }
+
     if (projectIds.length === 0) return { projects: [], epics: [], capacity: [] };
 
     const projectObjectIds = projectIds.map((id) => new Types.ObjectId(id));
@@ -291,7 +306,13 @@ export class RoadmapService {
       projectIds.map(async (projectId): Promise<RoadmapProjectCapacity> => {
         const activeSprint = await this.sprintsService.findActive(projectId, actingUser);
         if (!activeSprint) {
-          return { projectId, activeSprintId: null, capacityPoints: null, committedPoints: 0 };
+          return {
+            projectId,
+            activeSprintId: null,
+            capacityPoints: null,
+            committedPoints: 0,
+            isOverCommitted: false,
+          };
         }
         const committed = await this.taskModel
           .aggregate<{ _id: null; total: number }>([
@@ -299,11 +320,14 @@ export class RoadmapService {
             { $group: { _id: null, total: { $sum: { $ifNull: ['$storyPoints', 0] } } } },
           ])
           .exec();
+        const committedPoints = committed[0]?.total ?? 0;
         return {
           projectId,
           activeSprintId: activeSprint.id,
           capacityPoints: activeSprint.capacityPoints,
-          committedPoints: committed[0]?.total ?? 0,
+          committedPoints,
+          isOverCommitted:
+            activeSprint.capacityPoints !== null && committedPoints > activeSprint.capacityPoints,
         };
       }),
     );
