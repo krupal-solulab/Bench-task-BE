@@ -13,7 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../common/pipes/parse-object-id.pipe';
-import { Role } from '../common/enums/role.enum';
+import { ORG_ROLES, Role } from '../common/enums/role.enum';
 import { AuthenticatedUser } from '../common/interfaces/jwt-payload.interface';
 import { requireOrgId } from '../common/utils/auth-user.util';
 import { AuditLogService } from '../modules/audit-log/audit-log.service';
@@ -25,7 +25,7 @@ import { UpdateSecuritySchemeDto } from './dto/update-security-scheme.dto';
 @ApiTags('security-schemes')
 @ApiBearerAuth()
 @Controller('security-schemes')
-@Roles(Role.ADMIN)
+@Roles(...ORG_ROLES)
 export class SecuritySchemesController {
   constructor(
     private readonly securitySchemesService: SecuritySchemesService,
@@ -33,6 +33,7 @@ export class SecuritySchemesController {
   ) {}
 
   @Post()
+  @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Create a reusable issue security scheme (Module 6)' })
   async create(@Body() dto: CreateSecuritySchemeDto, @CurrentUser() user: AuthenticatedUser) {
     const created = await this.securitySchemesService.create(dto, user);
@@ -48,12 +49,17 @@ export class SecuritySchemesController {
   }
 
   @Get()
-  @ApiOperation({ summary: "List this organization's security schemes" })
+  @ApiOperation({
+    summary:
+      "List this organization's security schemes - open to any org role (not just Admin) since " +
+      'a Manager can assign a scheme to their own project and needs to pick from this list.',
+  })
   async list(@CurrentUser() user: AuthenticatedUser) {
     return this.securitySchemesService.listMine(user);
   }
 
   @Patch(':id')
+  @Roles(Role.ADMIN)
   @ApiOperation({ summary: "Update a security scheme's name and/or levels" })
   async update(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -73,6 +79,7 @@ export class SecuritySchemesController {
   }
 
   @Delete(':id')
+  @Roles(Role.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a security scheme (must not be assigned to any project)' })
   async remove(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {

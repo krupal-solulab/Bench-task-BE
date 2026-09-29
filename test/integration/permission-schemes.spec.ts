@@ -190,6 +190,30 @@ describe('permission schemes (integration)', () => {
     expect(deletedAfterUnassign.status).toBe(204);
   });
 
+  // Regression: `remove()`'s "in use" check queried Project without excluding soft-deleted rows,
+  // so a scheme assigned to a since-deleted project could never be deleted again.
+  it('allows deleting a scheme once the only project it was assigned to has been deleted', async () => {
+    const { admin } = await seedOrgWithAdminAndDev();
+    const project = await createProject(app, admin.accessToken, { name: 'Soon Deleted Project' });
+    const scheme = await api(app)
+      .post(`/${API_PREFIX}/permission-schemes`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Orphaned by deletion', grants: [] });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/permission-scheme`)
+      .set(...authHeader(admin.accessToken))
+      .send({ permissionSchemeId: scheme.body.data.id });
+
+    await api(app)
+      .delete(`/${API_PREFIX}/projects/${project.id}`)
+      .set(...authHeader(admin.accessToken));
+
+    const deleted = await api(app)
+      .delete(`/${API_PREFIX}/permission-schemes/${scheme.body.data.id}`)
+      .set(...authHeader(admin.accessToken));
+    expect(deleted.status).toBe(204);
+  });
+
   it("never lets an Admin from a different org see or edit another org's scheme", async () => {
     const { admin: ownerAdmin } = await seedOrgWithAdminAndDev('ps-owner-org@example.com');
     const { admin: strangerAdmin } = await seedOrgWithAdminAndDev('ps-stranger-org@example.com');

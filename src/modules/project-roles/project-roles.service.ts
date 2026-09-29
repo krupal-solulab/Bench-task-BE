@@ -68,6 +68,7 @@ export class ProjectRolesService {
     await this.getOwnedOrThrow(id, actingUser);
     const inUse = await this.projectModel.exists({
       'roleAssignments.projectRoleId': new Types.ObjectId(id),
+      deletedAt: null,
     });
     if (inUse) {
       throw new BadRequestException(
