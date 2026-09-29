@@ -5,6 +5,7 @@ import {
   assertValidJqlOrderBy,
   buildJqlSort,
   compileJqlAst,
+  JqlSyntaxError,
   parseJql,
   substituteCurrentSprint,
 } from 'src/modules/tasks/search/jql.util';
@@ -136,6 +137,68 @@ describe('parseJql', () => {
       field: 'assignee',
       operator: '=',
       value: { kind: 'currentUser' },
+    });
+  });
+
+  describe('date functions (Module 4 gap-closure)', () => {
+    it.each([
+      ['now()', 'now'],
+      ['startOfDay()', 'startOfDay'],
+      ['endOfDay()', 'endOfDay'],
+    ])('parses %s as a value', (fnCall, kind) => {
+      const { ast } = parseJql(`dueDate < ${fnCall}`);
+      expect(ast).toEqual({
+        type: 'comparison',
+        field: 'dueDate',
+        operator: '<',
+        value: { kind },
+      });
+    });
+
+    it('is case-insensitive for date function names', () => {
+      const { ast } = parseJql('dueDate < STARTOFDAY()');
+      expect(ast).toEqual({
+        type: 'comparison',
+        field: 'dueDate',
+        operator: '<',
+        value: { kind: 'startOfDay' },
+      });
+    });
+
+    it('rejects a date function called with an argument', () => {
+      expect(() => parseJql('dueDate < now(1)')).toThrow(JqlSyntaxError);
+    });
+  });
+
+  describe('JqlSyntaxError position tracking (Module 4 gap-closure)', () => {
+    it('points at the unknown field token', () => {
+      try {
+        parseJql('bogus = 1');
+        throw new Error('expected parseJql to throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(JqlSyntaxError);
+        expect((err as JqlSyntaxError).position).toBe(0);
+      }
+    });
+
+    it('points at the offending token later in the query, not always 0', () => {
+      try {
+        parseJql('status = Done AND bogus = 1');
+        throw new Error('expected parseJql to throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(JqlSyntaxError);
+        expect((err as JqlSyntaxError).position).toBe('status = Done AND '.length);
+      }
+    });
+
+    it('points at the unexpected character for a tokenizer-stage error', () => {
+      try {
+        parseJql('status = Done @');
+        throw new Error('expected parseJql to throw');
+      } catch (err) {
+        expect(err).toBeInstanceOf(JqlSyntaxError);
+        expect((err as JqlSyntaxError).position).toBe('status = Done '.length);
+      }
     });
   });
 
@@ -342,6 +405,40 @@ describe('compileJqlAst', () => {
     it('rejects a comparison operator on a non-dueDate field', () => {
       const { ast } = parseJql('priority > P1');
       expect(() => compileJqlAst(ast, user)).toThrow(BadRequestException);
+    });
+
+    describe('date functions (Module 4 gap-closure)', () => {
+      it.each([
+        ['now()', 'now'],
+        ['startOfDay()', 'startOfDay'],
+        ['endOfDay()', 'endOfDay'],
+      ])('resolves %s to a real ISO date string', (fnCall) => {
+        const { ast } = parseJql(`dueDate < ${fnCall}`);
+        const compiled = compileJqlAst(ast, user) as { dueDate: { $lt: Date } };
+        expect(compiled.dueDate.$lt).toBeInstanceOf(Date);
+        expect(Number.isNaN(compiled.dueDate.$lt.getTime())).toBe(false);
+      });
+
+      it('startOfDay() is midnight UTC and endOfDay() is 23:59:59.999 UTC on the same day', () => {
+        const { ast: startAst } = parseJql('dueDate = startOfDay()');
+        const { ast: endAst } = parseJql('dueDate = endOfDay()');
+        const start = (compileJqlAst(startAst, user) as { dueDate: Date }).dueDate;
+        const end = (compileJqlAst(endAst, user) as { dueDate: Date }).dueDate;
+
+        expect(start.getUTCHours()).toBe(0);
+        expect(start.getUTCMinutes()).toBe(0);
+        expect(end.getUTCHours()).toBe(23);
+        expect(end.getUTCMinutes()).toBe(59);
+        expect(end.getUTCDate()).toBe(start.getUTCDate());
+      });
+
+      it.each(['now()', 'startOfDay()', 'endOfDay()'])(
+        'rejects %s on a field other than dueDate',
+        (fnCall) => {
+          const { ast } = parseJql(`storyPoints = ${fnCall}`);
+          expect(() => compileJqlAst(ast, user)).toThrow(BadRequestException);
+        },
+      );
     });
   });
 

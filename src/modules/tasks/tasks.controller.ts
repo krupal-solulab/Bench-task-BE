@@ -26,6 +26,7 @@ import { UpdateTaskSprintDto } from './dto/update-task-sprint.dto';
 import { UpdateTaskRankDto } from './dto/update-task-rank.dto';
 import { ListTasksDto } from './dto/list-tasks.dto';
 import { SearchTasksDto } from './dto/search-tasks.dto';
+import { ExportSearchTasksDto } from './dto/export-search-tasks.dto';
 import { AutocompleteValuesQueryDto } from './dto/autocomplete-values-query.dto';
 import { BulkMoveSprintDto } from './dto/bulk-move-sprint.dto';
 import { BulkAssignDto } from './dto/bulk-assign.dto';
@@ -88,6 +89,12 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.tasksService.autocompleteValues(query.field, user);
+  }
+
+  @Get('search/export')
+  @ApiOperation({ summary: "A JQL search's full matching set as a downloadable CSV (Module 4)" })
+  async exportSearch(@Query() query: ExportSearchTasksDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.exportSearchCsv(query.jql, user);
   }
 
   // Registered before PATCH :id/GET :id - literal path segments must precede a :id sibling at the

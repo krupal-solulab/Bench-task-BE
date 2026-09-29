@@ -7,6 +7,10 @@ interface ErrorResponseBody {
   message: string;
   error: string;
   details?: string[];
+  /** The 0-indexed character offset a JQL syntax error occurred at (see JqlSyntaxError in
+   * jql.util.ts) - lets the Issue Navigator highlight the exact bad token, not just show the
+   * message text. Absent for every other kind of error. */
+  position?: number;
   timestamp: string;
   path: string;
 }
@@ -20,13 +24,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const { statusCode, message, error, details } = this.resolveError(exception);
+    const { statusCode, message, error, details, position } = this.resolveError(exception);
 
     const body: ErrorResponseBody = {
       statusCode,
       message,
       error,
       ...(details ? { details } : {}),
+      ...(position !== undefined ? { position } : {}),
       timestamp: new Date().toISOString(),
       path: request.url,
     };
@@ -45,6 +50,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     message: string;
     error: string;
     details?: string[];
+    position?: number;
   } {
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
@@ -57,6 +63,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const payloadObj = payload as {
         message?: string | string[];
         error?: string;
+        position?: number;
       };
       const rawMessage = payloadObj.message;
       const isValidationError = Array.isArray(rawMessage);
@@ -68,6 +75,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           : ((rawMessage as string) ?? exception.message),
         error: payloadObj.error ?? exception.name,
         details: isValidationError ? (rawMessage as string[]) : undefined,
+        position: typeof payloadObj.position === 'number' ? payloadObj.position : undefined,
       };
     }
 

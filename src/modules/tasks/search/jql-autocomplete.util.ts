@@ -92,6 +92,9 @@ export const JQL_KEYWORDS = [
   'ASC',
   'DESC',
   'currentUser()',
+  'now()',
+  'startOfDay()',
+  'endOfDay()',
 ] as const;
 
 export const PRIORITY_ENUM_VALUES = ['P1', 'P2', 'P3'];
