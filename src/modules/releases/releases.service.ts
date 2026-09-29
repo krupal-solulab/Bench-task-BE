@@ -10,7 +10,9 @@ import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { ReleaseStatus } from '../../common/enums/release-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
+import { extractId } from '../../common/utils/mongo.util';
 import { ProjectsService } from '../projects/projects.service';
+import { UsersService } from '../users/users.service';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
 import { ReleasesRepository } from './releases.repository';
 import { ReleaseDocument } from './schemas/release.schema';
@@ -25,6 +27,26 @@ export interface ReleaseProgress {
   totalIssues: number;
   doneIssues: number;
   progress: number;
+  unreleasedIssues: Array<{
+    id: string;
+    issueKey: string | null;
+    title: string;
+    status: string;
+    statusCategory: string;
+  }>;
+}
+
+export interface ReleaseCompareIssue {
+  id: string;
+  issueKey: string | null;
+  title: string;
+  statusCategory: string;
+}
+
+export interface ReleaseCompareResult {
+  onlyInA: ReleaseCompareIssue[];
+  onlyInB: ReleaseCompareIssue[];
+  inBoth: ReleaseCompareIssue[];
 }
 
 export interface ReleaseNotes {
@@ -40,8 +62,15 @@ export class ReleasesService {
   constructor(
     private readonly releasesRepository: ReleasesRepository,
     private readonly projectsService: ProjectsService,
+    private readonly usersService: UsersService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
   ) {}
+
+  /** The owner is purely informational (doesn't gate any action) so it only needs to be a real,
+   * active user in the same org - not a project member, the way an assignee must be. */
+  private async assertOwnerEligible(ownerId: string, organizationId: string): Promise<void> {
+    await this.usersService.findByIdInOrgOrThrow(ownerId, organizationId);
+  }
 
   async create(
     projectId: string,
@@ -54,12 +83,16 @@ export class ReleasesService {
     if (await this.releasesRepository.nameExistsInProject(projectId, dto.name)) {
       throw new ConflictException(`A release named "${dto.name}" already exists in this project`);
     }
+    if (dto.ownerId) {
+      await this.assertOwnerEligible(dto.ownerId, extractId(project.organizationId));
+    }
 
     return this.releasesRepository.create({
       name: dto.name,
       description: dto.description ?? '',
       project: new Types.ObjectId(projectId),
       releaseDate: dto.releaseDate ? new Date(dto.releaseDate) : null,
+      ownerId: dto.ownerId ? new Types.ObjectId(dto.ownerId) : null,
       createdBy: new Types.ObjectId(actingUser.id),
       organizationId: project.organizationId,
     });
@@ -100,12 +133,18 @@ export class ReleasesService {
         throw new ConflictException(`A release named "${dto.name}" already exists in this project`);
       }
     }
+    if (dto.ownerId) {
+      await this.assertOwnerEligible(dto.ownerId, extractId(project.organizationId));
+    }
 
     const updated = await this.releasesRepository.updateById(releaseId, {
       ...(dto.name ? { name: dto.name } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.releaseDate !== undefined
         ? { releaseDate: dto.releaseDate ? new Date(dto.releaseDate) : null }
+        : {}),
+      ...(dto.ownerId !== undefined
+        ? { ownerId: dto.ownerId ? new Types.ObjectId(dto.ownerId) : null }
         : {}),
     });
     return updated!;
@@ -138,6 +177,19 @@ export class ReleasesService {
     return updated!;
   }
 
+  /** The BRD's "restore from archive" action - restores to whichever of Released/Unreleased the
+   * release effectively was before archiving, decided from releasedAt (set once on first release
+   * and never cleared - see the schema's own comment) rather than a single fixed target. */
+  async unarchive(
+    projectId: string,
+    releaseId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ReleaseDocument> {
+    const release = await this.getActiveOrThrow(releaseId, projectId);
+    const target = release.releasedAt ? ReleaseStatus.RELEASED : ReleaseStatus.UNRELEASED;
+    return this.transition(projectId, releaseId, target, actingUser);
+  }
+
   async remove(projectId: string, releaseId: string, actingUser: AuthenticatedUser): Promise<void> {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
     this.projectsService.assertUserCanManage(project, actingUser);
@@ -165,9 +217,13 @@ export class ReleasesService {
     const release = await this.getActiveOrThrow(releaseId, projectId);
 
     const filter = { fixVersions: release._id, deletedAt: null };
-    const [totalIssues, doneIssues] = await Promise.all([
+    const [totalIssues, doneIssues, unreleasedTasks] = await Promise.all([
       this.taskModel.countDocuments(filter),
       this.taskModel.countDocuments({ ...filter, statusCategory: StatusCategory.DONE }),
+      this.taskModel
+        .find({ ...filter, statusCategory: { $ne: StatusCategory.DONE } })
+        .select('issueKey title status statusCategory')
+        .exec(),
     ]);
 
     return {
@@ -175,6 +231,60 @@ export class ReleasesService {
       totalIssues,
       doneIssues,
       progress: totalIssues > 0 ? Math.round((doneIssues / totalIssues) * 100) : 0,
+      unreleasedIssues: unreleasedTasks.map((t) => ({
+        id: t.id,
+        issueKey: t.issueKey,
+        title: t.title,
+        status: t.status,
+        statusCategory: t.statusCategory,
+      })),
+    };
+  }
+
+  /**
+   * Module 2's version comparison - a scope diff between two releases' issue sets (which issues
+   * are only tagged with A, only with B, or both), not a historical diff. "Moved out of a release"
+   * (an issue that WAS tagged, then had the fixVersion removed) isn't tracked here: fixVersions
+   * changes were never audit-logged (see TasksService.update), so there's no history to read - a
+   * documented scope limitation, not an oversight.
+   */
+  async compare(
+    projectId: string,
+    releaseIdA: string,
+    releaseIdB: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ReleaseCompareResult> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+    const [releaseA, releaseB] = await Promise.all([
+      this.getActiveOrThrow(releaseIdA, projectId),
+      this.getActiveOrThrow(releaseIdB, projectId),
+    ]);
+
+    const [tasksA, tasksB] = await Promise.all([
+      this.taskModel
+        .find({ fixVersions: releaseA._id, deletedAt: null })
+        .select('issueKey title statusCategory')
+        .exec(),
+      this.taskModel
+        .find({ fixVersions: releaseB._id, deletedAt: null })
+        .select('issueKey title statusCategory')
+        .exec(),
+    ]);
+
+    const toCompareIssue = (t: (typeof tasksA)[number]): ReleaseCompareIssue => ({
+      id: t.id,
+      issueKey: t.issueKey,
+      title: t.title,
+      statusCategory: t.statusCategory,
+    });
+    const idsA = new Set(tasksA.map((t) => t.id));
+    const idsB = new Set(tasksB.map((t) => t.id));
+
+    return {
+      onlyInA: tasksA.filter((t) => !idsB.has(t.id)).map(toCompareIssue),
+      onlyInB: tasksB.filter((t) => !idsA.has(t.id)).map(toCompareIssue),
+      inBoth: tasksA.filter((t) => idsB.has(t.id)).map(toCompareIssue),
     };
   }
 

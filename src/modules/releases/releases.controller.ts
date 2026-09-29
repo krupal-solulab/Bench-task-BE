@@ -21,6 +21,7 @@ import { ReleasesService } from './releases.service';
 import { CreateReleaseDto } from './dto/create-release.dto';
 import { UpdateReleaseDto } from './dto/update-release.dto';
 import { ListReleasesDto } from './dto/list-releases.dto';
+import { CompareReleasesDto } from './dto/compare-releases.dto';
 
 @ApiTags('releases')
 @ApiBearerAuth()
@@ -49,6 +50,20 @@ export class ReleasesController {
     return this.releasesService.paginate(projectId, query, user);
   }
 
+  // Declared before ":releaseId" - the same shape (one path segment after /releases), so it must
+  // be registered first or Nest would try to parse "compare" itself as a releaseId ObjectId.
+  @Get('compare')
+  @ApiOperation({
+    summary: "Scope-diff two of a project's releases (issues only in A, only in B, or in both)",
+  })
+  async compare(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Query() query: CompareReleasesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.releasesService.compare(projectId, query.a, query.b, user);
+  }
+
   @Get(':releaseId')
   @ApiOperation({ summary: 'Get a single release' })
   async findOne(
@@ -61,7 +76,7 @@ export class ReleasesController {
 
   @Patch(':releaseId')
   @Roles(...ORG_ROLES)
-  @ApiOperation({ summary: 'Update release name/description/target date' })
+  @ApiOperation({ summary: 'Update release name/description/target date/owner' })
   async update(
     @Param('projectId', ParseObjectIdPipe) projectId: string,
     @Param('releaseId', ParseObjectIdPipe) releaseId: string,
@@ -95,13 +110,27 @@ export class ReleasesController {
 
   @Post(':releaseId/archive')
   @Roles(...ORG_ROLES)
-  @ApiOperation({ summary: 'Archive a release (terminal - cannot be un-archived)' })
+  @ApiOperation({ summary: 'Archive a release' })
   async archive(
     @Param('projectId', ParseObjectIdPipe) projectId: string,
     @Param('releaseId', ParseObjectIdPipe) releaseId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.releasesService.transition(projectId, releaseId, ReleaseStatus.ARCHIVED, user);
+  }
+
+  @Post(':releaseId/unarchive')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({
+    summary:
+      'Restore an archived release (back to Released if it had already shipped, else Unreleased)',
+  })
+  async unarchive(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Param('releaseId', ParseObjectIdPipe) releaseId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.releasesService.unarchive(projectId, releaseId, user);
   }
 
   @Delete(':releaseId')
