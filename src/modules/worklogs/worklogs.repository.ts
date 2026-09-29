@@ -14,6 +14,11 @@ export interface WorkLogUserTotal {
   entryCount: number;
 }
 
+export interface WorkLogTaskTotal {
+  _id: Types.ObjectId;
+  totalHours: number;
+}
+
 @Injectable()
 export class WorkLogsRepository {
   constructor(@InjectModel(WorkLog.name) private readonly model: Model<WorkLogDocument>) {}
@@ -110,6 +115,63 @@ export class WorkLogsRepository {
         },
       },
     ]);
+  }
+
+  /** Per-task totals - shared by the sprint estimate-vs-actual report and the story-point-to-time
+   * correlation report, both of which need "hours logged" grouped by task rather than by user. */
+  async totalsByTask(taskIds: string[]): Promise<WorkLogTaskTotal[]> {
+    if (taskIds.length === 0) return [];
+    return this.model.aggregate<WorkLogTaskTotal>([
+      {
+        $match: {
+          task: { $in: taskIds.map((id) => new Types.ObjectId(id)) },
+          deletedAt: null,
+        },
+      },
+      { $group: { _id: '$task', totalHours: { $sum: '$hours' } } },
+    ]);
+  }
+
+  /** Every work log matching a project filter, unpaginated - the CSV export's row source, mirrors
+   * `TasksRepository.findAllForProject`'s same "unpaginated but hard-capped" shape. */
+  async findAllForProject(
+    filter: FilterQuery<WorkLogDocument>,
+    limit = 5000,
+  ): Promise<WorkLogDocument[]> {
+    return this.model
+      .find(filter)
+      .populate('user', USER_POPULATE)
+      .populate('task', 'title issueKey')
+      .sort({ workDate: -1 })
+      .limit(limit)
+      .exec();
+  }
+
+  /** Every one of a user's own work logs (across every project in their org), for the personal
+   * cross-project timesheet - populates project name alongside the usual task title/issueKey. */
+  async findForUser(
+    userId: string,
+    organizationId: string,
+    from?: string,
+    to?: string,
+  ): Promise<WorkLogDocument[]> {
+    const filter: FilterQuery<WorkLogDocument> = {
+      user: new Types.ObjectId(userId),
+      organizationId: new Types.ObjectId(organizationId),
+      deletedAt: null,
+    };
+    if (from || to) {
+      filter.workDate = {
+        ...(from ? { $gte: new Date(from) } : {}),
+        ...(to ? { $lte: new Date(to) } : {}),
+      };
+    }
+    return this.model
+      .find(filter)
+      .populate('task', 'title issueKey')
+      .populate('project', 'name')
+      .sort({ workDate: -1 })
+      .exec();
   }
 
   async updateById(id: string, update: Partial<WorkLog>): Promise<WorkLogDocument | null> {
