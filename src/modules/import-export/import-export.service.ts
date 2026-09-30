@@ -1,12 +1,17 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { TaskPriority } from '../../common/enums/task-priority.enum';
+import { requireOrgId } from '../../common/utils/auth-user.util';
 import { ProjectsService } from '../projects/projects.service';
+import { ProjectDocument } from '../projects/schemas/project.schema';
 import { TasksService } from '../tasks/tasks.service';
 import { TasksRepository } from '../tasks/tasks.repository';
+import { TaskDocument } from '../tasks/schemas/task.schema';
 import { CreateTaskDto } from '../tasks/dto/create-task.dto';
 import { buildCsv, parseCsv } from './csv.util';
 import { ImportTasksDto } from './dto/import-tasks.dto';
+import { ProjectBackupSnapshotsRepository } from './project-backup-snapshots.repository';
+import { ProjectBackupSnapshotDocument } from './schemas/project-backup-snapshot.schema';
 
 const EXPORT_COLUMNS = [
   'issueKey',
@@ -71,6 +76,14 @@ export interface ProjectBackupResult {
   backup: ProjectBackup;
 }
 
+/** Module 5 gap-closure: a listed backup's metadata only - the `listBackups` response deliberately
+ * excludes the (potentially large) `backup` payload itself, matching the repository's own `{backup:
+ * 0}` projection. */
+export interface ProjectBackupSnapshotSummary {
+  id: string;
+  createdAt: Date;
+}
+
 /**
  * Module 5's CSV import/export and project backup - a separate module (not folded into
  * TasksModule/ProjectsModule) for the same reason PlanningModule is its own module: it needs
@@ -87,6 +100,7 @@ export class ImportExportService {
     private readonly tasksService: TasksService,
     private readonly tasksRepository: TasksRepository,
     private readonly projectsService: ProjectsService,
+    private readonly projectBackupSnapshotsRepository: ProjectBackupSnapshotsRepository,
   ) {}
 
   async exportTasksCsv(projectId: string, actingUser: AuthenticatedUser): Promise<CsvExportResult> {
@@ -204,22 +218,11 @@ export class ImportExportService {
     return { succeeded, failed };
   }
 
-  /**
-   * A configuration + issue snapshot for a project (BRD: "project backups") - deliberately scoped
-   * to what's portable/restorable-in-principle: project settings and task content, not sprints,
-   * releases, comments, attachments, or work logs. Export only; there's no restore-from-backup
-   * endpoint - reconstructing a project from this JSON (id remapping, conflict handling) is a
-   * meaningfully bigger and riskier feature, deferred rather than half-built here.
-   */
-  async backupProject(
-    projectId: string,
-    actingUser: AuthenticatedUser,
-  ): Promise<ProjectBackupResult> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
-    this.projectsService.assertUserCanManage(project, actingUser);
-
-    const tasks = await this.tasksRepository.findAllForProject(projectId);
-    const backup: ProjectBackup = {
+  /** Shared by the manual download route and the daily scheduled-backups cron sweep - the exact
+   * same portable/restorable-in-principle snapshot shape either way (see backupProject's own doc
+   * comment for what's deliberately excluded). */
+  private buildBackup(project: ProjectDocument, tasks: TaskDocument[]): ProjectBackup {
+    return {
       exportedAt: new Date().toISOString(),
       project: {
         name: project.name,
@@ -252,8 +255,90 @@ export class ImportExportService {
         createdAt: t.createdAt,
       })),
     };
+  }
+
+  /**
+   * A configuration + issue snapshot for a project (BRD: "project backups") - deliberately scoped
+   * to what's portable/restorable-in-principle: project settings and task content, not sprints,
+   * releases, comments, attachments, or work logs. Export only; there's no restore-from-backup
+   * endpoint - reconstructing a project from this JSON (id remapping, conflict handling) is a
+   * meaningfully bigger and riskier feature, deferred rather than half-built here.
+   *
+   * Module 5 gap-closure: also persists a `ProjectBackupSnapshot` as a side effect, so a manual
+   * "Download backup" click populates the same listed history the daily cron sweep does - one code
+   * path, not a special "trigger now" endpoint just to make the history testable.
+   */
+  async backupProject(
+    projectId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectBackupResult> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanManage(project, actingUser);
+
+    const tasks = await this.tasksRepository.findAllForProject(projectId);
+    const backup = this.buildBackup(project, tasks);
+
+    await this.projectBackupSnapshotsRepository.create({
+      organizationId: project.organizationId,
+      project: project._id,
+      backup,
+    });
 
     const datePart = new Date().toISOString().slice(0, 10);
     return { filename: `${project.key ?? project.name}-backup-${datePart}.json`, backup };
+  }
+
+  /** Module 5 gap-closure: the daily scheduled-backups sweep's per-project write path - called by
+   * ProjectBackupsTriggerService, no acting user (system-initiated, not a request), so it skips the
+   * permission check the manual route needs and goes straight to the repository. */
+  async snapshotProjectForCron(project: ProjectDocument): Promise<void> {
+    const tasks = await this.tasksRepository.findAllForProject(project.id);
+    const backup = this.buildBackup(project, tasks);
+    await this.projectBackupSnapshotsRepository.create({
+      organizationId: project.organizationId,
+      project: project._id,
+      backup,
+    });
+  }
+
+  /** Module 5 gap-closure: a project's backup history (metadata only - see the repository's own
+   * `{backup: 0}` projection). */
+  async listBackups(
+    projectId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectBackupSnapshotSummary[]> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanManage(project, actingUser);
+
+    const snapshots = await this.projectBackupSnapshotsRepository.listForProject(
+      projectId,
+      requireOrgId(actingUser),
+    );
+    return snapshots.map((s) => ({ id: s.id, createdAt: s.createdAt }));
+  }
+
+  /** Module 5 gap-closure: fetches one previously-listed backup's full content, same
+   * `{filename, backup}` shape as a fresh manual download. */
+  async getBackup(
+    projectId: string,
+    backupId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectBackupResult> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanManage(project, actingUser);
+
+    const snapshot: ProjectBackupSnapshotDocument | null =
+      await this.projectBackupSnapshotsRepository.findByIdForProject(
+        backupId,
+        projectId,
+        requireOrgId(actingUser),
+      );
+    if (!snapshot) throw new NotFoundException('Backup not found');
+
+    const datePart = snapshot.createdAt.toISOString().slice(0, 10);
+    return {
+      filename: `${project.key ?? project.name}-backup-${datePart}.json`,
+      backup: snapshot.backup as ProjectBackup,
+    };
   }
 }

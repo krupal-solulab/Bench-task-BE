@@ -4189,6 +4189,36 @@
         ]
       }
     },
+    "/api/v1/tasks/bulk-status/preview": {
+      "post": {
+        "operationId": "TasksController_previewBulkStatus",
+        "summary": "Dry-run a bulk status transition (Module 5 gap-closure) - which tasks would succeed/fail, without changing anything",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewBulkStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/bulk-priority": {
       "patch": {
         "operationId": "TasksController_bulkPriority",
@@ -4236,6 +4266,125 @@
         },
         "responses": {
           "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-fix-version": {
+      "patch": {
+        "operationId": "TasksController_bulkFixVersion",
+        "summary": "Add a Fix Version to multiple tasks at once (Module 5 gap-closure)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkFixVersionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-custom-field": {
+      "patch": {
+        "operationId": "TasksController_bulkCustomField",
+        "summary": "Set one custom field to one value across multiple tasks at once (Module 5 gap-closure)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkCustomFieldDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-move-project": {
+      "patch": {
+        "operationId": "TasksController_bulkMoveProject",
+        "summary": "Move multiple tasks to a different project at once (Module 5 gap-closure)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkMoveProjectDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/bulk-operations/{logId}/undo": {
+      "post": {
+        "operationId": "TasksController_undoBulkOperation",
+        "summary": "Undo a bulk-* action's changes within its undo window (Module 5 gap-closure)",
+        "parameters": [
+          {
+            "name": "logId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
             "description": ""
           }
         },
@@ -4537,6 +4686,45 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/UpdateTaskRankDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/move-project": {
+      "patch": {
+        "operationId": "TasksController_moveProject",
+        "summary": "Move a task to a different project (Module 5 gap-closure)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveTaskProjectDto"
               }
             }
           }
@@ -9874,6 +10062,24 @@
           "status"
         ]
       },
+      "PreviewBulkStatusDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskIds",
+          "status"
+        ]
+      },
       "BulkPriorityDto": {
         "type": "object",
         "properties": {
@@ -9909,6 +10115,71 @@
         },
         "required": [
           "taskIds"
+        ]
+      },
+      "BulkFixVersionDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fixVersions": {
+            "description": "Fix Version (release) ids to add to every selected task",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "taskIds",
+          "fixVersions"
+        ]
+      },
+      "BulkCustomFieldDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fieldId": {
+            "type": "string",
+            "description": "The project's CustomFieldDefinition.id to set"
+          },
+          "value": {
+            "type": "object",
+            "description": "The value to set - shape depends on the field's own type"
+          }
+        },
+        "required": [
+          "taskIds",
+          "fieldId",
+          "value"
+        ]
+      },
+      "BulkMoveProjectDto": {
+        "type": "object",
+        "properties": {
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "targetProjectId": {
+            "type": "string",
+            "description": "The destination project id"
+          }
+        },
+        "required": [
+          "taskIds",
+          "targetProjectId"
         ]
       },
       "UpdateTaskDto": {
@@ -10025,6 +10296,18 @@
             "description": "Omit to move to the bottom of the list"
           }
         }
+      },
+      "MoveTaskProjectDto": {
+        "type": "object",
+        "properties": {
+          "targetProjectId": {
+            "type": "string",
+            "description": "The destination project id"
+          }
+        },
+        "required": [
+          "targetProjectId"
+        ]
       },
       "CreateSprintDto": {
         "type": "object",

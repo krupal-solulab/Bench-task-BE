@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
 import { extractId } from '../../common/utils/mongo.util';
+import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { Project, ProjectDocument } from './schemas/project.schema';
 import { MemberPermissions } from './schemas/member-permissions.schema';
 import {
@@ -35,6 +36,15 @@ export class ProjectsRepository {
 
   findRawById(id: string): Promise<ProjectDocument | null> {
     return this.model.findOne({ _id: id, deletedAt: null }).exec();
+  }
+
+  /** Every not-yet-completed, not-deleted project across the whole system (no org filter - used by
+   * a system-wide cron sweep, not a request scoped to one org). Module 5 gap-closure: the daily
+   * scheduled-backups trigger's project source - a Completed project's configuration/issues are no
+   * longer changing day to day, so it's excluded from the ongoing daily sweep (a manual "Download
+   * backup" click still works on any project regardless of status). */
+  findAllActive(): Promise<ProjectDocument[]> {
+    return this.model.find({ status: { $ne: ProjectStatus.COMPLETED }, deletedAt: null }).exec();
   }
 
   /** Every active project in this org with a Security Scheme assigned - typically a small subset,

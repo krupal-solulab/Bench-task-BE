@@ -45,4 +45,30 @@ export class ImportExportController {
   ) {
     return this.importExportService.backupProject(projectId, user);
   }
+
+  // Distinct literal segment from "backup" above (plural vs singular) - no route-ordering concern.
+  @Get('backups')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({
+    summary: "A project's backup history - metadata only (Module 5 gap-closure)",
+  })
+  async listBackups(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.importExportService.listBackups(projectId, user);
+  }
+
+  @Get('backups/:backupId')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({
+    summary: 'One previously-listed backup, full content (Module 5 gap-closure)',
+  })
+  async getBackup(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @Param('backupId', ParseObjectIdPipe) backupId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.importExportService.getBackup(projectId, backupId, user);
+  }
 }
