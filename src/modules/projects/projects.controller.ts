@@ -28,6 +28,8 @@ import { AddMembersDto } from './dto/add-members.dto';
 import { PutWorkflowDto } from './dto/put-workflow.dto';
 import { PatchMemberPermissionsDto } from './dto/patch-member-permissions.dto';
 import { PutComponentsDto } from './dto/put-components.dto';
+import { PatchComponentLeadDto } from './dto/patch-component-lead.dto';
+import { PatchDefaultApproversDto } from './dto/patch-default-approvers.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 import { PutCustomFieldOverrideDto } from './dto/put-custom-field-override.dto';
 import { PutAutomationRulesDto } from './dto/put-automation-rules.dto';
@@ -279,6 +281,31 @@ export class ProjectsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.projectsService.updateComponents(id, dto, user);
+  }
+
+  @Patch(':id/components/lead')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "Assign or clear one component's lead (Module 6 gap-closure)" })
+  async updateComponentLead(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PatchComponentLeadDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateComponentLead(id, dto, user);
+  }
+
+  @Patch(':id/default-approvers')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary:
+      "Set/replace the project's default approver grant for Approval Workflows (Module 6 gap-closure)",
+  })
+  async updateDefaultApprovers(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: PatchDefaultApproversDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.updateDefaultApprovers(id, dto, user);
   }
 
   @Put(':id/issue-types')

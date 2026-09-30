@@ -39,6 +39,14 @@ export class Team {
   @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
   memberIds!: Types.ObjectId[];
 
+  // Module 6 gap-closure: the team's typical per-sprint story-point capacity, PM-entered exactly
+  // like Sprint.capacityPoints already is - this is what connects Team to the cross-project
+  // Roadmap's capacity indicator (RoadmapService.getRoadmap()), which previously had no path from
+  // a Team to any capacity figure at all (only a per-sprint number, never tied to a Team). Null
+  // (every existing team) means "not set", identical to today.
+  @Prop({ type: Number, default: null, min: 0 })
+  capacityPoints!: number | null;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

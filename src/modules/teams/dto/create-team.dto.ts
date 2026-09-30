@@ -3,8 +3,10 @@ import {
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
+  IsInt,
   IsOptional,
   IsString,
+  Min,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -35,4 +37,12 @@ export class CreateTeamDto {
   @ArrayMaxSize(500)
   @IsObjectId({ each: true })
   memberIds?: string[];
+
+  @ApiPropertyOptional({
+    description: "The team's typical per-sprint story-point capacity (Module 6 gap-closure)",
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  capacityPoints?: number;
 }

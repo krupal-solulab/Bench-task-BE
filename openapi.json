@@ -1852,6 +1852,84 @@
         ]
       }
     },
+    "/api/v1/projects/{id}/components/lead": {
+      "patch": {
+        "operationId": "ProjectsController_updateComponentLead",
+        "summary": "Assign or clear one component's lead (Module 6 gap-closure)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchComponentLeadDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/default-approvers": {
+      "patch": {
+        "operationId": "ProjectsController_updateDefaultApprovers",
+        "summary": "Set/replace the project's default approver grant for Approval Workflows (Module 6 gap-closure)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchDefaultApproversDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{id}/issue-types": {
       "put": {
         "operationId": "ProjectsController_updateIssueTypes",
@@ -8492,6 +8570,72 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/backups": {
+      "get": {
+        "operationId": "ImportExportController_listBackups",
+        "summary": "A project's backup history - metadata only (Module 5 gap-closure)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/backups/{backupId}": {
+      "get": {
+        "operationId": "ImportExportController_getBackup",
+        "summary": "One previously-listed backup, full content (Module 5 gap-closure)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "backupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/search": {
       "get": {
         "operationId": "SearchController_search",
@@ -9117,6 +9261,58 @@
         "required": [
           "names"
         ]
+      },
+      "PatchComponentLeadDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Frontend",
+            "description": "Must be one of the project's own components"
+          },
+          "leadUserId": {
+            "type": "object",
+            "description": "Must be a member of this project. Omit/null to clear."
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "PatchDefaultApproversDto": {
+        "type": "object",
+        "properties": {
+          "allowedRoles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "PlatformAdmin",
+                "Admin",
+                "Manager",
+                "Developer"
+              ]
+            }
+          },
+          "allowedUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedTeamIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedProjectRoleIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
       },
       "IssueTypeDefinitionDto": {
         "type": "object",
@@ -9794,6 +9990,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "capacityPoints": {
+            "type": "number",
+            "description": "The team's typical per-sprint story-point capacity (Module 6 gap-closure)"
           }
         },
         "required": [
@@ -9819,6 +10019,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "capacityPoints": {
+            "type": "number",
+            "description": "The team's typical per-sprint story-point capacity (Module 6 gap-closure)"
           }
         }
       },

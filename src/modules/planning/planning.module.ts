@@ -4,6 +4,7 @@ import { TasksModule } from '../tasks/tasks.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { SprintsModule } from '../sprints/sprints.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { TeamsModule } from '../teams/teams.module';
 import { IssueLink, IssueLinkSchema } from './schemas/issue-link.schema';
 import { IssueLinksService } from './issue-links.service';
 import { RoadmapService } from './roadmap.service';
@@ -17,7 +18,8 @@ import { RoadmapController } from './roadmap.controller';
  * bolted onto TasksModule/ProjectsModule) since it depends on BOTH of them plus
  * OrganizationsModule/SprintsModule - importing it back into any of those would be a circular
  * module dependency, the same "duplicate/isolate rather than cycle" reasoning this codebase
- * already uses for AutomationLogController living outside ProjectsModule.
+ * already uses for AutomationLogController living outside ProjectsModule. TeamsModule was added
+ * for Module 6's gap-closure (connecting Team.capacityPoints to the Roadmap's capacity figures).
  */
 @Module({
   imports: [
@@ -25,6 +27,7 @@ import { RoadmapController } from './roadmap.controller';
     ProjectsModule,
     SprintsModule,
     OrganizationsModule,
+    TeamsModule,
     MongooseModule.forFeature([{ name: IssueLink.name, schema: IssueLinkSchema }]),
   ],
   controllers: [

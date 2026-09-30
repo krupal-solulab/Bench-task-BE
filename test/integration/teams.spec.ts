@@ -148,6 +148,32 @@ describe('teams (Module 6 - Teams, Project Roles & Security Schemes)', () => {
     expect(get.status).toBe(404);
   });
 
+  it('creates a team with a capacityPoints figure, and updates it (Module 6 gap-closure)', async () => {
+    const { admin } = await seedFixtures();
+    const create = await api(app)
+      .post(`/${API_PREFIX}/teams`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Platform Squad', capacityPoints: 20 });
+    expect(create.status).toBe(201);
+    expect(create.body.data.capacityPoints).toBe(20);
+
+    const update = await api(app)
+      .patch(`/${API_PREFIX}/teams/${create.body.data.id}`)
+      .set(...authHeader(admin.accessToken))
+      .send({ capacityPoints: 25 });
+    expect(update.status).toBe(200);
+    expect(update.body.data.capacityPoints).toBe(25);
+  });
+
+  it('defaults capacityPoints to null when omitted (regression)', async () => {
+    const { admin } = await seedFixtures();
+    const create = await api(app)
+      .post(`/${API_PREFIX}/teams`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'No capacity set' });
+    expect(create.body.data.capacityPoints).toBeNull();
+  });
+
   it("never lets an Admin from a different org see another org's team", async () => {
     const { admin } = await seedFixtures();
     const otherOrg = await seedOrganization(app);
