@@ -57,12 +57,14 @@ function makeProject(overrides: Partial<Record<string, unknown>> = {}) {
     startDate: new Date('2026-01-01'),
     dueDate: null,
     components: [],
+    componentLeads: [],
     customFields: [],
     customFieldOverridesByType: [],
     automationRules: [],
     workflowsByType: [],
     permissionSchemeId: null,
     roleAssignments: [],
+    defaultApprovers: null,
     securitySchemeId: null,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -1084,6 +1086,7 @@ describe('ProjectsService', () => {
 
       expect(projectsRepository.updateById).toHaveBeenCalledWith('project-1', {
         components: ['Frontend', 'API'],
+        componentLeads: [],
       });
     });
   });

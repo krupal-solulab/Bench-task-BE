@@ -8,6 +8,7 @@ import { IssueType } from '../../common/enums/issue-type.enum';
 import { ProjectsService } from '../projects/projects.service';
 import { Project, ProjectDocument } from '../projects/schemas/project.schema';
 import { SprintsService } from '../sprints/sprints.service';
+import { TeamsService } from '../teams/teams.service';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { resolveLinkTypes } from './schemas/link-type.schema';
@@ -63,6 +64,13 @@ export interface RoadmapProjectCapacity {
   capacityPoints: number | null;
   committedPoints: number;
   isOverCommitted: boolean;
+  // Module 6 gap-closure: the sum of capacityPoints across every distinct Team assigned to this
+  // project (via Project.roleAssignments[].teamIds) - null when the project has no assigned team,
+  // or when none of its assigned teams have set a capacityPoints. Shown ALONGSIDE (not replacing)
+  // the sprint-level capacityPoints/isOverCommitted above, which stay a per-sprint, PM-entered
+  // figure independent of this - this is a separate, additive cross-check, not a new source of
+  // truth for over-commitment.
+  teamCapacityPoints: number | null;
 }
 
 export interface RoadmapData {
@@ -86,6 +94,7 @@ export class RoadmapService {
     private readonly projectsService: ProjectsService,
     private readonly organizationsService: OrganizationsService,
     private readonly sprintsService: SprintsService,
+    private readonly teamsService: TeamsService,
   ) {}
 
   async getDependencyGraph(
@@ -196,9 +205,22 @@ export class RoadmapService {
     const projectObjectIds = projectIds.map((id) => new Types.ObjectId(id));
     const projects = await this.projectModel
       .find({ _id: { $in: projectObjectIds } })
-      .select('name')
+      .select('name roleAssignments')
       .exec();
     const projectNameById = new Map(projects.map((p) => [p.id, p.name]));
+
+    // Module 6 gap-closure: every distinct team assigned to each project (via roleAssignments),
+    // batch-fetched once so the capacity loop below can look up each project's team(s)'
+    // capacityPoints without a query per project.
+    const teamIdsByProject = new Map(
+      projects.map((p) => [
+        p.id,
+        [...new Set(p.roleAssignments.flatMap((a) => a.teamIds.map((id) => id.toString())))],
+      ]),
+    );
+    const allTeamIds = [...new Set([...teamIdsByProject.values()].flat())];
+    const teams = allTeamIds.length > 0 ? await this.teamsService.findByIds(allTeamIds) : [];
+    const teamCapacityById = new Map(teams.map((t) => [t.id, t.capacityPoints]));
 
     const epicFilter: Record<string, unknown> = {
       project: { $in: projectObjectIds },
@@ -302,6 +324,13 @@ export class RoadmapService {
       };
     });
 
+    const teamCapacityForProject = (projectId: string): number | null => {
+      const capacities = (teamIdsByProject.get(projectId) ?? [])
+        .map((teamId) => teamCapacityById.get(teamId))
+        .filter((c): c is number => c != null);
+      return capacities.length > 0 ? capacities.reduce((sum, c) => sum + c, 0) : null;
+    };
+
     const capacity = await Promise.all(
       projectIds.map(async (projectId): Promise<RoadmapProjectCapacity> => {
         const activeSprint = await this.sprintsService.findActive(projectId, actingUser);
@@ -312,6 +341,7 @@ export class RoadmapService {
             capacityPoints: null,
             committedPoints: 0,
             isOverCommitted: false,
+            teamCapacityPoints: teamCapacityForProject(projectId),
           };
         }
         const committed = await this.taskModel
@@ -324,6 +354,7 @@ export class RoadmapService {
         return {
           projectId,
           activeSprintId: activeSprint.id,
+          teamCapacityPoints: teamCapacityForProject(projectId),
           capacityPoints: activeSprint.capacityPoints,
           committedPoints,
           isOverCommitted:

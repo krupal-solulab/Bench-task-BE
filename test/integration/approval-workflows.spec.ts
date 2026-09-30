@@ -263,6 +263,85 @@ describe('approval workflows (Module 12 - integration)', () => {
     expect(requestedAgain.body.data.pendingApproval).toMatchObject({ toStatus: 'Shipped' });
   });
 
+  it('PATCH .../default-approvers sets/replaces the project-wide grant (Module 6 gap-closure)', async () => {
+    const { manager, otherDeveloper, project } = await seedFixtures('default-set');
+
+    const res = await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/default-approvers`)
+      .set(...authHeader(manager.accessToken))
+      .send({ allowedUserIds: [otherDeveloper.userDoc.id] });
+    expect(res.status).toBe(200);
+    expect(res.body.data.defaultApprovers).toEqual({
+      allowedRoles: [],
+      allowedUserIds: [otherDeveloper.userDoc.id],
+      allowedTeamIds: [],
+      allowedProjectRoleIds: [],
+    });
+  });
+
+  it('rejects setting default-approvers from a Developer (Admin/Manager-only)', async () => {
+    const { developer, project } = await seedFixtures('default-reject');
+    const res = await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/default-approvers`)
+      .set(...authHeader(developer.accessToken))
+      .send({ allowedRoles: [Role.DEVELOPER] });
+    expect(res.status).toBe(403);
+  });
+
+  it("an otherwise-ineligible user CAN approve once they're covered by the project's default-approver grant", async () => {
+    const { manager, developer, otherDeveloper, project } = await seedFixtures('default-eligible');
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/default-approvers`)
+      .set(...authHeader(manager.accessToken))
+      .send({ allowedUserIds: [otherDeveloper.userDoc.id] });
+
+    const task = await createTask(app, manager.accessToken, {
+      title: 'Default approver task',
+      project: project.id,
+      priority: TaskPriority.P2,
+      assignee: developer.userDoc.id,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: 'Building' });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+      .set(...authHeader(developer.accessToken))
+      .send({ status: 'Shipped' });
+
+    // otherDeveloper is named in neither this transition's approverRoles (Manager-only, per
+    // APPROVAL_WORKFLOW_BY_ROLE) nor approverUserIds - only the project-wide default covers them.
+    const approved = await api(app)
+      .post(`/${API_PREFIX}/tasks/${task.id}/approval/approve`)
+      .set(...authHeader(otherDeveloper.accessToken));
+    expect(approved.status).toBe(201);
+    expect(approved.body.data.status).toBe('Shipped');
+  });
+
+  it('a default-approvers grant never lets someone approve when it is NOT configured (regression)', async () => {
+    const { manager, developer, otherDeveloper, project } = await seedFixtures('default-absent');
+    const task = await createTask(app, manager.accessToken, {
+      title: 'No default configured task',
+      project: project.id,
+      priority: TaskPriority.P2,
+      assignee: developer.userDoc.id,
+    });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+      .set(...authHeader(manager.accessToken))
+      .send({ status: 'Building' });
+    await api(app)
+      .patch(`/${API_PREFIX}/tasks/${task.id}/status`)
+      .set(...authHeader(developer.accessToken))
+      .send({ status: 'Shipped' });
+
+    const stillIneligible = await api(app)
+      .post(`/${API_PREFIX}/tasks/${task.id}/approval/approve`)
+      .set(...authHeader(otherDeveloper.accessToken));
+    expect(stillIneligible.status).toBe(403);
+  });
+
   it('blocks the requester from approving or rejecting their own request', async () => {
     const org = await seedOrganization(app, { name: 'Self Approval Org' });
     const manager = await seedUserAndLogin(app, {

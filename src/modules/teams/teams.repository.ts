@@ -60,6 +60,12 @@ export class TeamsRepository {
     return teams.map((t) => t.id as string);
   }
 
+  /** Module 6 gap-closure: batch-fetches teams by id for the cross-project Roadmap's team-
+   * capacity lookup - no population needed there, just each team's own `capacityPoints`. */
+  findByIds(ids: string[]): Promise<TeamDocument[]> {
+    return this.model.find({ _id: { $in: [...new Set(ids)] } }).exec();
+  }
+
   countInOrg(ids: string[], organizationId: string): Promise<number> {
     return this.model.countDocuments({
       _id: { $in: [...new Set(ids)] },

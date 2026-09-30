@@ -804,7 +804,13 @@ export class TasksService {
       },
       ctx,
     );
-    if (!isEligible) {
+    // Module 6 gap-closure: the project's default-approver pool (if configured) can ALSO decide
+    // any approval-gated transition, on top of whoever the transition's own snapshot names - see
+    // DefaultApprovers' doc comment on project.schema.ts for why this is additive, never a
+    // replacement for the transition's own (already-mandatory) approver configuration.
+    const isEligibleViaDefault =
+      !isEligible && project.defaultApprovers && granteeMatchesGrant(project.defaultApprovers, ctx);
+    if (!isEligible && !isEligibleViaDefault) {
       throw new ForbiddenException('You are not an eligible approver for this transition');
     }
     return { task, project, pendingApproval };

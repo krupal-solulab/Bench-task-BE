@@ -31,6 +31,7 @@ export class TeamsService {
       description: dto.description ?? '',
       leadId: dto.leadId ? new Types.ObjectId(dto.leadId) : null,
       memberIds: (dto.memberIds ?? []).map((id) => new Types.ObjectId(id)),
+      capacityPoints: dto.capacityPoints ?? null,
     });
     // Re-fetched so the response has lead/member names populated, same as list/get - the plain
     // create() result above only has raw ObjectId refs.
@@ -61,6 +62,7 @@ export class TeamsService {
       description: string;
       leadId: Types.ObjectId | null;
       memberIds: Types.ObjectId[];
+      capacityPoints: number | null;
     }> = {};
 
     if (dto.name !== undefined) {
@@ -79,6 +81,7 @@ export class TeamsService {
       if (dto.memberIds.length) await this.assertUsersExistInOrg(dto.memberIds, organizationId);
       update.memberIds = dto.memberIds.map((memberId) => new Types.ObjectId(memberId));
     }
+    if (dto.capacityPoints !== undefined) update.capacityPoints = dto.capacityPoints;
 
     return (await this.teamsRepository.updateById(id, update))!;
   }
@@ -98,6 +101,13 @@ export class TeamsService {
    * to the acting user's organization. */
   countTeamsInOrg(ids: string[], organizationId: string): Promise<number> {
     return this.teamsRepository.countInOrg(ids, organizationId);
+  }
+
+  /** Module 6 gap-closure: used by RoadmapService to look up each project's assigned team(s)'
+   * capacityPoints - no org check here since the caller already resolved these team ids from
+   * projects the acting user can access. */
+  findByIds(ids: string[]): Promise<TeamDocument[]> {
+    return this.teamsRepository.findByIds(ids);
   }
 
   private async assertUsersExistInOrg(userIds: string[], organizationId: string): Promise<void> {

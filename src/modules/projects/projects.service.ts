@@ -34,7 +34,7 @@ import { Sprint, SprintDocument } from '../sprints/schemas/sprint.schema';
 import { ListTasksDto } from '../tasks/dto/list-tasks.dto';
 import { buildTaskListFilter, buildTaskListSort } from '../tasks/utils/task-filter.util';
 import { ProjectsRepository } from './projects.repository';
-import { ProjectDocument } from './schemas/project.schema';
+import { ComponentLead, DefaultApprovers, ProjectDocument } from './schemas/project.schema';
 import { ProjectActivityAction } from './schemas/project-activity.schema';
 import { isLegalProjectTransition, legalProjectTransitions } from './project-status.rules';
 import {
@@ -60,6 +60,8 @@ import {
   assertValidCustomFieldOverride,
 } from './schemas/custom-field.schema';
 import { PutComponentsDto } from './dto/put-components.dto';
+import { PatchComponentLeadDto } from './dto/patch-component-lead.dto';
+import { PatchDefaultApproversDto } from './dto/patch-default-approvers.dto';
 import { PutCustomFieldsDto } from './dto/put-custom-fields.dto';
 import { PutCustomFieldOverrideDto } from './dto/put-custom-field-override.dto';
 import { PutIssueTypesDto } from './dto/put-issue-types.dto';
@@ -116,6 +118,7 @@ export interface ProjectResponse {
   taskCount: number;
   key: string | null;
   components: string[];
+  componentLeads: Array<{ name: string; leadUserId: string | null }>;
   customFields: CustomFieldDefinition[];
   automationRules: AutomationRule[];
   issueTypes: IssueTypeDefinition[];
@@ -123,6 +126,12 @@ export interface ProjectResponse {
   notificationScheme: NotificationSchemeRule[];
   boardType: BoardType;
   roleAssignments: RoleAssignmentResponse[];
+  defaultApprovers: {
+    allowedRoles: Role[];
+    allowedUserIds: string[];
+    allowedTeamIds: string[];
+    allowedProjectRoleIds: string[];
+  } | null;
   securitySchemeId: string | null;
   fieldPermissionSchemeId: string | null;
   createdAt: Date;
@@ -908,7 +917,66 @@ export class ProjectsService {
       );
     }
 
-    const updated = await this.projectsRepository.updateById(id, { components: names });
+    // A name dropped from the list also loses its lead - a rename (remove old + add new in the
+    // same call) is indistinguishable from a removal at this API shape, so its lead is honestly
+    // dropped too rather than silently reattached to a same-named-by-coincidence new component.
+    const componentLeads = project.componentLeads.filter((c) => names.includes(c.name));
+
+    const updated = await this.projectsRepository.updateById(id, {
+      components: names,
+      componentLeads,
+    });
+    return this.toResponse(updated!);
+  }
+
+  /** Module 6 gap-closure: assigns (or clears, with `leadUserId: null`) one component's lead -
+   * kept separate from updateComponents() above so setting a lead never risks the "still in use"
+   * removal guard that full-replacing the component list carries. */
+  async updateComponentLead(
+    id: string,
+    dto: PatchComponentLeadDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    if (!project.components.includes(dto.name)) {
+      throw new BadRequestException(`"${dto.name}" is not a component on this project`);
+    }
+    if (dto.leadUserId && !this.isProjectMember(project, dto.leadUserId)) {
+      throw new BadRequestException('leadUserId must be a member of this project');
+    }
+
+    const componentLeads: ComponentLead[] = project.componentLeads.filter(
+      (c) => c.name !== dto.name,
+    );
+    if (dto.leadUserId) {
+      componentLeads.push({ name: dto.name, leadUserId: new Types.ObjectId(dto.leadUserId) });
+    }
+
+    const updated = await this.projectsRepository.updateById(id, { componentLeads });
+    return this.toResponse(updated!);
+  }
+
+  /** Module 6 gap-closure: replaces the project's whole default-approver grant (see
+   * DefaultApprovers' own doc comment on project.schema.ts) - full-replace semantics, same as
+   * updateComponents()/updateWorkflow(), not a per-field merge. */
+  async updateDefaultApprovers(
+    id: string,
+    dto: PatchDefaultApproversDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+
+    const defaultApprovers: DefaultApprovers = {
+      allowedRoles: dto.allowedRoles ?? [],
+      allowedUserIds: (dto.allowedUserIds ?? []).map((i) => new Types.ObjectId(i)),
+      allowedTeamIds: (dto.allowedTeamIds ?? []).map((i) => new Types.ObjectId(i)),
+      allowedProjectRoleIds: (dto.allowedProjectRoleIds ?? []).map((i) => new Types.ObjectId(i)),
+    };
+
+    const updated = await this.projectsRepository.updateById(id, { defaultApprovers });
     return this.toResponse(updated!);
   }
 
@@ -1667,6 +1735,10 @@ export class ProjectsService {
       taskCount,
       key: project.key,
       components: project.components,
+      componentLeads: project.componentLeads.map((c) => ({
+        name: c.name,
+        leadUserId: c.leadUserId ? extractId(c.leadUserId) : null,
+      })),
       customFields: project.customFields,
       automationRules: project.automationRules,
       issueTypes: resolveIssueTypes(project),
@@ -1678,6 +1750,14 @@ export class ProjectsService {
         userIds: a.userIds.map(extractId),
         teamIds: a.teamIds.map(extractId),
       })),
+      defaultApprovers: project.defaultApprovers
+        ? {
+            allowedRoles: project.defaultApprovers.allowedRoles,
+            allowedUserIds: project.defaultApprovers.allowedUserIds.map(extractId),
+            allowedTeamIds: project.defaultApprovers.allowedTeamIds.map(extractId),
+            allowedProjectRoleIds: project.defaultApprovers.allowedProjectRoleIds.map(extractId),
+          }
+        : null,
       securitySchemeId: project.securitySchemeId ? extractId(project.securitySchemeId) : null,
       fieldPermissionSchemeId: project.fieldPermissionSchemeId
         ? extractId(project.fieldPermissionSchemeId)

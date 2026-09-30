@@ -8492,6 +8492,72 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/backups": {
+      "get": {
+        "operationId": "ImportExportController_listBackups",
+        "summary": "A project's backup history - metadata only (Module 5 gap-closure)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{projectId}/backups/{backupId}": {
+      "get": {
+        "operationId": "ImportExportController_getBackup",
+        "summary": "One previously-listed backup, full content (Module 5 gap-closure)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "backupId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "import-export"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/search": {
       "get": {
         "operationId": "SearchController_search",

@@ -86,6 +86,92 @@ describe('custom fields, labels & components (integration)', () => {
     expect(rejected.status).toBe(400);
   });
 
+  it('assigns and clears a component lead (Module 6 gap-closure)', async () => {
+    const { org, manager } = await seedManager();
+    const developer = await seedUserAndLogin(app, {
+      email: 'fields-lead-dev@example.com',
+      password: 'Password123',
+      role: Role.DEVELOPER,
+      organizationId: org.id,
+    });
+    const project = await createProject(app, manager.accessToken, { name: 'Lead Project' });
+    await addMembers(app, manager.accessToken, project.id, [developer.userDoc.id]);
+    await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/components`)
+      .set(...authHeader(manager.accessToken))
+      .send({ names: ['Frontend', 'API'] });
+
+    const assigned = await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/components/lead`)
+      .set(...authHeader(manager.accessToken))
+      .send({ name: 'Frontend', leadUserId: developer.userDoc.id });
+    expect(assigned.status).toBe(200);
+    expect(assigned.body.data.componentLeads).toEqual([
+      { name: 'Frontend', leadUserId: developer.userDoc.id },
+    ]);
+
+    const cleared = await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/components/lead`)
+      .set(...authHeader(manager.accessToken))
+      .send({ name: 'Frontend', leadUserId: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.componentLeads).toEqual([]);
+  });
+
+  it('rejects assigning a lead who is not a project member, or a name not on the project', async () => {
+    const { org, manager } = await seedManager();
+    const outsider = await seedUserAndLogin(app, {
+      email: 'fields-outsider@example.com',
+      password: 'Password123',
+      role: Role.DEVELOPER,
+      organizationId: org.id,
+    });
+    const project = await createProject(app, manager.accessToken, { name: 'Lead Guard Project' });
+    await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/components`)
+      .set(...authHeader(manager.accessToken))
+      .send({ names: ['Frontend'] });
+
+    const notMember = await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/components/lead`)
+      .set(...authHeader(manager.accessToken))
+      .send({ name: 'Frontend', leadUserId: outsider.userDoc.id });
+    expect(notMember.status).toBe(400);
+
+    const unknownComponent = await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/components/lead`)
+      .set(...authHeader(manager.accessToken))
+      .send({ name: 'Backend', leadUserId: null });
+    expect(unknownComponent.status).toBe(400);
+  });
+
+  it("drops a component's lead when that component is removed via updateComponents", async () => {
+    const { org, manager } = await seedManager();
+    const developer = await seedUserAndLogin(app, {
+      email: 'fields-lead-dev2@example.com',
+      password: 'Password123',
+      role: Role.DEVELOPER,
+      organizationId: org.id,
+    });
+    const project = await createProject(app, manager.accessToken, { name: 'Lead Prune Project' });
+    await addMembers(app, manager.accessToken, project.id, [developer.userDoc.id]);
+    await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/components`)
+      .set(...authHeader(manager.accessToken))
+      .send({ names: ['Frontend'] });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/components/lead`)
+      .set(...authHeader(manager.accessToken))
+      .send({ name: 'Frontend', leadUserId: developer.userDoc.id });
+
+    const replaced = await api(app)
+      .put(`/${API_PREFIX}/projects/${project.id}/components`)
+      .set(...authHeader(manager.accessToken))
+      .send({ names: [] });
+    expect(replaced.status).toBe(200);
+    expect(replaced.body.data.componentLeads).toEqual([]);
+  });
+
   it('rejects removing a component still in use, then allows it once the task is untagged', async () => {
     const { manager } = await seedManager();
     const project = await createProject(app, manager.accessToken, {

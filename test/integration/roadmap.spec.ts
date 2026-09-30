@@ -308,4 +308,46 @@ describe('cross-project roadmap (integration)', () => {
     ]);
     expect(res.body.data.epics.map((e: { title: string }) => e.title)).toEqual(['Team epic']);
   });
+
+  it("reports a project's teamCapacityPoints as the sum of its assigned teams' capacity (Module 6 gap-closure)", async () => {
+    const { org, manager } = await seedManager();
+    const admin = await seedUserAndLogin(app, {
+      email: 'roadmap-admin2@example.com',
+      password: 'Password123',
+      role: Role.ADMIN,
+      organizationId: org.id,
+    });
+
+    const project = await createProject(app, manager.accessToken, { name: 'Capacity Project' });
+    const noTeamProject = await createProject(app, manager.accessToken, {
+      name: 'No Team Project',
+    });
+
+    const teamA = await api(app)
+      .post(`/${API_PREFIX}/teams`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Team A', capacityPoints: 15 });
+    const teamB = await api(app)
+      .post(`/${API_PREFIX}/teams`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Team B', capacityPoints: 10 });
+    const role = await api(app)
+      .post(`/${API_PREFIX}/project-roles`)
+      .set(...authHeader(admin.accessToken))
+      .send({ name: 'Contributors' });
+    await api(app)
+      .patch(`/${API_PREFIX}/projects/${project.id}/role-assignments/${role.body.data.id}`)
+      .set(...authHeader(manager.accessToken))
+      .send({ teamIds: [teamA.body.data.id, teamB.body.data.id] });
+
+    const res = await api(app)
+      .get(`/${API_PREFIX}/projects/reports/roadmap`)
+      .set(...authHeader(manager.accessToken));
+    expect(res.status).toBe(200);
+    const capacityByProject = Object.fromEntries(
+      res.body.data.capacity.map((c: { projectId: string }) => [c.projectId, c]),
+    );
+    expect(capacityByProject[project.id]).toMatchObject({ teamCapacityPoints: 25 });
+    expect(capacityByProject[noTeamProject.id]).toMatchObject({ teamCapacityPoints: null });
+  });
 });

@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { ProjectStatus } from '../../../common/enums/project-status.enum';
 import { BoardType } from '../../../common/enums/board-type.enum';
+import { Role } from '../../../common/enums/role.enum';
 import { MemberPermissions, MemberPermissionsSchema } from './member-permissions.schema';
 import {
   CustomFieldDefinition,
@@ -34,6 +35,53 @@ export class ProjectMember {
 }
 
 export const ProjectMemberSchema = SchemaFactory.createForClass(ProjectMember);
+
+/** Module 6 gap-closure: which project member (if any) leads a given component - `name` is the
+ * same identity `Project.components` already uses (not a separate id), so a lead is always looked
+ * up by the component's own name. Kept as a SEPARATE side-list rather than upgrading `components`
+ * itself from `string[]` to `{name, leadUserId}[]`, specifically because `components` is read as a
+ * bare string array in a dozen+ places across this codebase (task validation, JQL filtering/
+ * autocomplete, automation-rule conditions, CSV/JSON import-export) - changing its shape would
+ * touch every one of those call sites for a feature that only needs one new fact per component. */
+@Schema({ _id: false })
+export class ComponentLead {
+  @Prop({ required: true, trim: true, maxlength: 50 })
+  name!: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  leadUserId!: Types.ObjectId | null;
+}
+
+export const ComponentLeadSchema = SchemaFactory.createForClass(ComponentLead);
+
+/**
+ * Module 6 gap-closure: a project-wide fallback approver pool for Module 12's Approval Workflows.
+ * Deliberately ADDITIVE, not a replacement for a transition's own approver fields: someone matching
+ * this grant can approve ANY approval-gated transition in the project, on top of (never instead of)
+ * whoever that specific transition's own `approverRoles`/`approverUserIds`/`approverTeamIds`/
+ * `approverProjectRoleIds` name - see TasksService.getPendingApprovalOrThrow(). This is why
+ * `assertValidWorkflowShape`'s existing "a requiresApproval transition needs at least one approver
+ * configured" check is untouched here: this field never lets a transition skip that requirement,
+ * it only ever adds more people who could approve one that already has real approvers. Same 4-
+ * grantee-kind shape as SecurityLevel/WorkflowTransition's approver* fields (see GrantLike), all-
+ * empty (every existing project) meaning "no project-wide default", identical to today.
+ */
+@Schema({ _id: false })
+export class DefaultApprovers {
+  @Prop({ type: [String], enum: Role, default: [] })
+  allowedRoles!: Role[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
+  allowedUserIds!: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'Team', default: [] })
+  allowedTeamIds!: Types.ObjectId[];
+
+  @Prop({ type: [Types.ObjectId], ref: 'ProjectRoleDefinition', default: [] })
+  allowedProjectRoleIds!: Types.ObjectId[];
+}
+
+export const DefaultApproversSchema = SchemaFactory.createForClass(DefaultApprovers);
 
 @Schema({
   timestamps: true,
@@ -111,6 +159,14 @@ export class Project {
   @Prop({ type: [String], default: [] })
   components!: string[];
 
+  // Module 6 gap-closure: which member (if any) leads each component, keyed by component name -
+  // see ComponentLead's own doc comment for why this is a separate side-list rather than a change
+  // to `components` itself. Empty for every existing project until an Admin/owning Manager assigns
+  // one via ProjectsService.updateComponentLead(); pruned automatically for any name removed via
+  // updateComponents().
+  @Prop({ type: [ComponentLeadSchema], default: [] })
+  componentLeads!: ComponentLead[];
+
   // Admin-defined field definitions (Text/Number/Date/Dropdown/Checkbox) applied to every issue
   // in this project. Empty for every existing project until configured via
   // ProjectsService.updateCustomFields(). See custom-field.schema.ts.
@@ -163,6 +219,14 @@ export class Project {
   // ProjectsService.setRoleAssignment(). See role-assignment.schema.ts.
   @Prop({ type: [ProjectRoleAssignmentSchema], default: [] })
   roleAssignments!: ProjectRoleAssignment[];
+
+  // Module 6 gap-closure: see DefaultApprovers' own doc comment - an additive fallback approver
+  // pool for Module 12's Approval Workflows. Null (every existing project) means "no project-wide
+  // default configured" until an Admin/owning Manager sets one via
+  // ProjectsService.updateDefaultApprovers() - same "null means not configured" convention as
+  // `workflow`/`permissionSchemeId`/`securitySchemeId` above.
+  @Prop({ type: DefaultApproversSchema, default: null })
+  defaultApprovers!: DefaultApprovers | null;
 
   // Null means "no issue-level view restriction" - every existing project, and any new one that
   // never opens the security-scheme settings, is completely unaffected until an Admin/owning
