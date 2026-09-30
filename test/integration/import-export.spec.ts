@@ -187,4 +187,115 @@ describe('CSV import/export & project backup (Module 5 - Bulk Operations & Impor
       expect(res.status).toBe(403);
     });
   });
+
+  describe('GET projects/:id/backups (Module 5 gap-closure: backup history)', () => {
+    it('starts empty, then lists a manual backup taken via GET .../backup', async () => {
+      const { manager, project } = await seedFixtures();
+
+      const empty = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups`)
+        .set(...authHeader(manager.accessToken));
+      expect(empty.status).toBe(200);
+      expect(empty.body.data).toEqual([]);
+
+      const backupRes = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backup`)
+        .set(...authHeader(manager.accessToken));
+      expect(backupRes.status).toBe(200);
+
+      const list = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups`)
+        .set(...authHeader(manager.accessToken));
+      expect(list.status).toBe(200);
+      expect(list.body.data).toHaveLength(1);
+      expect(list.body.data[0].id).toEqual(expect.any(String));
+      expect(list.body.data[0].createdAt).toEqual(expect.any(String));
+      // Metadata only - the list response must not carry the (potentially large) backup payload.
+      expect(list.body.data[0].backup).toBeUndefined();
+    });
+
+    it('records a separate entry per manual backup taken', async () => {
+      const { manager, project } = await seedFixtures();
+
+      await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backup`)
+        .set(...authHeader(manager.accessToken));
+      await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backup`)
+        .set(...authHeader(manager.accessToken));
+
+      const list = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups`)
+        .set(...authHeader(manager.accessToken));
+      expect(list.body.data).toHaveLength(2);
+    });
+
+    it('rejects listing backups for a Developer (Admin/Manager-only)', async () => {
+      const { developer, project } = await seedFixtures();
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups`)
+        .set(...authHeader(developer.accessToken));
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('GET projects/:id/backups/:backupId (Module 5 gap-closure: fetch one backup)', () => {
+    it('fetches a previously-listed backup, matching the original snapshot content', async () => {
+      const { manager, project } = await seedFixtures();
+      await createTask(app, manager.accessToken, {
+        title: 'Snapshotted task',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+
+      const taken = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backup`)
+        .set(...authHeader(manager.accessToken));
+      expect(taken.body.data.backup.tasks).toHaveLength(1);
+
+      const list = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups`)
+        .set(...authHeader(manager.accessToken));
+      const backupId = list.body.data[0].id;
+
+      const fetched = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups/${backupId}`)
+        .set(...authHeader(manager.accessToken));
+      expect(fetched.status).toBe(200);
+      expect(fetched.body.data.filename).toMatch(/\.json$/);
+      expect(fetched.body.data.backup.project.name).toBe('Import Export Project');
+      expect(fetched.body.data.backup.tasks).toHaveLength(1);
+      expect(fetched.body.data.backup.tasks[0].title).toBe('Snapshotted task');
+    });
+
+    it('returns 404 for a backup id that does not exist', async () => {
+      const { manager, project } = await seedFixtures();
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups/507f1f77bcf86cd799439099`)
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 404 for a backup id that belongs to a different project', async () => {
+      const { manager, project } = await seedFixtures();
+      const otherProject = await createProject(app, manager.accessToken, {
+        name: 'Other Project',
+      });
+
+      await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backup`)
+        .set(...authHeader(manager.accessToken));
+      const list = await api(app)
+        .get(`/${API_PREFIX}/projects/${project.id}/backups`)
+        .set(...authHeader(manager.accessToken));
+      const backupId = list.body.data[0].id;
+
+      const res = await api(app)
+        .get(`/${API_PREFIX}/projects/${otherProject.id}/backups/${backupId}`)
+        .set(...authHeader(manager.accessToken));
+      expect(res.status).toBe(404);
+    });
+  });
 });
