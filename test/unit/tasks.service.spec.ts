@@ -124,6 +124,9 @@ describe('TasksService', () => {
     Pick<
       ProjectsService,
       | 'getActiveProjectOrThrow'
+      | 'getWritableProjectOrThrow'
+      | 'assertProjectIdWritable'
+      | 'assertTaskProjectWritable'
       | 'assertUserCanManageOrGranted'
       | 'assertUserCanAssignOrGranted'
       | 'assertUserCanManage'
@@ -197,6 +200,9 @@ describe('TasksService', () => {
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
+      getWritableProjectOrThrow: jest.fn(),
+      assertProjectIdWritable: jest.fn().mockResolvedValue(undefined),
+      assertTaskProjectWritable: jest.fn().mockResolvedValue(undefined),
       assertUserCanManageOrGranted: jest.fn(),
       assertUserCanAssignOrGranted: jest.fn(),
       assertUserCanManage: jest.fn(),
@@ -216,6 +222,10 @@ describe('TasksService', () => {
         projectRoleIds: [],
       }),
     };
+    // Module 8 archiving guards - writes resolve the project the same way reads do.
+    projectsService.getWritableProjectOrThrow.mockImplementation((id: string) =>
+      projectsService.getActiveProjectOrThrow(id),
+    );
     securitySchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     fieldPermissionSchemesService = { findByIdOrNull: jest.fn().mockResolvedValue(null) };
     sprintsService = { getActiveOrThrow: jest.fn() };

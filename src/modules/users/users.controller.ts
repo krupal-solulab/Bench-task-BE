@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpException,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -14,6 +25,11 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { ListUsersDto } from './dto/list-users.dto';
+import {
+  BulkUpdateRoleDto,
+  BulkUpdateStatusDto,
+  BulkUserResult,
+} from './dto/bulk-update-users.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -98,6 +114,74 @@ export class UsersController {
     return updated;
   }
 
+  /**
+   * Module 8 gap-closure: bulk role change. Each id goes through the exact same
+   * `usersService.updateRole` path as the single-user route (self-change block, cross-org 404),
+   * one id failing never aborts the rest, and every successful change is audit-logged
+   * individually - identical entries to what N single-user calls would have produced. POST (not
+   * PATCH `users/bulk/...`) so it can never collide with `PATCH users/:id`.
+   */
+  @Post('bulk/role')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Change the role of many users at once (Admin only, Module 8)' })
+  async bulkUpdateRole(
+    @Body() dto: BulkUpdateRoleDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<BulkUserResult> {
+    const organizationId = requireOrgId(currentUser);
+    return this.runBulk(dto.userIds, async (id) => {
+      const previousRole = (await this.usersService.findByIdInOrgOrThrow(id, organizationId)).role;
+      const updated = await this.usersService.updateRole(
+        id,
+        dto.role,
+        currentUser.id,
+        organizationId,
+      );
+      if (previousRole === dto.role) return;
+      await this.auditLogService.record({
+        organizationId,
+        actorId: currentUser.id,
+        action: AuditAction.USER_ROLE_CHANGED,
+        targetType: 'User',
+        targetId: updated.id,
+        targetLabel: updated.name,
+        metadata: { from: previousRole, to: dto.role, bulk: true },
+      });
+    });
+  }
+
+  /** Module 8 gap-closure: bulk activate/deactivate - same per-id semantics as bulkUpdateRole. */
+  @Post('bulk/status')
+  @Roles(Role.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Activate/deactivate many users at once (Admin only, Module 8)' })
+  async bulkUpdateStatus(
+    @Body() dto: BulkUpdateStatusDto,
+    @CurrentUser() currentUser: AuthenticatedUser,
+  ): Promise<BulkUserResult> {
+    const organizationId = requireOrgId(currentUser);
+    return this.runBulk(dto.userIds, async (id) => {
+      const wasActive = (await this.usersService.findByIdInOrgOrThrow(id, organizationId)).isActive;
+      const updated = await this.usersService.updateStatus(
+        id,
+        dto.isActive,
+        currentUser.id,
+        organizationId,
+      );
+      if (wasActive === dto.isActive) return;
+      await this.auditLogService.record({
+        organizationId,
+        actorId: currentUser.id,
+        action: AuditAction.USER_STATUS_CHANGED,
+        targetType: 'User',
+        targetId: updated.id,
+        targetLabel: updated.name,
+        metadata: { isActive: dto.isActive, bulk: true },
+      });
+    });
+  }
+
   @Patch(':id/role')
   @Roles(Role.ADMIN)
   @ApiOperation({ summary: 'Change a user role (Admin only, cannot self-demote)' })
@@ -161,5 +245,24 @@ export class UsersController {
     @CurrentUser() actingUser: AuthenticatedUser,
   ) {
     return this.usersService.getWorkload(id, requireOrgId(actingUser));
+  }
+
+  /** Runs `apply` per de-duplicated id, collecting per-id outcomes instead of failing fast. Only
+   * expected HTTP errors (404/409/...) become a per-id failure; anything else still propagates. */
+  private async runBulk(
+    userIds: string[],
+    apply: (id: string) => Promise<void>,
+  ): Promise<BulkUserResult> {
+    const result: BulkUserResult = { succeeded: [], failed: [] };
+    for (const id of [...new Set(userIds)]) {
+      try {
+        await apply(id);
+        result.succeeded.push(id);
+      } catch (err) {
+        if (!(err instanceof HttpException)) throw err;
+        result.failed.push({ userId: id, message: err.message });
+      }
+    }
+    return result;
   }
 }

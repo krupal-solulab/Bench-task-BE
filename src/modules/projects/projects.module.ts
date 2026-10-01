@@ -12,6 +12,10 @@ import { Comment, CommentSchema } from '../comments/schemas/comment.schema';
 import { Sprint, SprintSchema } from '../sprints/schemas/sprint.schema';
 import { Project, ProjectSchema } from './schemas/project.schema';
 import { ProjectActivity, ProjectActivitySchema } from './schemas/project-activity.schema';
+import {
+  ProjectCategory,
+  ProjectCategorySchema,
+} from '../project-categories/schemas/project-category.schema';
 import { ProjectsRepository } from './projects.repository';
 import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
@@ -31,6 +35,7 @@ import { ProjectsController } from './projects.controller';
       { name: TaskActivity.name, schema: TaskActivitySchema },
       { name: Comment.name, schema: CommentSchema },
       { name: Sprint.name, schema: SprintSchema },
+      { name: ProjectCategory.name, schema: ProjectCategorySchema },
     ]),
   ],
   controllers: [ProjectsController],

@@ -36,6 +36,7 @@ import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
 import { TaskActivityDocument } from 'src/modules/tasks/schemas/task-activity.schema';
 import { CommentDocument } from 'src/modules/comments/schemas/comment.schema';
 import { SprintDocument } from 'src/modules/sprints/schemas/sprint.schema';
+import { ProjectCategoryDocument } from 'src/modules/project-categories/schemas/project-category.schema';
 
 // Wrapped in `new Types.ObjectId(...)` by ProjectsService.create(), so this must be valid hex.
 const ORG_A = '507f1f77bcf86cd799439099';
@@ -189,6 +190,7 @@ describe('ProjectsService', () => {
       taskActivityModel as unknown as Model<TaskActivityDocument>,
       commentModel as unknown as Model<CommentDocument>,
       sprintModel as unknown as Model<SprintDocument>,
+      { exists: jest.fn().mockResolvedValue(null) } as unknown as Model<ProjectCategoryDocument>,
     );
   });
 

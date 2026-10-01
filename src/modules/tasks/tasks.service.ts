@@ -173,7 +173,7 @@ export class TasksService {
   ) {}
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(dto.project);
+    const project = await this.projectsService.getWritableProjectOrThrow(dto.project);
     await this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canCreateTask');
 
     if (project.status === ProjectStatus.COMPLETED) {
@@ -458,25 +458,25 @@ export class TasksService {
    * these idempotent, so calling watch twice, or unwatch when not watching, is a safe no-op.
    */
   async addWatcher(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     await this.assertCanView(task, actingUser);
     return (await this.tasksRepository.addWatcher(id, actingUser.id))!;
   }
 
   async removeWatcher(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     await this.assertCanView(task, actingUser);
     return (await this.tasksRepository.removeWatcher(id, actingUser.id))!;
   }
 
   async addVoter(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     await this.assertCanView(task, actingUser);
     return (await this.tasksRepository.addVoter(id, actingUser.id))!;
   }
 
   async removeVoter(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     await this.assertCanView(task, actingUser);
     return (await this.tasksRepository.removeVoter(id, actingUser.id))!;
   }
@@ -493,7 +493,7 @@ export class TasksService {
     dto: { label: string; url: string },
     actingUser: AuthenticatedUser,
   ): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     await this.assertCanView(task, actingUser);
     return (await this.tasksRepository.addExternalReference(id, {
       label: dto.label,
@@ -508,7 +508,7 @@ export class TasksService {
     referenceId: string,
     actingUser: AuthenticatedUser,
   ): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     await this.assertCanView(task, actingUser);
     const reference = task.externalReferences.find((r) => extractId(r) === referenceId);
     if (!reference) {
@@ -528,7 +528,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
     automation?: AutomationContext,
   ): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     if (!automation?.bypassPermission) {
       await this.projectsService.assertUserCanManageOrGranted(
@@ -611,7 +611,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
     automation?: AutomationContext,
   ): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
 
     const isManagerOrAdmin =
@@ -826,7 +826,7 @@ export class TasksService {
     id: string,
     actingUser: AuthenticatedUser,
   ): Promise<{ task: TaskDocument; project: ProjectDocument; pendingApproval: PendingApproval }> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     const pendingApproval = task.pendingApproval;
     if (!pendingApproval) {
@@ -978,7 +978,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
     automation?: AutomationContext,
   ): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     if (!automation?.bypassPermission) {
       await this.projectsService.assertUserCanAssignOrGranted(project, actingUser);
@@ -1027,7 +1027,7 @@ export class TasksService {
     dto: UpdateTaskSprintDto,
     actingUser: AuthenticatedUser,
   ): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     const projectId = extractId(task.project);
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
     await this.projectsService.assertUserCanManageOrGranted(
@@ -1137,7 +1137,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-move-sprint', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = task.sprint ? extractId(task.sprint) : null;
       await this.updateSprint(taskId, { sprintId: dto.sprintId }, actingUser);
       return { field: 'sprintId', previousValue };
@@ -1149,7 +1149,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-assign', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = task.assignee ? extractId(task.assignee) : null;
       await this.updateAssignee(taskId, dto.assignee, actingUser);
       return { field: 'assignee', previousValue };
@@ -1161,7 +1161,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-relabel', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = task.labels;
       const labels = [...new Set([...task.labels, ...dto.labels])];
       await this.update(taskId, { labels }, actingUser);
@@ -1179,7 +1179,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-status', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = task.status;
       await this.updateStatus(taskId, dto.status, actingUser);
       return { field: 'status', previousValue };
@@ -1247,7 +1247,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-priority', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = task.priority;
       await this.update(taskId, { priority: dto.priority }, actingUser);
       return { field: 'priority', previousValue };
@@ -1272,7 +1272,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-fix-version', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = task.fixVersions.map((v) => extractId(v));
       const fixVersions = [...new Set([...previousValue, ...dto.fixVersions])];
       await this.update(taskId, { fixVersions }, actingUser);
@@ -1288,7 +1288,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-custom-field', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = task.customFieldValues;
       const customFieldValues = { ...task.customFieldValues, [dto.fieldId]: dto.value };
       await this.update(taskId, { customFieldValues }, actingUser);
@@ -1323,14 +1323,14 @@ export class TasksService {
     targetProjectId: string,
     actingUser: AuthenticatedUser,
   ): Promise<TaskDocument> {
-    const task = await this.getActiveOrThrow(taskId);
+    const task = await this.getWritableOrThrow(taskId);
     const sourceProjectId = extractId(task.project);
     if (sourceProjectId === targetProjectId) {
       throw new BadRequestException('Task is already in this project');
     }
 
     const sourceProject = await this.projectsService.getActiveProjectOrThrow(sourceProjectId);
-    const targetProject = await this.projectsService.getActiveProjectOrThrow(targetProjectId);
+    const targetProject = await this.projectsService.getWritableProjectOrThrow(targetProjectId);
     this.projectsService.assertUserCanManage(sourceProject, actingUser);
     this.projectsService.assertUserCanManage(targetProject, actingUser);
 
@@ -1411,7 +1411,7 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<BulkOperationResult> {
     return this.runBulk(dto.taskIds, 'bulk-move-project', actingUser, async (taskId) => {
-      const task = await this.getActiveOrThrow(taskId);
+      const task = await this.getWritableOrThrow(taskId);
       const previousValue = extractId(task.project);
       await this.moveToProject(taskId, dto.targetProjectId, actingUser);
       return { field: 'project', previousValue };
@@ -1464,6 +1464,7 @@ export class TasksService {
         );
         return;
       case 'deletedAt':
+        await this.assertDeletedTaskWritable(change.taskId);
         await this.tasksRepository.restoreById(change.taskId);
         return;
       case 'project':
@@ -1519,7 +1520,7 @@ export class TasksService {
       throw new BadRequestException('At least one of beforeTaskId/afterTaskId is required');
     }
 
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     await this.projectsService.assertUserCanManageOrGranted(
       project,
@@ -1557,7 +1558,7 @@ export class TasksService {
   }
 
   async softDelete(id: string, actingUser: AuthenticatedUser): Promise<void> {
-    const task = await this.getActiveOrThrow(id);
+    const task = await this.getWritableOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
     await this.projectsService.assertUserCanManageOrGranted(project, actingUser, 'canDeleteTask');
 
@@ -1915,6 +1916,20 @@ export class TasksService {
     return task;
   }
 
+  /** Module 8 gap-closure: `getActiveOrThrow` for WRITE paths - refuses a task whose project is
+   * archived (read-only). */
+  private async getWritableOrThrow(id: string): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    await this.projectsService.assertProjectIdWritable(extractId(task.project));
+    return task;
+  }
+
+  /** Undo of a bulk delete restores an already-deleted task, which getWritableOrThrow can't load. */
+  private async assertDeletedTaskWritable(id: string): Promise<void> {
+    const task = await this.tasksRepository.findIncludingDeleted(id);
+    if (task) await this.projectsService.assertProjectIdWritable(extractId(task.project));
+  }
+
   private async invalidateDashboardCache(): Promise<void> {
     await this.cacheService.delByPattern(dashboardCachePattern());
   }
@@ -2006,7 +2021,7 @@ export class TasksService {
     let outcome = AutomationExecutionOutcome.SUCCESS;
     let errorMessage: string | null = null;
     try {
-      const project = await this.projectsService.getActiveProjectOrThrow(data.projectId);
+      const project = await this.projectsService.getWritableProjectOrThrow(data.projectId);
       const task = await this.getActiveOrThrow(data.taskId);
       await this.applyAutomationAction(
         project,
@@ -2077,6 +2092,7 @@ export class TasksService {
       const unassignedHours = (now.getTime() - task.assigneeClearedAt.getTime()) / (60 * 60 * 1000);
 
       const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+      if (project.archivedAt) continue; // archived = read-only (Module 8)
       if (!project.automationRules?.length) continue;
 
       let fired: AutomationFiredAction[];
@@ -2139,6 +2155,7 @@ export class TasksService {
 
     for (const task of candidates) {
       const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+      if (project.archivedAt) continue; // archived = read-only (Module 8)
       const policy = resolveSlaPolicy(project);
       const breached = isBreached(
         { priority: task.priority, createdAt: task.createdAt, completedAt: task.completedAt },

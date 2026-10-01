@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsISO8601,
   IsOptional,
@@ -68,4 +69,26 @@ export class CreateProjectDto {
   @IsOptional()
   @IsEnum(BoardType)
   boardType?: BoardType;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: "Module 8: one of this org's project categories; null clears it on update",
+  })
+  @IsOptional()
+  @IsObjectId()
+  categoryId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Module 8: offer this project as a template for new ones' })
+  @IsOptional()
+  @IsBoolean()
+  isTemplate?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      "Module 8: copy this project's configuration (workflow, issue types, custom fields, " +
+      'components, automations, notification/SLA rules, schemes) - never its tasks or members',
+  })
+  @IsOptional()
+  @IsObjectId()
+  templateProjectId?: string;
 }

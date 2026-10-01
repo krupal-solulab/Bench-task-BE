@@ -35,6 +35,14 @@ export enum AuditAction {
   FIELD_PERMISSION_SCHEME_CREATED = 'FieldPermissionSchemeCreated',
   FIELD_PERMISSION_SCHEME_UPDATED = 'FieldPermissionSchemeUpdated',
   FIELD_PERMISSION_SCHEME_DELETED = 'FieldPermissionSchemeDeleted',
+  PROJECT_CATEGORY_CREATED = 'ProjectCategoryCreated',
+  PROJECT_CATEGORY_UPDATED = 'ProjectCategoryUpdated',
+  PROJECT_CATEGORY_DELETED = 'ProjectCategoryDeleted',
+  LIBRARY_FIELD_CREATED = 'LibraryFieldCreated',
+  LIBRARY_FIELD_UPDATED = 'LibraryFieldUpdated',
+  LIBRARY_FIELD_DELETED = 'LibraryFieldDeleted',
+  IMPERSONATION_STARTED = 'ImpersonationStarted',
+  IMPERSONATION_ENDED = 'ImpersonationEnded',
 }
 
 export const AUDIT_ACTIONS = Object.values(AuditAction);

@@ -99,6 +99,9 @@ export class IssueLinksService {
 
     const sourceTask = await this.getViewableTaskOrThrow(taskId, actingUser);
     const targetTask = await this.getViewableTaskOrThrow(dto.targetTaskId, actingUser);
+    // A link shows on both tasks, so neither side may be in an archived (read-only) project.
+    await this.projectsService.assertProjectIdWritable(extractId(sourceTask.project));
+    await this.projectsService.assertProjectIdWritable(extractId(targetTask.project));
 
     const organizationId = requireOrgId(actingUser);
     const organization = await this.organizationsService.getOrganizationDocument(organizationId);
@@ -190,7 +193,8 @@ export class IssueLinksService {
   }
 
   async deleteLink(taskId: string, linkId: string, actingUser: AuthenticatedUser): Promise<void> {
-    await this.getViewableTaskOrThrow(taskId, actingUser);
+    const task = await this.getViewableTaskOrThrow(taskId, actingUser);
+    await this.projectsService.assertProjectIdWritable(extractId(task.project));
 
     const link = await this.issueLinkModel.findById(linkId).exec();
     if (!link || (extractId(link.sourceTask) !== taskId && extractId(link.targetTask) !== taskId)) {

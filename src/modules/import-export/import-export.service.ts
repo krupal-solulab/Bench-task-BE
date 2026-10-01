@@ -147,7 +147,7 @@ export class ImportExportService {
     dto: ImportTasksDto,
     actingUser: AuthenticatedUser,
   ): Promise<ImportTasksResult> {
-    await this.projectsService.getActiveProjectOrThrow(projectId);
+    await this.projectsService.getWritableProjectOrThrow(projectId);
 
     const rows = parseCsv(dto.csv);
     if (rows.length === 0) {

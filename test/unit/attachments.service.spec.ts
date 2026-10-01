@@ -63,7 +63,14 @@ describe('AttachmentsService', () => {
   >;
   let tasksRepository: jest.Mocked<Pick<TasksRepository, 'findRawById'>>;
   let projectsService: jest.Mocked<
-    Pick<ProjectsService, 'getActiveProjectOrThrow' | 'isProjectMember'>
+    Pick<
+      ProjectsService,
+      | 'getActiveProjectOrThrow'
+      | 'getWritableProjectOrThrow'
+      | 'assertProjectIdWritable'
+      | 'assertTaskProjectWritable'
+      | 'isProjectMember'
+    >
   >;
   let storageService: jest.Mocked<IStorageService>;
   let service: AttachmentsService;
@@ -76,7 +83,17 @@ describe('AttachmentsService', () => {
       softDelete: jest.fn(),
     };
     tasksRepository = { findRawById: jest.fn() };
-    projectsService = { getActiveProjectOrThrow: jest.fn(), isProjectMember: jest.fn() };
+    projectsService = {
+      getActiveProjectOrThrow: jest.fn(),
+      getWritableProjectOrThrow: jest.fn(),
+      assertProjectIdWritable: jest.fn().mockResolvedValue(undefined),
+      assertTaskProjectWritable: jest.fn().mockResolvedValue(undefined),
+      isProjectMember: jest.fn(),
+    };
+    // Module 8 archiving guards - writes resolve the project the same way reads do.
+    projectsService.getWritableProjectOrThrow.mockImplementation((id: string) =>
+      projectsService.getActiveProjectOrThrow(id),
+    );
     storageService = {
       upload: jest.fn().mockResolvedValue(undefined),
       getDownloadUrl: jest.fn().mockResolvedValue('https://fake-storage.test/signed-url'),

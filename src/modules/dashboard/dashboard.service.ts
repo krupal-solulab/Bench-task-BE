@@ -693,7 +693,11 @@ export class DashboardService {
   }
 
   private async resolveScope(actingUser: AuthenticatedUser, projectId?: string) {
-    const accessibleIds = await this.projectsService.getAccessibleProjectIds(actingUser);
+    // Org-wide widgets leave archived projects out (Module 8); a single project's own dashboard
+    // (projectId given) still works for an archived project.
+    const accessibleIds = await this.projectsService.getAccessibleProjectIds(actingUser, {
+      includeArchived: !!projectId,
+    });
 
     if (projectId && !accessibleIds.includes(projectId)) {
       throw new ForbiddenException('You do not have access to this project');

@@ -77,7 +77,7 @@ export class ReleasesService {
     dto: CreateReleaseDto,
     actingUser: AuthenticatedUser,
   ): Promise<ReleaseDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     this.projectsService.assertUserCanManage(project, actingUser);
 
     if (await this.releasesRepository.nameExistsInProject(projectId, dto.name)) {
@@ -121,7 +121,7 @@ export class ReleasesService {
     dto: UpdateReleaseDto,
     actingUser: AuthenticatedUser,
   ): Promise<ReleaseDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     this.projectsService.assertUserCanManage(project, actingUser);
     const release = await this.getActiveOrThrow(releaseId, projectId);
 
@@ -156,7 +156,7 @@ export class ReleasesService {
     to: ReleaseStatus,
     actingUser: AuthenticatedUser,
   ): Promise<ReleaseDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     this.projectsService.assertUserCanManage(project, actingUser);
     const release = await this.getActiveOrThrow(releaseId, projectId);
 
@@ -191,7 +191,7 @@ export class ReleasesService {
   }
 
   async remove(projectId: string, releaseId: string, actingUser: AuthenticatedUser): Promise<void> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     this.projectsService.assertUserCanManage(project, actingUser);
     const release = await this.getActiveOrThrow(releaseId, projectId);
 

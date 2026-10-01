@@ -102,6 +102,28 @@ export class ProjectsController {
     await this.projectsService.softDelete(id, user);
   }
 
+  @Post(':id/archive')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Archive a project - hidden by default and read-only (Module 8)' })
+  async archive(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.archive(id, user);
+  }
+
+  @Post(':id/unarchive')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restore an archived project (Module 8)' })
+  async unarchive(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.unarchive(id, user);
+  }
+
   @Get(':id/members')
   @ApiOperation({ summary: 'List project members (paginated)' })
   async listMembers(

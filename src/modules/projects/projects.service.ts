@@ -31,10 +31,19 @@ import {
 } from '../tasks/schemas/task-activity.schema';
 import { Comment, CommentDocument } from '../comments/schemas/comment.schema';
 import { Sprint, SprintDocument } from '../sprints/schemas/sprint.schema';
+import {
+  ProjectCategory,
+  ProjectCategoryDocument,
+} from '../project-categories/schemas/project-category.schema';
 import { ListTasksDto } from '../tasks/dto/list-tasks.dto';
 import { buildTaskListFilter, buildTaskListSort } from '../tasks/utils/task-filter.util';
 import { ProjectsRepository } from './projects.repository';
-import { ComponentLead, DefaultApprovers, ProjectDocument } from './schemas/project.schema';
+import {
+  ComponentLead,
+  DefaultApprovers,
+  Project,
+  ProjectDocument,
+} from './schemas/project.schema';
 import { ProjectActivityAction } from './schemas/project-activity.schema';
 import { isLegalProjectTransition, legalProjectTransitions } from './project-status.rules';
 import {
@@ -134,6 +143,9 @@ export interface ProjectResponse {
   } | null;
   securitySchemeId: string | null;
   fieldPermissionSchemeId: string | null;
+  categoryId: string | null;
+  isTemplate: boolean;
+  archivedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -159,6 +171,8 @@ export class ProjectsService {
     @InjectModel(TaskActivity.name) private readonly taskActivityModel: Model<TaskActivityDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     @InjectModel(Sprint.name) private readonly sprintModel: Model<SprintDocument>,
+    @InjectModel(ProjectCategory.name)
+    private readonly projectCategoryModel: Model<ProjectCategoryDocument>,
   ) {}
 
   async create(dto: CreateProjectDto, actingUser: AuthenticatedUser): Promise<ProjectResponse> {
@@ -192,7 +206,14 @@ export class ProjectsService {
       if (taken) throw new BadRequestException(`Project key "${dto.key}" is already in use`);
     }
 
+    if (dto.categoryId) await this.assertCategoryInOrg(dto.categoryId, organizationId);
+    const templateConfig = dto.templateProjectId
+      ? await this.loadTemplateConfig(dto.templateProjectId, organizationId, actingUser)
+      : {};
+
     const doc = await this.projectsRepository.create({
+      // Spread first so every explicit field below (name, owner, boardType, category...) wins.
+      ...templateConfig,
       name: dto.name,
       description: dto.description ?? '',
       owner: new Types.ObjectId(ownerId) as unknown as Types.ObjectId,
@@ -200,6 +221,10 @@ export class ProjectsService {
       dueDate,
       key: dto.key ?? null,
       ...(dto.boardType ? { boardType: dto.boardType } : {}),
+      ...(dto.categoryId !== undefined || !templateConfig.categoryId
+        ? { categoryId: dto.categoryId ? new Types.ObjectId(dto.categoryId) : null }
+        : {}),
+      isTemplate: dto.isTemplate ?? false,
       organizationId: new Types.ObjectId(organizationId),
       members: (dto.memberIds ?? []).map((id) => ({
         user: new Types.ObjectId(id),
@@ -233,6 +258,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const nextStartDate = dto.startDate ? new Date(dto.startDate) : project.startDate;
     const nextDueDate = dto.dueDate ? new Date(dto.dueDate) : project.dueDate;
@@ -252,6 +278,10 @@ export class ProjectsService {
       if (taken) throw new BadRequestException(`Project key "${dto.key}" is already in use`);
     }
 
+    if (dto.categoryId) {
+      await this.assertCategoryInOrg(dto.categoryId, extractId(project.organizationId));
+    }
+
     const updated = await this.projectsRepository.updateById(id, {
       ...(dto.name ? { name: dto.name } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
@@ -259,6 +289,11 @@ export class ProjectsService {
       ...(dto.dueDate ? { dueDate: nextDueDate } : {}),
       ...(dto.key && !project.key ? { key: dto.key } : {}),
       ...(dto.boardType ? { boardType: dto.boardType } : {}),
+      // `null` clears the category; `undefined` (field omitted) leaves it untouched.
+      ...(dto.categoryId !== undefined
+        ? { categoryId: dto.categoryId ? new Types.ObjectId(dto.categoryId) : null }
+        : {}),
+      ...(dto.isTemplate !== undefined ? { isTemplate: dto.isTemplate } : {}),
     });
     await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.UPDATED);
     await this.invalidateDashboardCache();
@@ -272,6 +307,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     if (project.status === status) {
       return this.toResponse(project);
@@ -354,6 +390,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
     await this.assertActiveDevelopers(userIds, requireOrgId(actingUser));
     const addedIds = await this.projectsRepository.addMembers(id, userIds);
     for (const addedId of addedIds) {
@@ -377,6 +414,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const openTasks = await this.taskModel
       .find({
@@ -433,6 +471,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const ownerId = extractId(project.owner);
     if (userId === ownerId) {
@@ -752,10 +791,21 @@ export class ProjectsService {
   }
 
   /** Public wrapper for cross-module use (Tasks/Comments scoping tasks by accessible projects). */
-  async getAccessibleProjectIds(actingUser: AuthenticatedUser): Promise<string[]> {
+  /** `includeArchived` defaults to true: this scopes task lists/search/boards, and an archived
+   * project's tasks must stay viewable. Only org-wide aggregates (the dashboard) opt out. */
+  async getAccessibleProjectIds(
+    actingUser: AuthenticatedUser,
+    { includeArchived = true }: { includeArchived?: boolean } = {},
+  ): Promise<string[]> {
     const scope = this.buildScopeFilter(actingUser);
     const projects = await this.projectsRepository.paginate(
-      { page: 1, limit: 10_000, sortBy: 'createdAt', sortOrder: 'desc' } as ListProjectsDto,
+      {
+        page: 1,
+        limit: 10_000,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        archived: includeArchived ? 'all' : 'false',
+      } as ListProjectsDto,
       scope,
     );
     return projects.data.map((p) => p.id);
@@ -763,6 +813,47 @@ export class ProjectsService {
 
   async getActiveProjectOrThrow(id: string): Promise<ProjectDocument> {
     return this.getActiveOrThrow(id);
+  }
+
+  /** Module 8 gap-closure: `getActiveProjectOrThrow` for WRITE paths - also refuses an archived
+   * (read-only) project. */
+  async getWritableProjectOrThrow(id: string): Promise<ProjectDocument> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertProjectWritable(project);
+    return project;
+  }
+
+  /** Same guard for write paths that only hold a task id (comments, attachments, links). */
+  async assertTaskProjectWritable(taskId: string): Promise<void> {
+    const task = await this.taskModel.findById(taskId).select('project').exec();
+    if (task) await this.assertProjectIdWritable(extractId(task.project));
+  }
+
+  /** Same guard by id, for write paths that only hold a task's project id. */
+  async assertProjectIdWritable(projectId: string): Promise<void> {
+    const project = await this.projectsRepository.findRawById(projectId);
+    if (project) this.assertProjectWritable(project);
+  }
+
+  /** Module 8 gap-closure: archive (hide + make read-only). Nothing is cascaded, unlike delete. */
+  async archive(id: string, actingUser: AuthenticatedUser): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+    if (project.archivedAt) return this.toResponse(project);
+    const updated = await this.projectsRepository.updateById(id, { archivedAt: new Date() });
+    await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.ARCHIVED);
+    await this.invalidateDashboardCache();
+    return this.toResponse(updated!);
+  }
+
+  async unarchive(id: string, actingUser: AuthenticatedUser): Promise<ProjectResponse> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+    if (!project.archivedAt) return this.toResponse(project);
+    const updated = await this.projectsRepository.updateById(id, { archivedAt: null });
+    await this.projectsRepository.logActivity(id, actingUser.id, ProjectActivityAction.RESTORED);
+    await this.invalidateDashboardCache();
+    return this.toResponse(updated!);
   }
 
   /**
@@ -820,6 +911,7 @@ export class ProjectsService {
   ): Promise<Workflow> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const workflow: Workflow = {
       statuses: dto.statuses,
@@ -856,6 +948,7 @@ export class ProjectsService {
   ): Promise<Workflow> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     if (issueType) {
       const hasOverride = project.workflowsByType.some((w) => w.issueType === issueType);
@@ -900,6 +993,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const names = dto.names.map((n) => n.trim());
     if (new Set(names).size !== names.length) {
@@ -939,6 +1033,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     if (!project.components.includes(dto.name)) {
       throw new BadRequestException(`"${dto.name}" is not a component on this project`);
@@ -968,6 +1063,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const defaultApprovers: DefaultApprovers = {
       allowedRoles: dto.allowedRoles ?? [],
@@ -993,6 +1089,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const types = dto.issueTypes;
     const names = types.map((t) => t.name.trim());
@@ -1039,6 +1136,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const existingById = new Map(project.customFields.map((f) => [f.id, f]));
     const definitions: CustomFieldDefinition[] = dto.fields.map((f) => {
@@ -1137,6 +1235,7 @@ export class ProjectsService {
     this.assertIssueTypeGiven(issueType);
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const override: CustomFieldOverrideByType = {
       issueType,
@@ -1163,6 +1262,7 @@ export class ProjectsService {
     this.assertIssueTypeGiven(issueType);
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const customFieldOverridesByType = project.customFieldOverridesByType.filter(
       (o) => o.issueType !== issueType,
@@ -1184,6 +1284,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const existingById = new Map(project.automationRules.map((r) => [r.id, r]));
     const rules: AutomationRule[] = dto.rules.map((r) => {
@@ -1226,6 +1327,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const rules: NotificationSchemeRule[] = dto.rules.map((r) => ({
       event: r.event,
@@ -1254,6 +1356,7 @@ export class ProjectsService {
   ): Promise<SlaPolicyEntry[]> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const entries: SlaPolicyEntry[] = dto.entries.map((e) => ({
       priority: e.priority,
@@ -1279,6 +1382,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     if (dto.permissionSchemeId) {
       const scheme = await this.permissionSchemesService.findByIdOrNull(dto.permissionSchemeId);
@@ -1399,6 +1503,19 @@ export class ProjectsService {
   }
 
   /**
+   * Module 8 gap-closure: an archived project is read-only - every write path into a project (or
+   * its tasks/sprints/releases/...) calls this right after loading the project. Reads never do,
+   * so an archived project stays fully viewable. Restore first to edit again.
+   */
+  assertProjectWritable(project: Pick<ProjectDocument, 'archivedAt'>): void {
+    if (project.archivedAt) {
+      throw new ConflictException(
+        'This project is archived and read-only - restore it to make changes',
+      );
+    }
+  }
+
+  /**
    * Same as assertUserCanManage, PLUS a third success path: a project member who was explicitly
    * granted this specific capability on this specific project (see setMemberPermissions). The
    * same-org-Admin/owning-Manager checks run first and are completely unchanged - this can only
@@ -1506,6 +1623,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     const role = await this.projectRolesService.findByIdOrNull(projectRoleId);
     if (!role || extractId(role.organizationId) !== requireOrgId(actingUser)) {
@@ -1556,6 +1674,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     if (dto.securitySchemeId) {
       const scheme = await this.securitySchemesService.findByIdOrNull(dto.securitySchemeId);
@@ -1577,6 +1696,7 @@ export class ProjectsService {
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
+    this.assertProjectWritable(project);
 
     if (dto.fieldPermissionSchemeId) {
       const scheme = await this.fieldPermissionSchemesService.findByIdOrNull(
@@ -1762,9 +1882,63 @@ export class ProjectsService {
       fieldPermissionSchemeId: project.fieldPermissionSchemeId
         ? extractId(project.fieldPermissionSchemeId)
         : null,
+      categoryId: project.categoryId ? extractId(project.categoryId) : null,
+      isTemplate: project.isTemplate ?? false,
+      archivedAt: project.archivedAt ?? null,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
     };
+  }
+
+  /**
+   * Module 8 gap-closure: the configuration a new project inherits from a template. Copied as-is
+   * rather than re-run through each settings setter: the source is an already-validated project
+   * in the same org, and the target is brand new with no tasks, so none of those setters'
+   * task-dependent guards (orphaned statuses, in-use fields) can apply. People-specific config
+   * (role assignments, component leads, default approvers) is deliberately NOT copied - a new
+   * project's team is its own decision. The caller must be able to view the template.
+   */
+  private async loadTemplateConfig(
+    templateProjectId: string,
+    organizationId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<Partial<Project>> {
+    const source = await this.projectsRepository.findByIdActive(templateProjectId);
+    if (!source || extractId(source.organizationId) !== organizationId) {
+      throw new BadRequestException(
+        'templateProjectId does not reference a project in this organization',
+      );
+    }
+    this.assertCanView(source, actingUser);
+    const raw = source.toObject({ depopulate: true }) as Project;
+    return {
+      boardType: raw.boardType,
+      workflow: raw.workflow,
+      workflowsByType: raw.workflowsByType,
+      components: raw.components,
+      customFields: raw.customFields,
+      customFieldOverridesByType: raw.customFieldOverridesByType,
+      automationRules: raw.automationRules,
+      issueTypes: raw.issueTypes,
+      permissionSchemeId: raw.permissionSchemeId,
+      notificationScheme: raw.notificationScheme,
+      slaPolicy: raw.slaPolicy,
+      securitySchemeId: raw.securitySchemeId,
+      fieldPermissionSchemeId: raw.fieldPermissionSchemeId,
+      categoryId: raw.categoryId,
+    };
+  }
+
+  private async assertCategoryInOrg(categoryId: string, organizationId: string): Promise<void> {
+    const exists = await this.projectCategoryModel.exists({
+      _id: categoryId,
+      organizationId: new Types.ObjectId(organizationId),
+    });
+    if (!exists) {
+      throw new BadRequestException(
+        'categoryId does not reference a category in this organization',
+      );
+    }
   }
 
   private assertValidDateRange(startDate: Date, dueDate: Date | null | undefined): void {

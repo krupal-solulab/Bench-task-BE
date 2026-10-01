@@ -180,6 +180,11 @@ export class TasksRepository {
     await this.model.updateOne({ _id: id }, { deletedAt: null }).exec();
   }
 
+  /** Includes soft-deleted tasks - the undo-a-bulk-delete path needs the deleted task's project. */
+  findIncludingDeleted(id: string): Promise<TaskDocument | null> {
+    return this.model.findById(id).select('project').exec();
+  }
+
   /** Whether a task has any non-deleted children (sub-tasks, or Standard-level issues linked to an
    * Epic) - Module 5's move-project blocks moving a task with children, since a child's parent must
    * stay in the same project as the child (assertValidHierarchy). */

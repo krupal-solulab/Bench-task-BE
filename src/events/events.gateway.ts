@@ -73,12 +73,19 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection {
 
     const organizationId = user.organizationId ? user.organizationId.toString() : null;
     await this.organizationsService.assertActive(organizationId);
+    if (
+      payload.impersonatedBy &&
+      !(await this.usersService.isActiveAdminOfOrg(payload.impersonatedBy, organizationId))
+    ) {
+      throw new Error('invalid impersonation session');
+    }
 
     const authenticatedUser: AuthenticatedUser = {
       id: user.id,
       email: user.email,
       role: user.role,
       organizationId,
+      ...(payload.impersonatedBy ? { impersonatedBy: payload.impersonatedBy } : {}),
     };
     (client as AuthenticatedSocket).data.user = authenticatedUser;
   }

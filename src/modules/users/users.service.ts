@@ -64,6 +64,22 @@ export class UsersService {
    * NotFoundException (not Forbidden) on a cross-org id, so a cross-org guess is
    * indistinguishable from "no such user at all" rather than confirming the id exists elsewhere.
    */
+  /**
+   * Module 8 gap-closure: true only if this user may (still) be impersonating someone in
+   * `organizationId` - an active Admin of that same org. Re-checked on every impersonated request,
+   * so demoting/deactivating the Admin ends their "view as" session immediately.
+   */
+  async isActiveAdminOfOrg(id: string, organizationId: string | null): Promise<boolean> {
+    const user = await this.usersRepository.findById(id);
+    return (
+      !!user &&
+      user.isActive &&
+      user.role === Role.ADMIN &&
+      !!organizationId &&
+      extractId(user.organizationId) === organizationId
+    );
+  }
+
   async findByIdInOrgOrThrow(id: string, organizationId: string): Promise<UserDocument> {
     const user = await this.findByIdOrThrow(id);
     if (extractId(user.organizationId) !== organizationId) {
