@@ -17,6 +17,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { OrganizationScopeGuard } from './common/guards/organization-scope.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { ImpersonationReadOnlyGuard } from './common/guards/impersonation-read-only.guard';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { OrganizationsModule } from './modules/organizations/organizations.module';
@@ -43,6 +44,9 @@ import { FieldPermissionSchemesModule } from './field-permission-schemes/field-p
 import { AuditLogModule } from './modules/audit-log/audit-log.module';
 import { SearchModule } from './modules/search/search.module';
 import { IssueTemplatesModule } from './modules/issue-templates/issue-templates.module';
+import { ProjectCategoriesModule } from './modules/project-categories/project-categories.module';
+import { AdminConsoleModule } from './modules/admin-console/admin-console.module';
+import { CustomFieldLibraryModule } from './modules/custom-field-library/custom-field-library.module';
 
 @Module({
   imports: [
@@ -125,6 +129,9 @@ import { IssueTemplatesModule } from './modules/issue-templates/issue-templates.
     AuditLogModule,
     SearchModule,
     IssueTemplatesModule,
+    ProjectCategoriesModule,
+    AdminConsoleModule,
+    CustomFieldLibraryModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
@@ -134,6 +141,8 @@ import { IssueTemplatesModule } from './modules/issue-templates/issue-templates.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: OrganizationScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Must run after JwtAuthGuard (needs req.user) - Module 8 read-only impersonation.
+    { provide: APP_GUARD, useClass: ImpersonationReadOnlyGuard },
   ],
 })
 export class AppModule {}

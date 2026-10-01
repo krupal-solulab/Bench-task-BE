@@ -64,7 +64,7 @@ export class SprintsService {
     dto: CreateSprintDto,
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     await this.projectsService.assertUserCanManageOrGranted(
       project,
       actingUser,
@@ -126,7 +126,7 @@ export class SprintsService {
     dto: UpdateSprintDto,
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     await this.projectsService.assertUserCanManageOrGranted(
       project,
       actingUser,
@@ -162,7 +162,7 @@ export class SprintsService {
     sprintId: string,
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     await this.projectsService.assertUserCanManageOrGranted(
       project,
       actingUser,
@@ -207,7 +207,7 @@ export class SprintsService {
     dto: CompleteSprintDto,
     actingUser: AuthenticatedUser,
   ): Promise<SprintDocument> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     await this.projectsService.assertUserCanManageOrGranted(
       project,
       actingUser,
@@ -286,7 +286,7 @@ export class SprintsService {
   }
 
   async remove(projectId: string, sprintId: string, actingUser: AuthenticatedUser): Promise<void> {
-    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    const project = await this.projectsService.getWritableProjectOrThrow(projectId);
     await this.projectsService.assertUserCanManageOrGranted(
       project,
       actingUser,

@@ -1,15 +1,25 @@
 import { randomBytes, randomUUID, createHash } from 'crypto';
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { AppConfig } from '../../config/configuration';
-import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
+import { AuthenticatedUser, JwtPayload } from '../../common/interfaces/jwt-payload.interface';
+import { Role } from '../../common/enums/role.enum';
 import { UsersService } from '../users/users.service';
 import { UserDocument } from '../users/schemas/user.schema';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { CreateOrganizationDto } from '../organizations/dto/create-organization.dto';
 import { AuthRepository } from './auth.repository';
 import { parseDurationMs } from './utils/parse-duration.util';
+
+/** Module 8 gap-closure: how long a read-only "view as" token lives (no refresh, by design). */
+export const IMPERSONATION_TTL_SECONDS = 15 * 60;
 
 export interface AuthTokens {
   accessToken: string;
@@ -91,6 +101,49 @@ export class AuthService {
     }
     await this.usersService.setPassword(user.id, newPassword);
     await this.authRepository.revokeAllForUser(user.id);
+  }
+
+  /**
+   * Module 8 gap-closure: a read-only "view as" session. An org Admin may view as any ACTIVE,
+   * NON-Admin user of their own org (never themselves, another Admin, or anyone cross-org). The
+   * token is access-only (no refresh token, so it simply expires) and short-lived; every request
+   * made with it is re-validated in JwtStrategy and refused by ImpersonationReadOnlyGuard unless
+   * it's a read.
+   */
+  async startImpersonation(
+    actingUser: AuthenticatedUser,
+    targetUserId: string,
+  ): Promise<{ accessToken: string; expiresInSeconds: number; user: UserDocument }> {
+    if (actingUser.impersonatedBy) {
+      throw new ForbiddenException('Exit the current "view as" session first');
+    }
+    const organizationId = actingUser.organizationId;
+    if (!organizationId) {
+      throw new ForbiddenException('Only an organization Admin can view as a user');
+    }
+    if (targetUserId === actingUser.id) {
+      throw new BadRequestException('You cannot view as yourself');
+    }
+    const target = await this.usersService.findByIdInOrgOrThrow(targetUserId, organizationId);
+    if (target.role === Role.ADMIN || target.role === Role.PLATFORM_ADMIN) {
+      throw new ForbiddenException('Admins cannot be viewed as');
+    }
+    if (!target.isActive) {
+      throw new BadRequestException('Cannot view as a deactivated user');
+    }
+
+    const payload: JwtPayload = {
+      sub: target.id,
+      email: target.email,
+      role: target.role,
+      organizationId,
+      impersonatedBy: actingUser.id,
+    };
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.configService.get('jwt.accessSecret', { infer: true }),
+      expiresIn: IMPERSONATION_TTL_SECONDS,
+    });
+    return { accessToken, expiresInSeconds: IMPERSONATION_TTL_SECONDS, user: target };
   }
 
   private async issueTokens(

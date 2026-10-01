@@ -38,6 +38,7 @@ export class CommentsService {
     actingUser: AuthenticatedUser,
   ): Promise<CommentDocument> {
     const { task, projectId } = await this.assertTaskMember(taskId, actingUser);
+    await this.projectsService.assertProjectIdWritable(projectId);
     const mentionedUserIds = await this.resolveMentions(body, requireOrgId(actingUser));
 
     const comment = await this.commentsRepository.create({
@@ -123,6 +124,7 @@ export class CommentsService {
   async update(id: string, body: string, actingUser: AuthenticatedUser): Promise<CommentDocument> {
     const comment = await this.getActiveOrThrow(id);
     await this.assertCanModify(comment, actingUser);
+    await this.projectsService.assertTaskProjectWritable(extractId(comment.task));
     // Mentions are re-derived so the stored list never diverges from the edited body, but editing
     // never re-notifies - only the original creation does (avoids re-pinging someone on every
     // unrelated typo fix to a comment that already mentioned them).
@@ -142,6 +144,7 @@ export class CommentsService {
   async softDelete(id: string, actingUser: AuthenticatedUser): Promise<void> {
     const comment = await this.getActiveOrThrow(id);
     await this.assertCanModify(comment, actingUser);
+    await this.projectsService.assertTaskProjectWritable(extractId(comment.task));
     await this.commentsRepository.softDelete(id);
   }
 

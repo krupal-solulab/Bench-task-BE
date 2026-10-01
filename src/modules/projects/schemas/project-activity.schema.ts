@@ -10,6 +10,8 @@ export enum ProjectActivityAction {
   MEMBER_REMOVED = 'member_removed',
   UPDATED = 'updated',
   DELETED = 'deleted',
+  ARCHIVED = 'archived',
+  RESTORED = 'restored',
 }
 
 @Schema({

@@ -215,6 +215,66 @@
         ]
       }
     },
+    "/api/v1/users/bulk/role": {
+      "post": {
+        "operationId": "UsersController_bulkUpdateRole",
+        "summary": "Change the role of many users at once (Admin only, Module 8)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkUpdateRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/bulk/status": {
+      "post": {
+        "operationId": "UsersController_bulkUpdateStatus",
+        "summary": "Activate/deactivate many users at once (Admin only, Module 8)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkUpdateStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "users"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/users/{id}/role": {
       "patch": {
         "operationId": "UsersController_updateRole",
@@ -389,7 +449,15 @@
                 "IssueTemplateDeleted",
                 "FieldPermissionSchemeCreated",
                 "FieldPermissionSchemeUpdated",
-                "FieldPermissionSchemeDeleted"
+                "FieldPermissionSchemeDeleted",
+                "ProjectCategoryCreated",
+                "ProjectCategoryUpdated",
+                "ProjectCategoryDeleted",
+                "LibraryFieldCreated",
+                "LibraryFieldUpdated",
+                "LibraryFieldDeleted",
+                "ImpersonationStarted",
+                "ImpersonationEnded"
               ],
               "type": "string"
             }
@@ -871,6 +939,39 @@
             }
           },
           {
+            "name": "category",
+            "required": false,
+            "in": "query",
+            "description": "Module 8: only projects in this category",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "isTemplate",
+            "required": false,
+            "in": "query",
+            "description": "Module 8: only template projects (true) or non-templates",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "description": "Module 8: archived projects are hidden unless \"true\" (only archived) or \"all\"",
+            "schema": {
+              "default": "false",
+              "enum": [
+                "false",
+                "true",
+                "all"
+              ],
+              "type": "string"
+            }
+          },
+          {
             "name": "sortBy",
             "required": false,
             "in": "query",
@@ -1019,6 +1120,64 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/archive": {
+      "post": {
+        "operationId": "ProjectsController_archive",
+        "summary": "Archive a project - hidden by default and read-only (Module 8)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/unarchive": {
+      "post": {
+        "operationId": "ProjectsController_unarchive",
+        "summary": "Restore an archived project (Module 8)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
@@ -3266,6 +3425,55 @@
         },
         "responses": {
           "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/impersonate/{userId}": {
+      "post": {
+        "operationId": "AuthController_impersonate",
+        "summary": "Start a read-only \"view as\" session for a user (Admin only, Module 8)",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/impersonation/end": {
+      "post": {
+        "operationId": "AuthController_endImpersonation",
+        "summary": "End the current \"view as\" session (audit only, Module 8)",
+        "parameters": [],
+        "responses": {
+          "204": {
             "description": ""
           }
         },
@@ -6127,6 +6335,35 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/releases/forecast": {
+      "get": {
+        "operationId": "ReleasesController_forecast",
+        "summary": "Projected completion (ETA) for every unreleased release (Module 9)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{projectId}/releases/compare": {
       "get": {
         "operationId": "ReleasesController_compare",
@@ -8867,6 +9104,301 @@
           }
         ]
       }
+    },
+    "/api/v1/project-categories": {
+      "get": {
+        "operationId": "ProjectCategoriesController_list",
+        "summary": "This org's project categories (Module 8)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-categories"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "ProjectCategoriesController_create",
+        "summary": "Create a project category (Module 8)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectCategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-categories"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/project-categories/{id}": {
+      "patch": {
+        "operationId": "ProjectCategoriesController_update",
+        "summary": "Rename / re-describe a project category",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProjectCategoryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-categories"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ProjectCategoriesController_remove",
+        "summary": "Delete a project category (blocked while any project uses it)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-categories"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin-console/stats": {
+      "get": {
+        "operationId": "AdminConsoleController_stats",
+        "summary": "Org-wide system dashboard counts (Module 8)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "admin-console"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/custom-field-library": {
+      "get": {
+        "operationId": "CustomFieldLibraryController_list",
+        "summary": "This org's custom field library, with per-field project usage",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-field-library"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "CustomFieldLibraryController_create",
+        "summary": "Add a field to the org-wide library (Module 8)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomFieldLibraryEntryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-field-library"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/custom-field-library/{id}": {
+      "patch": {
+        "operationId": "CustomFieldLibraryController_update",
+        "summary": "Rename / re-option a library field - pushed to every project that uses it",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomFieldLibraryEntryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-field-library"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CustomFieldLibraryController_remove",
+        "summary": "Delete a library field (blocked while any project uses it)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-field-library"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/custom-fields/library/{entryId}": {
+      "post": {
+        "operationId": "CustomFieldLibraryController_adopt",
+        "summary": "Add a library field to this project's custom fields (Module 8)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdoptLibraryFieldDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-field-library"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -8930,6 +9462,47 @@
             "example": "jane@example.com"
           }
         }
+      },
+      "BulkUpdateRoleDto": {
+        "type": "object",
+        "properties": {
+          "userIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "Admin",
+              "Manager",
+              "Developer"
+            ]
+          }
+        },
+        "required": [
+          "userIds",
+          "role"
+        ]
+      },
+      "BulkUpdateStatusDto": {
+        "type": "object",
+        "properties": {
+          "userIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "userIds",
+          "isActive"
+        ]
       },
       "UpdateRoleDto": {
         "type": "object",
@@ -9097,6 +9670,19 @@
               "Scrum"
             ],
             "description": "Kanban hides the Backlog/Sprint-board/Calendar tabs client-side. Defaults to Scrum."
+          },
+          "categoryId": {
+            "type": "object",
+            "nullable": true,
+            "description": "Module 8: one of this org's project categories; null clears it on update"
+          },
+          "isTemplate": {
+            "type": "boolean",
+            "description": "Module 8: offer this project as a template for new ones"
+          },
+          "templateProjectId": {
+            "type": "string",
+            "description": "Module 8: copy this project's configuration (workflow, issue types, custom fields, components, automations, notification/SLA rules, schemes) - never its tasks or members"
           }
         },
         "required": [
@@ -9135,6 +9721,15 @@
               "Scrum"
             ],
             "description": "Kanban hides the Backlog/Sprint-board/Calendar tabs client-side. Defaults to Scrum."
+          },
+          "categoryId": {
+            "type": "object",
+            "nullable": true,
+            "description": "Module 8: one of this org's project categories; null clears it on update"
+          },
+          "isTemplate": {
+            "type": "boolean",
+            "description": "Module 8: offer this project as a template for new ones"
           }
         }
       },
@@ -10915,7 +11510,10 @@
                 "velocityTrend",
                 "activeSprintsHealth",
                 "myOpenIssues",
-                "resolutionTimeTrend"
+                "resolutionTimeTrend",
+                "cumulativeFlow",
+                "controlChart",
+                "releaseForecast"
               ]
             }
           },
@@ -10934,7 +11532,10 @@
                 "velocityTrend",
                 "activeSprintsHealth",
                 "myOpenIssues",
-                "resolutionTimeTrend"
+                "resolutionTimeTrend",
+                "cumulativeFlow",
+                "controlChart",
+                "releaseForecast"
               ]
             }
           }
@@ -11146,6 +11747,96 @@
           "customFieldValues": {
             "type": "object",
             "description": "Keyed by the target project's custom field ids - not validated until applied"
+          }
+        }
+      },
+      "CreateProjectCategoryDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Client Work"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "UpdateProjectCategoryDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Client Work"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateCustomFieldLibraryEntryDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Customer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Text",
+              "Number",
+              "Date",
+              "Dropdown",
+              "Checkbox",
+              "MultiSelect",
+              "UserPicker"
+            ]
+          },
+          "options": {
+            "description": "Required, non-empty, only for Dropdown/MultiSelect",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ]
+      },
+      "UpdateCustomFieldLibraryEntryDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Customer"
+          },
+          "description": {
+            "type": "string"
+          },
+          "options": {
+            "description": "Dropdown/MultiSelect entries only",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AdoptLibraryFieldDto": {
+        "type": "object",
+        "properties": {
+          "required": {
+            "type": "boolean",
+            "description": "Whether the field is required in this project (default false)"
           }
         }
       }

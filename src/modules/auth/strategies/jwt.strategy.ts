@@ -34,11 +34,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     await this.organizationsService.assertActive(organizationId).catch(() => {
       throw new UnauthorizedException('Organization is suspended');
     });
+    if (
+      payload.impersonatedBy &&
+      !(await this.usersService.isActiveAdminOfOrg(payload.impersonatedBy, organizationId))
+    ) {
+      throw new UnauthorizedException('This "view as" session is no longer valid');
+    }
     return {
       id: user.id,
       email: user.email,
       role: user.role,
       organizationId: user.organizationId ? user.organizationId.toString() : null,
+      ...(payload.impersonatedBy ? { impersonatedBy: payload.impersonatedBy } : {}),
     };
   }
 }

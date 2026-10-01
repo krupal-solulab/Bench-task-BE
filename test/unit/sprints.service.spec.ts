@@ -63,6 +63,9 @@ describe('SprintsService', () => {
     Pick<
       ProjectsService,
       | 'getActiveProjectOrThrow'
+      | 'getWritableProjectOrThrow'
+      | 'assertProjectIdWritable'
+      | 'assertTaskProjectWritable'
       | 'assertUserCanManage'
       | 'assertUserCanManageOrGranted'
       | 'assertUserCanView'
@@ -96,11 +99,18 @@ describe('SprintsService', () => {
     };
     projectsService = {
       getActiveProjectOrThrow: jest.fn().mockResolvedValue(makeProject()),
+      getWritableProjectOrThrow: jest.fn(),
+      assertProjectIdWritable: jest.fn().mockResolvedValue(undefined),
+      assertTaskProjectWritable: jest.fn().mockResolvedValue(undefined),
       assertUserCanManage: jest.fn(),
       assertUserCanManageOrGranted: jest.fn(),
       assertUserCanView: jest.fn(),
       membersWithRole: jest.fn().mockResolvedValue([]),
     };
+    // Module 8 archiving guards - writes resolve the project the same way reads do.
+    projectsService.getWritableProjectOrThrow.mockImplementation((id: string) =>
+      projectsService.getActiveProjectOrThrow(id),
+    );
     notificationsService = { notifySchemeEvent: jest.fn().mockResolvedValue(undefined) };
     taskModel = {
       updateMany: jest

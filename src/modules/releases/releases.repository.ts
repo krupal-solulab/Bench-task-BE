@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
+import { ReleaseStatus } from '../../common/enums/release-status.enum';
 import { Release, ReleaseDocument } from './schemas/release.schema';
 import { ListReleasesDto } from './dto/list-releases.dto';
 
@@ -67,6 +68,18 @@ export class ReleasesRepository {
     ]);
 
     return { data, total };
+  }
+
+  /** Module 9 gap-closure: the releases a forecast covers - unreleased, not deleted, by date. */
+  findUnreleasedInProject(projectId: string): Promise<ReleaseDocument[]> {
+    return this.model
+      .find({
+        project: new Types.ObjectId(projectId),
+        deletedAt: null,
+        status: ReleaseStatus.UNRELEASED,
+      })
+      .sort({ createdAt: 1 })
+      .exec();
   }
 
   async updateById(id: string, update: Partial<Release>): Promise<ReleaseDocument | null> {

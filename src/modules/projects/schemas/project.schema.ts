@@ -242,6 +242,22 @@ export class Project {
   @Prop({ type: Types.ObjectId, ref: 'FieldPermissionScheme', default: null })
   fieldPermissionSchemeId!: Types.ObjectId | null;
 
+  // Module 8 gap-closure: optional org-wide category (see ProjectCategory). Null for every
+  // existing project.
+  @Prop({ type: Types.ObjectId, ref: 'ProjectCategory', default: null })
+  categoryId!: Types.ObjectId | null;
+
+  // Module 8 gap-closure: archiving - hidden from the default project list and read-only while
+  // set, fully restorable (unlike `deletedAt`, nothing is cascaded). Null for every existing project.
+  @Prop({ type: Date, default: null })
+  archivedAt!: Date | null;
+
+  // Module 8 gap-closure: project templates - a template is an ordinary project whose
+  // configuration (workflow, issue types, fields, automations, schemes, ...) new projects can be
+  // created from. False for every existing project.
+  @Prop({ type: Boolean, default: false })
+  isTemplate!: boolean;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

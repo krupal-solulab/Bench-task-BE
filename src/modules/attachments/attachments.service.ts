@@ -28,6 +28,7 @@ export class AttachmentsService {
     actingUser: AuthenticatedUser,
   ): Promise<AttachmentDocument> {
     await this.assertTaskMember(taskId, actingUser);
+    await this.projectsService.assertTaskProjectWritable(taskId);
     const storageKey = `tasks/${taskId}/${randomUUID()}-${file.originalname}`;
     await this.storageService.upload(storageKey, file.buffer, file.mimetype);
     const attachment = await this.attachmentsRepository.create({
@@ -61,6 +62,7 @@ export class AttachmentsService {
   async remove(id: string, actingUser: AuthenticatedUser): Promise<void> {
     const attachment = await this.getActiveOrThrow(id);
     await this.assertCanModify(attachment, actingUser);
+    await this.projectsService.assertTaskProjectWritable(extractId(attachment.task));
     await this.attachmentsRepository.softDelete(id);
     try {
       await this.storageService.delete(attachment.storageKey);

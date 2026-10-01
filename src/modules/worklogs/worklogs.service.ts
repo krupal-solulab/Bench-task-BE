@@ -107,6 +107,7 @@ export class WorkLogsService {
     actingUser: AuthenticatedUser,
   ): Promise<WorkLogDocument> {
     const task = await this.assertTaskMember(taskId, actingUser);
+    await this.projectsService.assertProjectIdWritable(extractId(task.project));
     const log = await this.worklogsRepository.create({
       task: new Types.ObjectId(taskId),
       project: task.project as Types.ObjectId,
@@ -161,6 +162,7 @@ export class WorkLogsService {
   ): Promise<WorkLogDocument> {
     const log = await this.getActiveOrThrow(id);
     await this.assertCanModify(log, actingUser);
+    await this.projectsService.assertProjectIdWritable(extractId(log.project));
     return (await this.worklogsRepository.updateById(id, {
       ...(dto.hours !== undefined ? { hours: dto.hours } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
@@ -172,6 +174,7 @@ export class WorkLogsService {
   async remove(id: string, actingUser: AuthenticatedUser): Promise<void> {
     const log = await this.getActiveOrThrow(id);
     await this.assertCanModify(log, actingUser);
+    await this.projectsService.assertProjectIdWritable(extractId(log.project));
     await this.worklogsRepository.softDelete(id);
   }
 

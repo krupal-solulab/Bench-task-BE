@@ -44,7 +44,10 @@ export class ProjectsRepository {
    * longer changing day to day, so it's excluded from the ongoing daily sweep (a manual "Download
    * backup" click still works on any project regardless of status). */
   findAllActive(): Promise<ProjectDocument[]> {
-    return this.model.find({ status: { $ne: ProjectStatus.COMPLETED }, deletedAt: null }).exec();
+    // Archived projects are read-only, so scheduled backups skip them too (Module 8).
+    return this.model
+      .find({ status: { $ne: ProjectStatus.COMPLETED }, deletedAt: null, archivedAt: null })
+      .exec();
   }
 
   /** Every active project in this org with a Security Scheme assigned - typically a small subset,
@@ -69,6 +72,12 @@ export class ProjectsRepository {
     if (query.status) filter.status = query.status;
     if (query.owner) filter.owner = new Types.ObjectId(query.owner);
     if (query.member) filter['members.user'] = new Types.ObjectId(query.member);
+    if (query.category) filter.categoryId = new Types.ObjectId(query.category);
+    if (query.isTemplate !== undefined) filter.isTemplate = query.isTemplate === 'true';
+    // Module 8 gap-closure: archived projects are hidden by default (`archivedAt: null` also
+    // matches every pre-existing document, which has no such field at all).
+    if (query.archived === 'true') filter.archivedAt = { $ne: null };
+    else if (query.archived !== 'all') filter.archivedAt = null;
 
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
     const skip = (query.page - 1) * query.limit;

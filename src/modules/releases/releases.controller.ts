@@ -50,6 +50,16 @@ export class ReleasesController {
     return this.releasesService.paginate(projectId, query, user);
   }
 
+  // Module 9 gap-closure - declared before ":releaseId" for the same reason as "compare" below.
+  @Get('forecast')
+  @ApiOperation({ summary: 'Projected completion (ETA) for every unreleased release (Module 9)' })
+  async forecast(
+    @Param('projectId', ParseObjectIdPipe) projectId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.releasesService.forecast(projectId, user);
+  }
+
   // Declared before ":releaseId" - the same shape (one path segment after /releases), so it must
   // be registered first or Nest would try to parse "compare" itself as a releaseId ObjectId.
   @Get('compare')

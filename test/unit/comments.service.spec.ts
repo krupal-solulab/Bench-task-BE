@@ -63,7 +63,15 @@ describe('CommentsService', () => {
   >;
   let usersRepository: jest.Mocked<Pick<UsersRepository, 'findByIds'>>;
   let projectsService: jest.Mocked<
-    Pick<ProjectsService, 'getActiveProjectOrThrow' | 'isProjectMember' | 'membersWithRole'>
+    Pick<
+      ProjectsService,
+      | 'getActiveProjectOrThrow'
+      | 'getWritableProjectOrThrow'
+      | 'assertProjectIdWritable'
+      | 'assertTaskProjectWritable'
+      | 'isProjectMember'
+      | 'membersWithRole'
+    >
   >;
   let eventsGateway: jest.Mocked<Pick<EventsGateway, 'emitCommentCreated'>>;
   let notificationsService: jest.Mocked<
@@ -90,9 +98,16 @@ describe('CommentsService', () => {
     usersRepository = { findByIds: jest.fn().mockResolvedValue([]) };
     projectsService = {
       getActiveProjectOrThrow: jest.fn(),
+      getWritableProjectOrThrow: jest.fn(),
+      assertProjectIdWritable: jest.fn().mockResolvedValue(undefined),
+      assertTaskProjectWritable: jest.fn().mockResolvedValue(undefined),
       isProjectMember: jest.fn(),
       membersWithRole: jest.fn().mockResolvedValue([]),
     };
+    // Module 8 archiving guards - writes resolve the project the same way reads do.
+    projectsService.getWritableProjectOrThrow.mockImplementation((id: string) =>
+      projectsService.getActiveProjectOrThrow(id),
+    );
     eventsGateway = { emitCommentCreated: jest.fn() };
     notificationsService = {
       notifyCommentAdded: jest.fn().mockResolvedValue(undefined),
