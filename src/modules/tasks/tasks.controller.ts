@@ -39,6 +39,7 @@ import { BulkCustomFieldDto } from './dto/bulk-custom-field.dto';
 import { BulkMoveProjectDto } from './dto/bulk-move-project.dto';
 import { PreviewBulkStatusDto } from './dto/preview-bulk-status.dto';
 import { MoveTaskProjectDto } from './dto/move-task-project.dto';
+import { AddExternalReferenceDto } from './dto/add-external-reference.dto';
 
 @ApiTags('tasks')
 @ApiBearerAuth()
@@ -337,6 +338,30 @@ export class TasksController {
   @ApiOperation({ summary: 'Remove your vote from this task (Module 7)' })
   async unvote(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.tasksService.removeVoter(id, user);
+  }
+
+  // Module 7 gap-closure: manually-pasted external references (e.g. a GitHub/GitLab PR/commit URL)
+  // - see ExternalReference's own doc comment in task.schema.ts.
+  @Post(':id/external-references')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Add an external reference link to this task (Module 7)' })
+  async addExternalReference(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Body() dto: AddExternalReferenceDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.addExternalReference(id, dto, user);
+  }
+
+  @Delete(':id/external-references/:referenceId')
+  @Roles(...ORG_ROLES)
+  @ApiOperation({ summary: 'Remove an external reference link from this task (Module 7)' })
+  async removeExternalReference(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('referenceId', ParseObjectIdPipe) referenceId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.removeExternalReference(id, referenceId, user);
   }
 
   @Get(':id/activity')

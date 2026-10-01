@@ -46,6 +46,7 @@ export class TasksRepository {
         // chains below, since watchers/voters are a detail-page-only concern.
         .populate('watcherIds', POPULATE_FIELDS)
         .populate('voterIds', POPULATE_FIELDS)
+        .populate('externalReferences.addedBy', POPULATE_FIELDS)
         .exec()
     );
   }
@@ -143,6 +144,27 @@ export class TasksRepository {
   async removeVoter(id: string, userId: string): Promise<TaskDocument | null> {
     await this.model
       .updateOne({ _id: id }, { $pull: { voterIds: new Types.ObjectId(userId) } })
+      .exec();
+    return this.findByIdActive(id);
+  }
+
+  /** Module 7 gap-closure - `$push` appends, letting Mongoose assign the subdocument its own
+   * `_id` (see ExternalReference's own doc comment for why this one, unlike most embedded arrays
+   * in this codebase, is keyed by a real `_id` rather than a natural-identity field). */
+  async addExternalReference(
+    id: string,
+    entry: { label: string; url: string; addedBy: Types.ObjectId; addedAt: Date },
+  ): Promise<TaskDocument | null> {
+    await this.model.updateOne({ _id: id }, { $push: { externalReferences: entry } }).exec();
+    return this.findByIdActive(id);
+  }
+
+  async removeExternalReference(id: string, referenceId: string): Promise<TaskDocument | null> {
+    await this.model
+      .updateOne(
+        { _id: id },
+        { $pull: { externalReferences: { _id: new Types.ObjectId(referenceId) } } },
+      )
       .exec();
     return this.findByIdActive(id);
   }

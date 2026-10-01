@@ -155,6 +155,53 @@ describe('comments (integration)', () => {
     expect(deleteAttempt.status).toBe(403);
   });
 
+  it('Module 7 gap-closure: commenting auto-watches the commenter, even if they were not previously watching', async () => {
+    const { manager, member, task } = await seedFixtures();
+    // The reporter (manager) auto-watches on creation; `member` starts as a non-watcher.
+    const before = await api(app)
+      .get(`/${API_PREFIX}/tasks/${task.id}`)
+      .set(...authHeader(manager.accessToken));
+    expect(before.body.data.watcherIds.map((u: { id: string }) => u.id)).not.toContain(
+      member.userDoc.id,
+    );
+
+    await api(app)
+      .post(`/${API_PREFIX}/tasks/${task.id}/comments`)
+      .set(...authHeader(member.accessToken))
+      .send({ body: 'Commenting should auto-watch me' });
+
+    const after = await api(app)
+      .get(`/${API_PREFIX}/tasks/${task.id}`)
+      .set(...authHeader(manager.accessToken));
+    expect(after.body.data.watcherIds.map((u: { id: string }) => u.id)).toContain(
+      member.userDoc.id,
+    );
+  });
+
+  it('Module 7 gap-closure: editing a comment records the prior body in editHistory', async () => {
+    const { member, task } = await seedFixtures();
+    const created = await api(app)
+      .post(`/${API_PREFIX}/tasks/${task.id}/comments`)
+      .set(...authHeader(member.accessToken))
+      .send({ body: 'First version' });
+    expect(created.body.data.editHistory).toEqual([]);
+
+    const firstEdit = await api(app)
+      .patch(`/${API_PREFIX}/comments/${created.body.data.id}`)
+      .set(...authHeader(member.accessToken))
+      .send({ body: 'Second version' });
+    expect(firstEdit.body.data.editHistory).toHaveLength(1);
+    expect(firstEdit.body.data.editHistory[0].body).toBe('First version');
+    expect(firstEdit.body.data.body).toBe('Second version');
+
+    const secondEdit = await api(app)
+      .patch(`/${API_PREFIX}/comments/${created.body.data.id}`)
+      .set(...authHeader(member.accessToken))
+      .send({ body: 'Third version' });
+    expect(secondEdit.body.data.editHistory).toHaveLength(2);
+    expect(secondEdit.body.data.editHistory[1].body).toBe('Second version');
+  });
+
   it('Admin can edit and delete any comment', async () => {
     const { admin, member, task } = await seedFixtures();
     const created = await api(app)

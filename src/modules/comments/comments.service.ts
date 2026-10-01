@@ -62,6 +62,10 @@ export class CommentsService {
     // Module 7 - a comment is a meaningful, signal-heavy event worth a permanent history entry
     // (unlike watch/vote/mention, deliberately left out - see task-activity.schema.ts's comment).
     await this.tasksRepository.logActivity(taskId, actingUser.id, TaskActivityAction.COMMENTED);
+    // Module 7 gap-closure: commenting auto-watches, same as the reporter-at-creation and
+    // assignee-at-(re)assignment auto-watch behaviors already in TasksService - idempotent
+    // ($addToSet), so a second comment from someone already watching is a no-op.
+    await this.tasksRepository.addWatcher(taskId, actingUser.id);
 
     if (task.assignee) {
       await this.notificationsService.notifyCommentAdded({
@@ -123,9 +127,15 @@ export class CommentsService {
     // never re-notifies - only the original creation does (avoids re-pinging someone on every
     // unrelated typo fix to a comment that already mentioned them).
     const mentionedUserIds = await this.resolveMentions(body, requireOrgId(actingUser));
+    // Module 7 gap-closure: snapshot the OUTGOING body into editHistory before it's overwritten -
+    // a true no-op edit (identical body re-saved) still records a history entry, matching how a
+    // real "edited" timestamp would; the frontend/caller is responsible for not calling update()
+    // at all when nothing changed, same as every other update() in this codebase.
+    const editHistory = [...comment.editHistory, { body: comment.body, editedAt: new Date() }];
     return (await this.commentsRepository.updateById(id, {
       body,
       mentionedUserIds: mentionedUserIds.map((mentionedId) => new Types.ObjectId(mentionedId)),
+      editHistory,
     }))!;
   }
 

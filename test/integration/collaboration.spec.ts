@@ -214,6 +214,93 @@ describe('collaboration: mentions, watchers, voting & activity history (Module 7
     });
   });
 
+  describe('External References (Module 7 gap-closure)', () => {
+    it('lets a project member add and remove a manually-pasted external reference', async () => {
+      const { manager, project } = await seedFixtures();
+      const task = await createTask(app, manager.accessToken, {
+        title: 'Task with a linked PR',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+
+      const add = await api(app)
+        .post(`/${API_PREFIX}/tasks/${task.id}/external-references`)
+        .set(...authHeader(manager.accessToken))
+        .send({ label: 'PR #42', url: 'https://github.com/acme/repo/pull/42' });
+      expect(add.status).toBe(201);
+      expect(add.body.data.externalReferences).toHaveLength(1);
+      const reference = add.body.data.externalReferences[0];
+      expect(reference.label).toBe('PR #42');
+      expect(reference.url).toBe('https://github.com/acme/repo/pull/42');
+      expect(reference.addedBy.id).toBe(manager.userDoc.id);
+      expect(reference.id).toBeDefined();
+
+      const remove = await api(app)
+        .delete(`/${API_PREFIX}/tasks/${task.id}/external-references/${reference.id}`)
+        .set(...authHeader(manager.accessToken));
+      expect(remove.status).toBe(200);
+      expect(remove.body.data.externalReferences).toEqual([]);
+    });
+
+    it('rejects an invalid URL', async () => {
+      const { manager, project } = await seedFixtures();
+      const task = await createTask(app, manager.accessToken, {
+        title: 'Task for bad url',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+
+      const res = await api(app)
+        .post(`/${API_PREFIX}/tasks/${task.id}/external-references`)
+        .set(...authHeader(manager.accessToken))
+        .send({ label: 'Not a URL', url: 'not-a-url' });
+      expect(res.status).toBe(400);
+
+      const schemeless = await api(app)
+        .post(`/${API_PREFIX}/tasks/${task.id}/external-references`)
+        .set(...authHeader(manager.accessToken))
+        .send({ label: 'No scheme', url: 'github.com/acme/repo/pull/1' });
+      expect(schemeless.status).toBe(400);
+
+      const nonHttp = await api(app)
+        .post(`/${API_PREFIX}/tasks/${task.id}/external-references`)
+        .set(...authHeader(manager.accessToken))
+        .send({ label: 'FTP', url: 'ftp://example.com/file' });
+      expect(nonHttp.status).toBe(400);
+    });
+
+    it('lets a same-org Admin remove a reference someone else added, but blocks a peer project member', async () => {
+      const { org, manager, developer, project } = await seedFixtures();
+      const admin = await seedUserAndLogin(app, {
+        email: 'collab-admin@example.com',
+        password: 'Password123',
+        role: Role.ADMIN,
+        organizationId: org.id,
+      });
+      const task = await createTask(app, manager.accessToken, {
+        title: 'Task for reference removal permissions',
+        project: project.id,
+        priority: TaskPriority.P2,
+      });
+      const add = await api(app)
+        .post(`/${API_PREFIX}/tasks/${task.id}/external-references`)
+        .set(...authHeader(manager.accessToken))
+        .send({ label: 'Manager added this', url: 'https://example.com/manager' });
+      const referenceId = add.body.data.externalReferences[0].id;
+
+      const peerAttempt = await api(app)
+        .delete(`/${API_PREFIX}/tasks/${task.id}/external-references/${referenceId}`)
+        .set(...authHeader(developer.accessToken));
+      expect(peerAttempt.status).toBe(403);
+
+      const adminAttempt = await api(app)
+        .delete(`/${API_PREFIX}/tasks/${task.id}/external-references/${referenceId}`)
+        .set(...authHeader(admin.accessToken));
+      expect(adminAttempt.status).toBe(200);
+      expect(adminAttempt.body.data.externalReferences).toEqual([]);
+    });
+  });
+
   describe('Mentions', () => {
     it('extracts a mention from comment markup, notifies the mentioned user, and returns it populated', async () => {
       const { manager, developer, otherDeveloper, project } = await seedFixtures();
