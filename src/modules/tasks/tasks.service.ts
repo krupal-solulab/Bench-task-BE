@@ -481,6 +481,47 @@ export class TasksService {
     return (await this.tasksRepository.removeVoter(id, actingUser.id))!;
   }
 
+  /**
+   * Module 7 gap-closure: manually-pasted external references (see ExternalReference's own doc
+   * comment in task.schema.ts). Adding is gated the same as watch/vote (anyone who can view the
+   * task); removing is restricted to whoever added the entry, or a same-org Admin - the same split
+   * CommentsService.assertCanModify uses, since this is closer to "delete someone's comment" than
+   * to the always-self-service watch/vote toggle above.
+   */
+  async addExternalReference(
+    id: string,
+    dto: { label: string; url: string },
+    actingUser: AuthenticatedUser,
+  ): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    return (await this.tasksRepository.addExternalReference(id, {
+      label: dto.label,
+      url: dto.url,
+      addedBy: new Types.ObjectId(actingUser.id),
+      addedAt: new Date(),
+    }))!;
+  }
+
+  async removeExternalReference(
+    id: string,
+    referenceId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<TaskDocument> {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    const reference = task.externalReferences.find((r) => extractId(r) === referenceId);
+    if (!reference) {
+      throw new NotFoundException('External reference not found');
+    }
+    const isSameOrgAdmin =
+      actingUser.role === Role.ADMIN && extractId(task.organizationId) === requireOrgId(actingUser);
+    if (extractId(reference.addedBy) !== actingUser.id && !isSameOrgAdmin) {
+      throw new ForbiddenException('You can only remove external references you added');
+    }
+    return (await this.tasksRepository.removeExternalReference(id, referenceId))!;
+  }
+
   async update(
     id: string,
     dto: UpdateTaskDto,

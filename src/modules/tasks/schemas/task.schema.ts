@@ -42,6 +42,33 @@ export class PendingApproval {
 
 export const PendingApprovalSchema = SchemaFactory.createForClass(PendingApproval);
 
+/**
+ * Module 7 gap-closure: a manually-pasted external link (e.g. a GitHub/GitLab commit, PR, or
+ * branch URL) - deliberately NOT a real GitHub/GitLab API connector (no OAuth/webhook/API-key
+ * infrastructure exists anywhere in this codebase, the same constraint every "AI X" BRD line in
+ * this engagement has hit). This closes the honest, always-available part of "link a task to your
+ * VCS activity" - pasting a URL - without faking auto-detection or a live connection this
+ * codebase has no way to actually make. Kept WITH a real `_id` (unlike most embedded subdocuments
+ * in this codebase, which use `name` as identity) since label/url have no natural uniqueness to
+ * key deletion off of.
+ */
+@Schema()
+export class ExternalReference {
+  @Prop({ required: true, trim: true, minlength: 1, maxlength: 100 })
+  label!: string;
+
+  @Prop({ required: true, trim: true, maxlength: 2000 })
+  url!: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  addedBy!: Types.ObjectId;
+
+  @Prop({ required: true, default: () => new Date() })
+  addedAt!: Date;
+}
+
+export const ExternalReferenceSchema = SchemaFactory.createForClass(ExternalReference);
+
 @Schema({
   timestamps: true,
   // Mongoose's default `minimize: true` strips empty-object fields (e.g. an unset
@@ -58,6 +85,16 @@ export const PendingApprovalSchema = SchemaFactory.createForClass(PendingApprova
       ret.id = ret._id.toString();
       delete ret._id;
       delete ret.__v;
+      // externalReferences entries carry a real _id (see ExternalReference's own doc comment) -
+      // converted to `id` here explicitly, same convention as the document's own _id above, since
+      // this schema's toJSON transform doesn't recurse into embedded-array subdocuments on its own.
+      if (Array.isArray(ret.externalReferences)) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ret.externalReferences = ret.externalReferences.map((r: any) => {
+          const { _id, ...rest } = r;
+          return { id: _id?.toString?.() ?? _id, ...rest };
+        });
+      }
       return ret;
     },
   },
@@ -205,6 +242,10 @@ export class Task {
   // interest with no permission effect. Empty for every existing task.
   @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
   voterIds!: Types.ObjectId[];
+
+  // Module 7 gap-closure - see ExternalReference's own doc comment. Empty for every existing task.
+  @Prop({ type: [ExternalReferenceSchema], default: [] })
+  externalReferences!: ExternalReference[];
 
   // Module 12's Approval Workflows - null (every existing task, and any task never attempting a
   // `requiresApproval` transition) means no transition is currently awaiting a decision. See

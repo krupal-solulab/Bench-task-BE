@@ -3,6 +3,19 @@ import { HydratedDocument, Types } from 'mongoose';
 
 export type CommentDocument = HydratedDocument<Comment>;
 
+// Module 7 gap-closure: one prior version of a comment's body, snapshotted right before an edit
+// overwrites it - see CommentsService.update().
+@Schema({ _id: false })
+export class CommentEditHistoryEntry {
+  @Prop({ required: true })
+  body!: string;
+
+  @Prop({ required: true, default: () => new Date() })
+  editedAt!: Date;
+}
+
+export const CommentEditHistoryEntrySchema = SchemaFactory.createForClass(CommentEditHistoryEntry);
+
 @Schema({
   timestamps: true,
   toJSON: {
@@ -36,6 +49,13 @@ export class Comment {
   // whose body contains no mention markup.
   @Prop({ type: [Types.ObjectId], ref: 'User', default: [] })
   mentionedUserIds!: Types.ObjectId[];
+
+  // Module 7 gap-closure: every PRIOR body, oldest first, snapshotted just before each edit -
+  // empty for every comment that's never been edited (every comment before this feature, and any
+  // new one). `editHistory.length > 0` is the "(edited)" signal; the CURRENT body always lives in
+  // `body` above, never duplicated into this array until it's superseded.
+  @Prop({ type: [CommentEditHistoryEntrySchema], default: [] })
+  editHistory!: CommentEditHistoryEntry[];
 
   @Prop({ type: Date, default: null })
   deletedAt!: Date | null;

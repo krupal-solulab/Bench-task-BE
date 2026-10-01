@@ -36,6 +36,7 @@ function makeComment(overrides: Partial<Record<string, unknown>> = {}) {
     task: 'task-1',
     author: { toString: () => 'author-1' },
     body: 'original',
+    editHistory: [],
     ...overrides,
   } as never;
 }
@@ -57,7 +58,9 @@ describe('CommentsService', () => {
       'create' | 'findByIdActive' | 'paginateForTask' | 'updateById' | 'softDelete'
     >
   >;
-  let tasksRepository: jest.Mocked<Pick<TasksRepository, 'findRawById' | 'logActivity'>>;
+  let tasksRepository: jest.Mocked<
+    Pick<TasksRepository, 'findRawById' | 'logActivity' | 'addWatcher'>
+  >;
   let usersRepository: jest.Mocked<Pick<UsersRepository, 'findByIds'>>;
   let projectsService: jest.Mocked<
     Pick<ProjectsService, 'getActiveProjectOrThrow' | 'isProjectMember' | 'membersWithRole'>
@@ -82,6 +85,7 @@ describe('CommentsService', () => {
     tasksRepository = {
       findRawById: jest.fn(),
       logActivity: jest.fn().mockResolvedValue(undefined),
+      addWatcher: jest.fn().mockResolvedValue(undefined),
     };
     usersRepository = { findByIds: jest.fn().mockResolvedValue([]) };
     projectsService = {
@@ -211,6 +215,19 @@ describe('CommentsService', () => {
       );
     });
 
+    it('Module 7 gap-closure: auto-watches the commenter', async () => {
+      const member = makeUser({ id: MEMBER_ID });
+      tasksRepository.findRawById.mockResolvedValue(makeRawTask());
+      projectsService.getActiveProjectOrThrow.mockResolvedValue({ id: 'project-1' } as never);
+      projectsService.isProjectMember.mockReturnValue(true);
+      commentsRepository.create.mockResolvedValue({ id: 'comment-1' } as never);
+      commentsRepository.findByIdActive.mockResolvedValue(makeComment({ id: 'comment-1' }));
+
+      await service.create(TASK_ID, 'hello', member);
+
+      expect(tasksRepository.addWatcher).toHaveBeenCalledWith(TASK_ID, MEMBER_ID);
+    });
+
     it('does not call notifyCommentAdded for an unassigned task (regression)', async () => {
       const member = makeUser({ id: MEMBER_ID });
       tasksRepository.findRawById.mockResolvedValue(makeRawTask());
@@ -297,6 +314,23 @@ describe('CommentsService', () => {
 
       const result = await service.update('comment-1', 'edited', makeUser({ id: 'author-1' }));
       expect(result.body).toBe('edited');
+    });
+
+    it('Module 7 gap-closure: snapshots the outgoing body into editHistory before overwriting it', async () => {
+      commentsRepository.findByIdActive.mockResolvedValue(
+        makeComment({ body: 'original', editHistory: [] }),
+      );
+      commentsRepository.updateById.mockResolvedValue(makeComment({ body: 'edited' }));
+
+      await service.update('comment-1', 'edited', makeUser({ id: 'author-1' }));
+
+      expect(commentsRepository.updateById).toHaveBeenCalledWith(
+        'comment-1',
+        expect.objectContaining({
+          body: 'edited',
+          editHistory: [expect.objectContaining({ body: 'original' })],
+        }),
+      );
     });
 
     it("rejects a non-author, non-admin from editing someone else's comment", async () => {

@@ -4934,6 +4934,82 @@
         ]
       }
     },
+    "/api/v1/tasks/{id}/external-references": {
+      "post": {
+        "operationId": "TasksController_addExternalReference",
+        "summary": "Add an external reference link to this task (Module 7)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddExternalReferenceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/external-references/{referenceId}": {
+      "delete": {
+        "operationId": "TasksController_removeExternalReference",
+        "summary": "Remove an external reference link from this task (Module 7)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "referenceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{id}/activity": {
       "get": {
         "operationId": "TasksController_activity",
@@ -10511,6 +10587,23 @@
         },
         "required": [
           "targetProjectId"
+        ]
+      },
+      "AddExternalReferenceDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "A short label, e.g. \"PR #42\" or \"fix/login-bug\""
+          },
+          "url": {
+            "type": "string",
+            "description": "The full URL this reference points to"
+          }
+        },
+        "required": [
+          "label",
+          "url"
         ]
       },
       "CreateSprintDto": {

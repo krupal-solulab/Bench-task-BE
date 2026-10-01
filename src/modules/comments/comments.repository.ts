@@ -45,7 +45,11 @@ export class CommentsRepository {
 
   async updateById(
     id: string,
-    update: { body: string; mentionedUserIds: Types.ObjectId[] },
+    update: {
+      body: string;
+      mentionedUserIds: Types.ObjectId[];
+      editHistory: Comment['editHistory'];
+    },
   ): Promise<CommentDocument | null> {
     await this.model.updateOne({ _id: id }, update).exec();
     return this.findByIdActive(id);
