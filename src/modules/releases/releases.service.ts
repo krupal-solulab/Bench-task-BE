@@ -18,6 +18,7 @@ import { ReleasesRepository } from './releases.repository';
 import { ReleaseDocument } from './schemas/release.schema';
 import { isLegalReleaseTransition, legalReleaseTransitions } from './release-status.rules';
 import { buildReleaseNotesMarkdown } from './release-notes.util';
+import { ETA_THROUGHPUT_WINDOW_DAYS, ReleaseEta, projectReleaseEta } from './release-eta.util';
 import { CreateReleaseDto } from './dto/create-release.dto';
 import { UpdateReleaseDto } from './dto/update-release.dto';
 import { ListReleasesDto } from './dto/list-releases.dto';
@@ -34,6 +35,19 @@ export interface ReleaseProgress {
     status: string;
     statusCategory: string;
   }>;
+  /** Module 9 gap-closure: projected completion (additive - absent fields never changed). */
+  eta: ReleaseEta;
+}
+
+/** Module 9 gap-closure: one row of a project's release forecast. */
+export interface ReleaseForecastRow {
+  releaseId: string;
+  name: string;
+  releaseDate: Date | null;
+  totalIssues: number;
+  doneIssues: number;
+  progress: number;
+  eta: ReleaseEta;
 }
 
 export interface ReleaseCompareIssue {
@@ -226,11 +240,26 @@ export class ReleasesService {
         .exec(),
     ]);
 
+    const now = new Date();
+    const since = new Date(now.getTime() - ETA_THROUGHPUT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const [releaseDoneInWindow, projectDoneInWindow] = await Promise.all([
+      this.taskModel.countDocuments({ ...filter, completedAt: { $gte: since } }),
+      this.countProjectDoneSince(project._id, since),
+    ]);
+
     return {
       releaseId,
       totalIssues,
       doneIssues,
       progress: totalIssues > 0 ? Math.round((doneIssues / totalIssues) * 100) : 0,
+      eta: projectReleaseEta({
+        totalIssues,
+        doneIssues,
+        releaseDoneInWindow,
+        projectDoneInWindow,
+        releaseDate: release.releaseDate,
+        now,
+      }),
       unreleasedIssues: unreleasedTasks.map((t) => ({
         id: t.id,
         issueKey: t.issueKey,
@@ -239,6 +268,92 @@ export class ReleasesService {
         statusCategory: t.statusCategory,
       })),
     };
+  }
+
+  /**
+   * Module 9 gap-closure: an ETA forecast for every unreleased release in the project - one
+   * aggregation for all releases' counts rather than N progress() calls, so the dashboard gadget
+   * stays a single request.
+   */
+  async forecast(projectId: string, actingUser: AuthenticatedUser): Promise<ReleaseForecastRow[]> {
+    const project = await this.projectsService.getActiveProjectOrThrow(projectId);
+    this.projectsService.assertUserCanView(project, actingUser);
+    // Soonest target date first; releases with no target date last (Mongo would sort nulls first).
+    const releases = (await this.releasesRepository.findUnreleasedInProject(projectId)).sort(
+      (a, b) =>
+        (a.releaseDate?.getTime() ?? Number.POSITIVE_INFINITY) -
+        (b.releaseDate?.getTime() ?? Number.POSITIVE_INFINITY),
+    );
+    if (releases.length === 0) return [];
+
+    const now = new Date();
+    const since = new Date(now.getTime() - ETA_THROUGHPUT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const [rows, projectDoneInWindow] = await Promise.all([
+      this.taskModel.aggregate<{
+        _id: Types.ObjectId;
+        total: number;
+        done: number;
+        recent: number;
+      }>([
+        { $match: { fixVersions: { $in: releases.map((r) => r._id) }, deletedAt: null } },
+        { $unwind: '$fixVersions' },
+        { $match: { fixVersions: { $in: releases.map((r) => r._id) } } },
+        {
+          $group: {
+            _id: '$fixVersions',
+            total: { $sum: 1 },
+            done: {
+              $sum: { $cond: [{ $eq: ['$statusCategory', StatusCategory.DONE] }, 1, 0] },
+            },
+            recent: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ['$statusCategory', StatusCategory.DONE] },
+                      { $gte: ['$completedAt', since] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+      this.countProjectDoneSince(project._id, since),
+    ]);
+    const countsById = new Map(rows.map((r) => [r._id.toString(), r]));
+
+    return releases.map((release) => {
+      const counts = countsById.get(release.id) ?? { total: 0, done: 0, recent: 0 };
+      return {
+        releaseId: release.id,
+        name: release.name,
+        releaseDate: release.releaseDate,
+        totalIssues: counts.total,
+        doneIssues: counts.done,
+        progress: counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0,
+        eta: projectReleaseEta({
+          totalIssues: counts.total,
+          doneIssues: counts.done,
+          releaseDoneInWindow: counts.recent,
+          projectDoneInWindow,
+          releaseDate: release.releaseDate,
+          now,
+        }),
+      };
+    });
+  }
+
+  private countProjectDoneSince(projectObjectId: Types.ObjectId, since: Date): Promise<number> {
+    return this.taskModel.countDocuments({
+      project: projectObjectId,
+      deletedAt: null,
+      statusCategory: StatusCategory.DONE,
+      completedAt: { $gte: since },
+    });
   }
 
   /**

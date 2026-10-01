@@ -311,6 +311,8 @@ describe('releases & version management (integration)', () => {
         totalIssues: 2,
         doneIssues: 1,
         progress: 50,
+        // Module 9 gap-closure: additive ETA projection - 1 done in the window, 1 remaining.
+        eta: expect.objectContaining({ remainingIssues: 1, basis: 'release', onTrack: null }),
         unreleasedIssues: [
           {
             id: taskB.id,

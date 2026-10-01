@@ -6335,6 +6335,35 @@
         ]
       }
     },
+    "/api/v1/projects/{projectId}/releases/forecast": {
+      "get": {
+        "operationId": "ReleasesController_forecast",
+        "summary": "Projected completion (ETA) for every unreleased release (Module 9)",
+        "parameters": [
+          {
+            "name": "projectId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "releases"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/projects/{projectId}/releases/compare": {
       "get": {
         "operationId": "ReleasesController_compare",
@@ -11481,7 +11510,10 @@
                 "velocityTrend",
                 "activeSprintsHealth",
                 "myOpenIssues",
-                "resolutionTimeTrend"
+                "resolutionTimeTrend",
+                "cumulativeFlow",
+                "controlChart",
+                "releaseForecast"
               ]
             }
           },
@@ -11500,7 +11532,10 @@
                 "velocityTrend",
                 "activeSprintsHealth",
                 "myOpenIssues",
-                "resolutionTimeTrend"
+                "resolutionTimeTrend",
+                "cumulativeFlow",
+                "controlChart",
+                "releaseForecast"
               ]
             }
           }

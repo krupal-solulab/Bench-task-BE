@@ -17,6 +17,11 @@ export const DASHBOARD_WIDGET_IDS = [
   'activeSprintsHealth',
   'myOpenIssues',
   'resolutionTimeTrend',
+  // Module 9 gap-closure: project reports as gadgets - OPT-IN on the client (hidden unless a user
+  // explicitly turns them on), so no existing dashboard changes.
+  'cumulativeFlow',
+  'controlChart',
+  'releaseForecast',
 ] as const;
 export type DashboardWidgetId = (typeof DASHBOARD_WIDGET_IDS)[number];
 
