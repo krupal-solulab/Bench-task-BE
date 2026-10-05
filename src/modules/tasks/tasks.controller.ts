@@ -18,6 +18,7 @@ import { ORG_ROLES } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { TasksService } from './tasks.service';
+import { AtRiskQueryDto, SimilarIssuesQueryDto } from './dto/ai-insights.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
@@ -74,6 +75,21 @@ export class TasksController {
 
   // Registered before GET :id - a literal path segment ("search") must precede a :id sibling or
   // Express/Nest would swallow it as the route param (same gotcha fixed for sprints' /velocity).
+  // Module 10 gap-closure - both declared before ':id' (same segment count).
+  @Get('similar')
+  @ApiOperation({
+    summary: 'Likely duplicates of the text being typed, best match first (Module 10)',
+  })
+  async similar(@Query() query: SimilarIssuesQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.similarIssues(query, user);
+  }
+
+  @Get('at-risk')
+  @ApiOperation({ summary: "A project's open issues at risk, with the reasons (Module 10)" })
+  async atRisk(@Query() query: AtRiskQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.atRiskIssues(query, user);
+  }
+
   @Get('search')
   @ApiOperation({ summary: 'JQL-lite compound search (Search/Dashboards v2)' })
   async search(@Query() query: SearchTasksDto, @CurrentUser() user: AuthenticatedUser) {
@@ -390,6 +406,12 @@ export class TasksController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.tasksService.epicBurndown(id, user);
+  }
+
+  @Get(':id/risk')
+  @ApiOperation({ summary: "This issue's risk score and reasons (Module 10)" })
+  async risk(@Param('id', ParseObjectIdPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.taskRisk(id, user);
   }
 
   @Get(':id/summary')

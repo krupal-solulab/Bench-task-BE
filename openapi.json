@@ -4205,6 +4205,82 @@
         ]
       }
     },
+    "/api/v1/tasks/similar": {
+      "get": {
+        "operationId": "TasksController_similar",
+        "summary": "Likely duplicates of the text being typed, best match first (Module 10)",
+        "parameters": [
+          {
+            "name": "project",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "text",
+            "required": true,
+            "in": "query",
+            "description": "The title (and optionally description) being typed",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "excludeId",
+            "required": false,
+            "in": "query",
+            "description": "Leave this task out (e.g. when editing it)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/at-risk": {
+      "get": {
+        "operationId": "TasksController_atRisk",
+        "summary": "A project's open issues at risk, with the reasons (Module 10)",
+        "parameters": [
+          {
+            "name": "project",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/search": {
       "get": {
         "operationId": "TasksController_search",
@@ -5314,6 +5390,35 @@
       "get": {
         "operationId": "TasksController_epicBurndown",
         "summary": "An Epic's remaining linked-issue work over time",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/risk": {
+      "get": {
+        "operationId": "TasksController_risk",
+        "summary": "This issue's risk score and reasons (Module 10)",
         "parameters": [
           {
             "name": "id",

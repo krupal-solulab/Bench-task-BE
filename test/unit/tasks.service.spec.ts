@@ -262,6 +262,7 @@ describe('TasksService', () => {
       commentModel as never,
       issueLinkModel as never,
       automationLogModel as never,
+      { findById: jest.fn() } as never,
     );
     // Mirrors FakeAutomationQueue's synchronous-execution behavior (see
     // test/integration/setup/fake-automation-queue.ts) so these unit tests, written before
