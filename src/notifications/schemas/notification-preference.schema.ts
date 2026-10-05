@@ -16,6 +16,13 @@ export class NotificationPreference {
   // means "receive everything", exactly today's behavior.
   @Prop({ type: [String], default: [] })
   mutedTypes!: NotificationType[];
+
+  // Module 11 gap-closure: digest frequency - 'off' (the default for everyone) sends nothing.
+  @Prop({ type: String, enum: ['off', 'daily', 'weekly'], default: 'off' })
+  digest!: 'off' | 'daily' | 'weekly';
+
+  @Prop({ type: Date, default: null })
+  lastDigestAt!: Date | null;
 }
 
 export const NotificationPreferenceSchema = SchemaFactory.createForClass(NotificationPreference);

@@ -19,6 +19,7 @@ import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { TasksService } from './tasks.service';
 import { AtRiskQueryDto, SimilarIssuesQueryDto } from './dto/ai-insights.dto';
+import { ActivityFeedQueryDto } from './dto/activity-feed-query.dto';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
@@ -75,6 +76,13 @@ export class TasksController {
 
   // Registered before GET :id - a literal path segment ("search") must precede a :id sibling or
   // Express/Nest would swallow it as the route param (same gotcha fixed for sprints' /velocity).
+  // Module 11 gap-closure - declared before ':id' (same segment count).
+  @Get('activity-feed')
+  @ApiOperation({ summary: 'Recent activity across issues I can see (Module 11)' })
+  async activityFeed(@Query() query: ActivityFeedQueryDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.tasksService.activityFeed(query, user);
+  }
+
   // Module 10 gap-closure - both declared before ':id' (same segment count).
   @Get('similar')
   @ApiOperation({

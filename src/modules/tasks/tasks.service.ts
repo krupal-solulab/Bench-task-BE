@@ -115,6 +115,7 @@ import { resolveLinkTypes } from '../planning/schemas/link-type.schema';
 import { SIMILARITY_THRESHOLD, similarityScore, tokenize } from './similarity.util';
 import { assessTaskRisk, TaskRisk } from './task-risk.util';
 import { AtRiskQueryDto, SimilarIssuesQueryDto } from './dto/ai-insights.dto';
+import { ActivityFeedQueryDto } from './dto/activity-feed-query.dto';
 
 /**
  * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
@@ -154,6 +155,26 @@ export interface BulkStatusPreviewResult {
   willSucceedCount: number;
   willFailCount: number;
 }
+
+/** Module 11 gap-closure: comment search scans a few times `limit` (some hits may be on issues
+ * the caller can't see), never more than this many comments. */
+const COMMENT_SEARCH_OVERFETCH = 5;
+const COMMENT_SEARCH_MAX_SCAN = 200;
+const SNIPPET_RADIUS = 70;
+
+/** ~140 chars of a comment centred on the first match, with ellipses where trimmed. */
+function commentSnippet(body: string, pattern: RegExp): string {
+  const index = body.search(pattern);
+  if (index < 0 || body.length <= SNIPPET_RADIUS * 2) return body;
+  const start = Math.max(0, index - SNIPPET_RADIUS);
+  const end = Math.min(body.length, index + SNIPPET_RADIUS);
+  return `${start > 0 ? '…' : ''}${body.slice(start, end).trim()}${end < body.length ? '…' : ''}`;
+}
+
+/** Module 11 gap-closure: activity-feed scan bounds (visibility filtering can drop entries). */
+const FEED_BATCH_MULTIPLIER = 3;
+const FEED_MAX_ROUNDS = 4;
+const FEED_INVOLVED_TASK_LIMIT = 2000;
 
 /** Module 10 gap-closure: bounds for the deterministic AI-insight endpoints. */
 const SIMILARITY_CANDIDATE_LIMIT = 1000;
@@ -1954,6 +1975,135 @@ export class TasksService {
         statusCategory: task.statusCategory,
         score,
       }));
+  }
+
+  /**
+   * Module 11 gap-closure: comments matching `term` (case-insensitive), newest first - only on
+   * issues the caller can see (buildScope: accessible projects + security levels), so a comment
+   * can never leak a restricted issue. Comments have no organizationId, so visibility is applied
+   * by joining back to the task.
+   */
+  async searchComments(term: string, limit: number, actingUser: AuthenticatedUser) {
+    const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const comments = await this.commentModel
+      .find({ body: pattern, deletedAt: null })
+      .sort({ createdAt: -1 })
+      .limit(Math.min(limit * COMMENT_SEARCH_OVERFETCH, COMMENT_SEARCH_MAX_SCAN))
+      .populate('author', 'name')
+      .lean();
+    if (comments.length === 0) return [];
+
+    const taskIds = [...new Set(comments.map((c) => c.task.toString()))].map(
+      (id) => new Types.ObjectId(id),
+    );
+    const visible = await this.tasksRepository.findSummaries({
+      ...(await this.buildScope(actingUser)),
+      _id: { $in: taskIds },
+      deletedAt: null,
+    });
+    const taskById = new Map(visible.map((t) => [t._id.toString(), t]));
+
+    return comments
+      .filter((comment) => taskById.has(comment.task.toString()))
+      .slice(0, limit)
+      .map((comment) => {
+        const task = taskById.get(comment.task.toString())!;
+        const author = comment.author as unknown as { _id: Types.ObjectId; name: string } | null;
+        return {
+          id: comment._id.toString(),
+          snippet: commentSnippet(comment.body, pattern),
+          task: { id: task._id.toString(), issueKey: task.issueKey, title: task.title },
+          author: author ? { id: author._id.toString(), name: author.name } : null,
+          createdAt: comment.createdAt,
+        };
+      });
+  }
+
+  /**
+   * Module 11 gap-closure: the activity feed - what's been happening across every issue the
+   * caller can see (buildScope: accessible projects + security levels), newest first. "involved"
+   * narrows it to issues they created, are assigned to, or watch. TaskActivity has no project/org
+   * field, so visibility is applied by joining back to the task, scanning a few batches at most.
+   */
+  async activityFeed(query: ActivityFeedQueryDto, actingUser: AuthenticatedUser) {
+    const scope = await this.buildScope(actingUser);
+    const before = query.before ? new Date(query.before) : null;
+    const me = new Types.ObjectId(actingUser.id);
+
+    let involvedIds: Types.ObjectId[] | null = null;
+    if (query.scope === 'involved') {
+      involvedIds = await this.tasksRepository.findIds(
+        {
+          ...scope,
+          deletedAt: null,
+          $or: [{ assignee: me }, { createdBy: me }, { watcherIds: me }],
+        },
+        FEED_INVOLVED_TASK_LIMIT,
+      );
+      if (involvedIds.length === 0) return { entries: [], nextBefore: null };
+    }
+
+    const entries: Array<{
+      id: string;
+      action: string;
+      from: unknown;
+      to: unknown;
+      createdAt: Date;
+      actor: { id: string; name: string } | null;
+      task: { id: string; issueKey: string | null; title: string };
+    }> = [];
+    let cursor = before;
+    let exhausted = false;
+    for (let round = 0; round < FEED_MAX_ROUNDS && entries.length < query.limit; round++) {
+      const batch = await this.tasksRepository.findActivityBatch(
+        {
+          ...(cursor ? { createdAt: { $lt: cursor } } : {}),
+          ...(involvedIds ? { task: { $in: involvedIds } } : {}),
+        },
+        query.limit * FEED_BATCH_MULTIPLIER,
+      );
+      if (batch.length === 0) {
+        exhausted = true;
+        break;
+      }
+      cursor = batch[batch.length - 1]!.createdAt;
+
+      const taskIds = [...new Set(batch.map((a) => a.task.toString()))].map(
+        (id) => new Types.ObjectId(id),
+      );
+      const visible = await this.tasksRepository.findSummaries({
+        ...scope,
+        _id: { $in: taskIds },
+        deletedAt: null,
+      });
+      const taskById = new Map(visible.map((t) => [t._id.toString(), t]));
+      for (const activity of batch) {
+        const task = taskById.get(activity.task.toString());
+        if (!task) continue;
+        const actor = activity.actor as unknown as { _id: Types.ObjectId; name: string } | null;
+        entries.push({
+          id: activity._id.toString(),
+          action: activity.action,
+          from: activity.from ?? null,
+          to: activity.to ?? null,
+          createdAt: activity.createdAt,
+          actor: actor ? { id: actor._id.toString(), name: actor.name } : null,
+          task: { id: task._id.toString(), issueKey: task.issueKey, title: task.title },
+        });
+        if (entries.length === query.limit) break;
+      }
+      if (batch.length < query.limit * FEED_BATCH_MULTIPLIER) {
+        exhausted = true;
+        break;
+      }
+    }
+
+    const last = entries[entries.length - 1];
+    return {
+      entries,
+      nextBefore:
+        entries.length === query.limit && last ? last.createdAt : exhausted ? null : cursor,
+    };
   }
 
   /** Module 10 gap-closure: a project's open issues that are at risk, highest risk first. */

@@ -47,6 +47,8 @@ import { IssueTemplatesModule } from './modules/issue-templates/issue-templates.
 import { ProjectCategoriesModule } from './modules/project-categories/project-categories.module';
 import { AdminConsoleModule } from './modules/admin-console/admin-console.module';
 import { CustomFieldLibraryModule } from './modules/custom-field-library/custom-field-library.module';
+import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
+import { ApiTokenRestrictionGuard } from './common/guards/api-token-restriction.guard';
 
 @Module({
   imports: [
@@ -132,6 +134,7 @@ import { CustomFieldLibraryModule } from './modules/custom-field-library/custom-
     ProjectCategoriesModule,
     AdminConsoleModule,
     CustomFieldLibraryModule,
+    ApiTokensModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
@@ -143,6 +146,8 @@ import { CustomFieldLibraryModule } from './modules/custom-field-library/custom-
     { provide: APP_GUARD, useClass: RolesGuard },
     // Must run after JwtAuthGuard (needs req.user) - Module 8 read-only impersonation.
     { provide: APP_GUARD, useClass: ImpersonationReadOnlyGuard },
+    // Module 11 gap-closure: refuses @DisallowApiToken routes for personal API tokens.
+    { provide: APP_GUARD, useClass: ApiTokenRestrictionGuard },
   ],
 })
 export class AppModule {}

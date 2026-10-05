@@ -43,6 +43,8 @@ export enum AuditAction {
   LIBRARY_FIELD_DELETED = 'LibraryFieldDeleted',
   IMPERSONATION_STARTED = 'ImpersonationStarted',
   IMPERSONATION_ENDED = 'ImpersonationEnded',
+  API_TOKEN_CREATED = 'ApiTokenCreated',
+  API_TOKEN_REVOKED = 'ApiTokenRevoked',
 }
 
 export const AUDIT_ACTIONS = Object.values(AuditAction);
