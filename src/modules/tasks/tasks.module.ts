@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { Organization, OrganizationSchema } from '../organizations/schemas/organization.schema';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ProjectsModule } from '../projects/projects.module';
 import { SecuritySchemesModule } from '../../security-schemes/security-schemes.module';
@@ -47,6 +48,9 @@ import { AutomationJobProcessor } from './automation-job.processor';
       // (issue-links) already imports TasksModule, so importing it back here would also cycle.
       { name: IssueLink.name, schema: IssueLinkSchema },
       { name: BulkOperationLog.name, schema: BulkOperationLogSchema },
+      // Module 10 gap-closure: risk flagging reads the org's (possibly custom) link types to
+      // know which links block - the model, not OrganizationsService, to avoid a module cycle.
+      { name: Organization.name, schema: OrganizationSchema },
     ]),
   ],
   controllers: [TasksController, AutomationLogController],

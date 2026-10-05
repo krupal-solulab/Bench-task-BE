@@ -110,6 +110,11 @@ import {
 } from './search/jql-autocomplete.util';
 import { computeBurndown } from '../sprints/sprint-reports.util';
 import { buildTaskSummary } from './task-summary.util';
+import { Organization, OrganizationDocument } from '../organizations/schemas/organization.schema';
+import { resolveLinkTypes } from '../planning/schemas/link-type.schema';
+import { SIMILARITY_THRESHOLD, similarityScore, tokenize } from './similarity.util';
+import { assessTaskRisk, TaskRisk } from './task-risk.util';
+import { AtRiskQueryDto, SimilarIssuesQueryDto } from './dto/ai-insights.dto';
 
 /**
  * Marks a call to update/updateStatus/updateAssignee as an automation rule's own action rather
@@ -150,6 +155,12 @@ export interface BulkStatusPreviewResult {
   willFailCount: number;
 }
 
+/** Module 10 gap-closure: bounds for the deterministic AI-insight endpoints. */
+const SIMILARITY_CANDIDATE_LIMIT = 1000;
+const SIMILAR_RESULT_LIMIT = 5;
+const RISK_SCAN_LIMIT = 2000;
+const AT_RISK_RESULT_LIMIT = 50;
+
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
@@ -170,6 +181,7 @@ export class TasksService {
     @InjectModel(IssueLink.name) private readonly issueLinkModel: Model<IssueLinkDocument>,
     @InjectModel(AutomationExecutionLog.name)
     private readonly automationLogModel: Model<AutomationExecutionLogDocument>,
+    @InjectModel(Organization.name) private readonly organizationModel: Model<OrganizationDocument>,
   ) {}
 
   async create(dto: CreateTaskDto, actingUser: AuthenticatedUser): Promise<TaskDocument> {
@@ -1908,6 +1920,163 @@ export class TasksService {
       organizationId: new Types.ObjectId(requireOrgId(actingUser)),
       ...(await this.buildSecurityExclusionFilter(actingUser)),
     };
+  }
+
+  /**
+   * Module 10 gap-closure: deterministic duplicate detection - every issue in the project the
+   * caller can see (security levels respected via buildScope), scored by similarityScore and
+   * returned best-first. Replaces the old substring-only JQL `text ~` lookup in the New Task form.
+   */
+  async similarIssues(dto: SimilarIssuesQueryDto, actingUser: AuthenticatedUser) {
+    const project = await this.projectsService.getActiveProjectOrThrow(dto.project);
+    this.projectsService.assertUserCanView(project, actingUser);
+    if (tokenize(dto.text).length === 0) return [];
+
+    const candidates = await this.tasksRepository.findSimilarityCandidates(
+      {
+        ...(await this.buildScope(actingUser)),
+        project: project._id,
+        deletedAt: null,
+        ...(dto.excludeId ? { _id: { $ne: new Types.ObjectId(dto.excludeId) } } : {}),
+      },
+      SIMILARITY_CANDIDATE_LIMIT,
+    );
+    return candidates
+      .map((task) => ({ task, score: similarityScore(dto.text, task) }))
+      .filter((match) => match.score >= SIMILARITY_THRESHOLD)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, SIMILAR_RESULT_LIMIT)
+      .map(({ task, score }) => ({
+        id: task._id.toString(),
+        issueKey: task.issueKey,
+        title: task.title,
+        status: task.status,
+        statusCategory: task.statusCategory,
+        score,
+      }));
+  }
+
+  /** Module 10 gap-closure: a project's open issues that are at risk, highest risk first. */
+  async atRiskIssues(dto: AtRiskQueryDto, actingUser: AuthenticatedUser) {
+    const project = await this.projectsService.getActiveProjectOrThrow(dto.project);
+    this.projectsService.assertUserCanView(project, actingUser);
+    const scope = await this.buildScope(actingUser);
+    const tasks = await this.tasksRepository.findForRisk(
+      {
+        ...scope,
+        project: project._id,
+        deletedAt: null,
+        statusCategory: { $ne: StatusCategory.DONE },
+      },
+      RISK_SCAN_LIMIT,
+    );
+    const risks = await this.computeRisks(tasks, scope, requireOrgId(actingUser));
+    return tasks
+      .map((task) => ({ task, risk: risks.get(task._id.toString())! }))
+      .filter(({ risk }) => risk.score > 0)
+      .sort(
+        (a, b) =>
+          b.risk.score - a.risk.score ||
+          (a.task.dueDate?.getTime() ?? Infinity) - (b.task.dueDate?.getTime() ?? Infinity),
+      )
+      .slice(0, AT_RISK_RESULT_LIMIT)
+      .map(({ task, risk }) => ({
+        id: task._id.toString(),
+        issueKey: task.issueKey,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        dueDate: task.dueDate,
+        assignee: task.assignee ?? null,
+        risk,
+      }));
+  }
+
+  /** Module 10 gap-closure: one issue's risk assessment (same rules as atRiskIssues). */
+  async taskRisk(id: string, actingUser: AuthenticatedUser): Promise<TaskRisk> {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    const risks = await this.computeRisks(
+      [task],
+      await this.buildScope(actingUser),
+      requireOrgId(actingUser),
+    );
+    return risks.get(task._id.toString())!;
+  }
+
+  private async computeRisks(
+    tasks: Array<{
+      _id: Types.ObjectId;
+      priority: TaskPriority;
+      assignee?: unknown;
+      dueDate?: Date | null;
+      statusCategory: StatusCategory;
+      createdAt: Date;
+    }>,
+    scope: FilterQuery<TaskDocument>,
+    organizationId: string,
+  ): Promise<Map<string, TaskRisk>> {
+    const ids = tasks.map((t) => t._id);
+    const organization = await this.organizationModel
+      .findById(organizationId)
+      .select('linkTypes')
+      .lean();
+    const blockingTypeIds = resolveLinkTypes(organization ?? { linkTypes: [] })
+      .filter((t) => t.isBlocking)
+      .map((t) => t.id);
+
+    const [lastChange, links] = await Promise.all([
+      this.tasksRepository.lastStatusChangeByTask(ids),
+      ids.length > 0 && blockingTypeIds.length > 0
+        ? this.issueLinkModel
+            .find({ targetTask: { $in: ids }, linkTypeId: { $in: blockingTypeIds } })
+            .select('sourceTask targetTask')
+            .lean()
+        : Promise.resolve([]),
+    ]);
+
+    // Only blockers the caller can see, and only ones still open.
+    const blockerIds = [...new Set(links.map((l) => l.sourceTask.toString()))];
+    const openBlockers =
+      blockerIds.length > 0
+        ? await this.tasksRepository.findForRisk(
+            {
+              ...scope,
+              _id: { $in: blockerIds.map((b) => new Types.ObjectId(b)) },
+              deletedAt: null,
+              statusCategory: { $ne: StatusCategory.DONE },
+            },
+            blockerIds.length,
+          )
+        : [];
+    const blockerLabel = new Map(
+      openBlockers.map((b) => [b._id.toString(), b.issueKey ?? b.title]),
+    );
+
+    const now = new Date();
+    return new Map(
+      tasks.map((task) => {
+        const key = task._id.toString();
+        const blockedBy = links
+          .filter((l) => l.targetTask.toString() === key)
+          .map((l) => blockerLabel.get(l.sourceTask.toString()))
+          .filter((label): label is string => !!label);
+        return [
+          key,
+          assessTaskRisk(
+            {
+              priority: task.priority,
+              assignee: task.assignee ?? null,
+              dueDate: task.dueDate ?? null,
+              statusCategory: task.statusCategory,
+              lastStatusChangeAt: lastChange.get(key) ?? task.createdAt,
+              openBlockers: blockedBy,
+            },
+            now,
+          ),
+        ];
+      }),
+    );
   }
 
   private async getActiveOrThrow(id: string): Promise<TaskDocument> {

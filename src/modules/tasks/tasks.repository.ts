@@ -298,6 +298,38 @@ export class TasksRepository {
       .lean();
   }
 
+  /** Module 10 gap-closure: the candidate pool duplicate detection scores (newest first). */
+  findSimilarityCandidates(filter: FilterQuery<TaskDocument>, limit: number) {
+    return this.model
+      .find(filter)
+      .select('title description issueKey status statusCategory')
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean();
+  }
+
+  /** Module 10 gap-closure: the fields risk flagging reads, for open tasks. */
+  findForRisk(filter: FilterQuery<TaskDocument>, limit: number) {
+    return this.model
+      .find(filter)
+      .select('title issueKey status statusCategory priority assignee dueDate createdAt')
+      .populate('assignee', 'name email')
+      .limit(limit)
+      .lean();
+  }
+
+  /** Module 10 gap-closure: each task's most recent STATUS_CHANGED time. */
+  async lastStatusChangeByTask(taskIds: Types.ObjectId[]): Promise<Map<string, Date>> {
+    if (taskIds.length === 0) return new Map();
+    const rows = await this.activityModel
+      .aggregate<{ _id: Types.ObjectId; at: Date }>([
+        { $match: { task: { $in: taskIds }, action: TaskActivityAction.STATUS_CHANGED } },
+        { $group: { _id: '$task', at: { $max: '$createdAt' } } },
+      ])
+      .exec();
+    return new Map(rows.map((r) => [r._id.toString(), r.at]));
+  }
+
   /** Highest rank currently in a backlog/sprint scope, or null if the scope is empty. */
   async findMaxRank(scope: RankScope): Promise<number | null> {
     const top = await this.model
