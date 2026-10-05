@@ -15,6 +15,7 @@ import { UsersRepository } from './users.repository';
 import { UserDocument } from './schemas/user.schema';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateOwnProfileDto } from './dto/update-own-profile.dto';
 import { ListUsersDto } from './dto/list-users.dto';
 
 export interface UserWorkload {
@@ -118,11 +119,12 @@ export class UsersService {
    * JWT, so there's no id to validate against an org - this is also what lets a PlatformAdmin
    * (who has no organizationId at all) use the same self-service route.
    */
-  async updateOwnProfile(id: string, dto: UpdateUserDto): Promise<UserDocument> {
+  async updateOwnProfile(id: string, dto: UpdateOwnProfileDto): Promise<UserDocument> {
     if (dto.email) await this.assertEmailAvailable(dto.email, id);
     const updated = await this.usersRepository.updateById(id, {
       ...(dto.name ? { name: dto.name } : {}),
       ...(dto.email ? { email: dto.email.toLowerCase() } : {}),
+      ...(dto.timezone !== undefined ? { timezone: dto.timezone } : {}),
     });
     if (!updated) throw new NotFoundException('User not found');
     return updated;

@@ -1,4 +1,5 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { buildDigest, Digest, DIGEST_PERIOD_MS, DigestFrequency } from './digest.util';
 import { Types } from 'mongoose';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { extractId } from '../common/utils/mongo.util';
@@ -105,6 +106,12 @@ export interface SchemeEventNotification {
  * reminder cron. The in-app notification row each method now also writes follows the same
  * contract: a failure to write it or to push it over the socket never fails the caller.
  */
+/** Module 11 gap-closure: most unread notifications a digest reads. */
+const DIGEST_SCAN_LIMIT = 200;
+
+/** Module 11 gap-closure: longest allowed per-issue snooze. */
+const MAX_SNOOZE_DAYS = 90;
+
 @Injectable()
 export class NotificationsService {
   constructor(
@@ -420,12 +427,42 @@ export class NotificationsService {
       query.limit,
       !!query.unreadOnly,
       query.type,
+      await this.snoozedTaskIds(recipientId),
     );
     return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
   }
 
-  unreadCount(recipientId: string): Promise<number> {
-    return this.notificationsRepository.countUnread(recipientId);
+  async unreadCount(recipientId: string): Promise<number> {
+    return this.notificationsRepository.countUnread(
+      recipientId,
+      await this.snoozedTaskIds(recipientId),
+    );
+  }
+
+  /** Module 11 gap-closure: per-issue snooze (see NotificationSnooze). */
+  async listSnoozes(ownerId: string) {
+    return this.notificationsRepository.findActiveSnoozes(ownerId, new Date());
+  }
+
+  async snooze(ownerId: string, taskId: string, until: string) {
+    const untilDate = new Date(until);
+    const now = Date.now();
+    if (untilDate.getTime() <= now) {
+      throw new BadRequestException('until must be in the future');
+    }
+    if (untilDate.getTime() - now > MAX_SNOOZE_DAYS * 24 * 60 * 60 * 1000) {
+      throw new BadRequestException(`A snooze can last at most ${MAX_SNOOZE_DAYS} days`);
+    }
+    return this.notificationsRepository.upsertSnooze(ownerId, taskId, untilDate);
+  }
+
+  async unsnooze(ownerId: string, taskId: string): Promise<void> {
+    await this.notificationsRepository.deleteSnooze(ownerId, taskId);
+  }
+
+  private async snoozedTaskIds(ownerId: string): Promise<Types.ObjectId[]> {
+    const snoozes = await this.notificationsRepository.findActiveSnoozes(ownerId, new Date());
+    return snoozes.map((s) => s.task);
   }
 
   async markRead(id: string, recipientId: string): Promise<void> {
@@ -438,22 +475,52 @@ export class NotificationsService {
     await this.notificationsRepository.markAllRead(recipientId);
   }
 
-  async getPreferences(ownerId: string): Promise<{ mutedTypes: NotificationType[] }> {
+  async getPreferences(
+    ownerId: string,
+  ): Promise<{ mutedTypes: NotificationType[]; digest: DigestFrequency }> {
     const preference = await this.notificationsRepository.findPreference(ownerId);
-    return { mutedTypes: preference?.mutedTypes ?? [] };
+    return { mutedTypes: preference?.mutedTypes ?? [], digest: preference?.digest ?? 'off' };
+  }
+
+  /** Module 11 gap-closure: the in-app digest - unread notifications from the last period. */
+  async digestFor(
+    ownerId: string,
+    period: 'daily' | 'weekly',
+    now = new Date(),
+    appUrl = process.env.APP_URL ?? 'http://localhost:5173',
+  ): Promise<Digest> {
+    const since = new Date(now.getTime() - DIGEST_PERIOD_MS[period]);
+    const notifications = await this.notificationsRepository.findUnreadSince(
+      ownerId,
+      since,
+      await this.snoozedTaskIds(ownerId),
+      DIGEST_SCAN_LIMIT,
+    );
+    return buildDigest(
+      notifications.map((n) => ({
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        taskId: n.taskId ? n.taskId.toString() : null,
+        createdAt: n.createdAt,
+      })),
+      period,
+      appUrl,
+    );
   }
 
   async updatePreferences(
     ownerId: string,
     organizationId: string,
     dto: PutNotificationPreferenceDto,
-  ): Promise<{ mutedTypes: NotificationType[] }> {
+  ): Promise<{ mutedTypes: NotificationType[]; digest: DigestFrequency }> {
     const updated = await this.notificationsRepository.upsertPreference(
       ownerId,
       organizationId,
       dto.mutedTypes,
+      dto.digest,
     );
-    return { mutedTypes: updated.mutedTypes };
+    return { mutedTypes: updated.mutedTypes, digest: updated.digest ?? 'off' };
   }
 
   private async getOwnedOrThrow(id: string, recipientId: string): Promise<NotificationDocument> {

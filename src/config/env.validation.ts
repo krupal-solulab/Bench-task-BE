@@ -55,6 +55,14 @@ export const envValidationSchema = Joi.object({
   S3_SECRET_KEY: Joi.string().required(),
   S3_BUCKET: Joi.string().required(),
   S3_REGION: Joi.string().default('us-east-1'),
+  // Module 11 gap-closure: all optional - without SMTP_HOST, emails are only logged (as before).
+  SMTP_HOST: Joi.string().allow('').optional(),
+  SMTP_PORT: Joi.number().port().optional(),
+  SMTP_SECURE: Joi.string().valid('true', 'false').optional(),
+  SMTP_USER: Joi.string().allow('').optional(),
+  SMTP_PASSWORD: Joi.string().allow('').optional(),
+  SMTP_FROM: Joi.string().allow('').optional(),
+  APP_URL: Joi.string().uri().optional(),
 })
   .or('REDIS_URL', 'REDIS_HOST')
   .messages({

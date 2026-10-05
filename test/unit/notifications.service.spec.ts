@@ -505,7 +505,10 @@ describe('NotificationsService', () => {
   describe('preferences', () => {
     it('defaults to an empty muted list (receive everything) when nothing is saved yet', async () => {
       notificationsRepository.findPreference.mockResolvedValue(null);
-      await expect(service.getPreferences(ASSIGNEE_ID)).resolves.toEqual({ mutedTypes: [] });
+      await expect(service.getPreferences(ASSIGNEE_ID)).resolves.toEqual({
+        mutedTypes: [],
+        digest: 'off',
+      });
     });
 
     it('upserts the preference scoped to the caller', async () => {
@@ -517,10 +520,14 @@ describe('NotificationsService', () => {
         mutedTypes: [NotificationType.DUE_SOON],
       });
 
-      expect(notificationsRepository.upsertPreference).toHaveBeenCalledWith(ASSIGNEE_ID, ORG_A, [
-        NotificationType.DUE_SOON,
-      ]);
-      expect(result).toEqual({ mutedTypes: [NotificationType.DUE_SOON] });
+      // 4th arg: digest - omitted by this caller, so the stored digest is left unchanged.
+      expect(notificationsRepository.upsertPreference).toHaveBeenCalledWith(
+        ASSIGNEE_ID,
+        ORG_A,
+        [NotificationType.DUE_SOON],
+        undefined,
+      );
+      expect(result).toEqual({ mutedTypes: [NotificationType.DUE_SOON], digest: 'off' });
     });
   });
 });

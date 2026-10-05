@@ -48,6 +48,11 @@ export class User {
   })
   organizationId!: Types.ObjectId | null;
 
+  // Module 11 gap-closure: the user's own display time zone (IANA). Null - every existing user -
+  // means "use the browser's", exactly as before.
+  @Prop({ type: String, default: null, maxlength: 60 })
+  timezone!: string | null;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

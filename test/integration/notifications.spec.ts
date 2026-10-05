@@ -186,7 +186,10 @@ describe('notifications (integration)', () => {
       .set(...authHeader(developer.accessToken))
       .send({ mutedTypes: [NotificationType.STATUS_CHANGED] });
     expect(muted.status).toBe(200);
-    expect(muted.body.data).toEqual({ mutedTypes: [NotificationType.STATUS_CHANGED] });
+    expect(muted.body.data).toEqual({
+      mutedTypes: [NotificationType.STATUS_CHANGED],
+      digest: 'off',
+    });
 
     await api(app)
       .patch(`/${API_PREFIX}/tasks/${task.id}/status`)

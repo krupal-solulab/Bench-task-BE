@@ -298,6 +298,27 @@ export class TasksRepository {
       .lean();
   }
 
+  /** Module 11 gap-closure: a page of activity, newest first, actor name populated. */
+  findActivityBatch(filter: FilterQuery<TaskActivityDocument>, limit: number) {
+    return this.activityModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('actor', 'name')
+      .lean();
+  }
+
+  /** Module 11 gap-closure: ids of tasks matching a (visibility-scoped) filter. */
+  async findIds(filter: FilterQuery<TaskDocument>, limit: number): Promise<Types.ObjectId[]> {
+    const rows = await this.model.find(filter).select('_id').limit(limit).lean();
+    return rows.map((r) => r._id as Types.ObjectId);
+  }
+
+  /** Module 11 gap-closure: id/key/title of tasks matching a (visibility-scoped) filter. */
+  findSummaries(filter: FilterQuery<TaskDocument>) {
+    return this.model.find(filter).select('title issueKey').lean();
+  }
+
   /** Module 10 gap-closure: the candidate pool duplicate detection scores (newest first). */
   findSimilarityCandidates(filter: FilterQuery<TaskDocument>, limit: number) {
     return this.model

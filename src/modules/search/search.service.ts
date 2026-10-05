@@ -28,8 +28,18 @@ export interface GlobalSearchUserResult {
   email: string;
 }
 
+/** Module 11 gap-closure - a comment match, always on an issue the caller can see. */
+export interface GlobalSearchCommentResult {
+  id: string;
+  snippet: string;
+  task: { id: string; issueKey: string | null; title: string };
+  author: { id: string; name: string } | null;
+  createdAt: Date;
+}
+
 export interface GlobalSearchResult {
   tasks: GlobalSearchTaskResult[];
+  comments: GlobalSearchCommentResult[];
   projects: GlobalSearchProjectResult[];
   users: GlobalSearchUserResult[];
 }
@@ -65,7 +75,7 @@ export class SearchService {
     // literal regex source server-side.
     const escapedTerm = term.replace(/'/g, '');
 
-    const [taskResult, projectResult, userResult] = await Promise.all([
+    const [taskResult, projectResult, userResult, commentResults] = await Promise.all([
       this.tasksService.search(
         { jql: `text ~ '${escapedTerm}'`, page: 1, limit, sortOrder: 'desc' },
         actingUser,
@@ -85,6 +95,7 @@ export class SearchService {
         } as ListUsersDto,
         requireOrgId(actingUser),
       ),
+      this.tasksService.searchComments(term, limit, actingUser),
     ]);
 
     return {
@@ -103,6 +114,7 @@ export class SearchService {
           statusCategory: task.statusCategory,
         };
       }),
+      comments: commentResults,
       projects: projectResult.data.map((project) => ({
         id: project.id,
         name: project.name,

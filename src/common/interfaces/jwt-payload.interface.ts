@@ -16,4 +16,6 @@ export interface AuthenticatedUser {
   organizationId: string | null;
   /** Module 8 gap-closure: present only while an Admin is viewing as this user (read-only). */
   impersonatedBy?: string;
+  /** Module 11 gap-closure: the id of the personal API token used, when not a normal sign-in. */
+  viaApiToken?: string;
 }

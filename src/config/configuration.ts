@@ -43,6 +43,17 @@ export interface AppConfig {
     bucket: string;
     region: string;
   };
+  /** Module 11 gap-closure: optional SMTP - email only really sends when `host` is set. */
+  smtp: {
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    password: string;
+    from: string;
+  };
+  /** Public URL of the web app, used for links in emails. */
+  appUrl: string;
 }
 
 export default (): AppConfig => ({
@@ -90,4 +101,13 @@ export default (): AppConfig => ({
     bucket: process.env.S3_BUCKET ?? '',
     region: process.env.S3_REGION ?? 'us-east-1',
   },
+  smtp: {
+    host: process.env.SMTP_HOST ?? '',
+    port: parseInt(process.env.SMTP_PORT ?? '587', 10),
+    secure: (process.env.SMTP_SECURE ?? 'false') === 'true',
+    user: process.env.SMTP_USER ?? '',
+    password: process.env.SMTP_PASSWORD ?? '',
+    from: process.env.SMTP_FROM ?? 'no-reply@localhost',
+  },
+  appUrl: process.env.APP_URL ?? 'http://localhost:5173',
 });

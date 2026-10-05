@@ -5,6 +5,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { SharedRoute } from '../../common/decorators/shared-route.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { DisallowApiToken } from '../../common/decorators/disallow-api-token.decorator';
 import { AllowDuringImpersonation } from '../../common/decorators/allow-during-impersonation.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { Role } from '../../common/enums/role.enum';
@@ -18,7 +19,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
-import { UpdateUserDto } from '../users/dto/update-user.dto';
+import { UpdateOwnProfileDto } from '../users/dto/update-own-profile.dto';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -55,6 +56,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @DisallowApiToken()
   @SharedRoute()
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
@@ -64,6 +66,7 @@ export class AuthController {
   }
 
   @Post('logout-all')
+  @DisallowApiToken()
   @SharedRoute()
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
@@ -81,14 +84,16 @@ export class AuthController {
   }
 
   @Patch('me')
+  @DisallowApiToken()
   @SharedRoute()
   @ApiBearerAuth()
-  @ApiOperation({ summary: "Update own name/email (Module 11's self-service profile editing)" })
-  async updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateUserDto) {
+  @ApiOperation({ summary: 'Update own name/email/time zone (self-service profile)' })
+  async updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateOwnProfileDto) {
     return this.usersService.updateOwnProfile(user.id, dto);
   }
 
   @Patch('me/password')
+  @DisallowApiToken()
   @SharedRoute()
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Change own password (revokes all sessions on success)' })
@@ -106,6 +111,7 @@ export class AuthController {
    * aside and swaps back on exit. Audit-logged.
    */
   @Post('impersonate/:userId')
+  @DisallowApiToken()
   @Roles(Role.ADMIN)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
@@ -132,6 +138,7 @@ export class AuthController {
 
   /** Records the end of a "view as" session - the one non-read route allowed while viewing as. */
   @Post('impersonation/end')
+  @DisallowApiToken()
   @AllowDuringImpersonation()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiBearerAuth()

@@ -457,7 +457,9 @@
                 "LibraryFieldUpdated",
                 "LibraryFieldDeleted",
                 "ImpersonationStarted",
-                "ImpersonationEnded"
+                "ImpersonationEnded",
+                "ApiTokenCreated",
+                "ApiTokenRevoked"
               ],
               "type": "string"
             }
@@ -3381,14 +3383,14 @@
       },
       "patch": {
         "operationId": "AuthController_updateMe",
-        "summary": "Update own name/email (Module 11's self-service profile editing)",
+        "summary": "Update own name/email/time zone (self-service profile)",
         "parameters": [],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateUserDto"
+                "$ref": "#/components/schemas/UpdateOwnProfileDto"
               }
             }
           }
@@ -4187,6 +4189,61 @@
               "items": {
                 "type": "string"
               }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tasks/activity-feed": {
+      "get": {
+        "operationId": "TasksController_activityFeed",
+        "summary": "Recent activity across issues I can see (Module 11)",
+        "parameters": [
+          {
+            "name": "before",
+            "required": false,
+            "in": "query",
+            "description": "Only entries older than this (the previous page's nextBefore)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 30,
+              "type": "number"
+            }
+          },
+          {
+            "name": "scope",
+            "required": false,
+            "in": "query",
+            "description": "\"involved\" = issues I created, am assigned to, or watch",
+            "schema": {
+              "default": "all",
+              "enum": [
+                "all",
+                "involved"
+              ],
+              "type": "string"
             }
           }
         ],
@@ -6263,6 +6320,126 @@
         "parameters": [],
         "responses": {
           "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/digest": {
+      "get": {
+        "operationId": "NotificationsController_digest",
+        "summary": "My digest of unread notifications for a period (Module 11)",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "daily",
+              "enum": [
+                "daily",
+                "weekly"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/snoozes": {
+      "get": {
+        "operationId": "NotificationsController_listSnoozes",
+        "summary": "My active per-issue notification snoozes (Module 11)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/snoozes/{taskId}": {
+      "put": {
+        "operationId": "NotificationsController_snooze",
+        "summary": "Snooze one issue's notifications until a time (Module 11)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutNotificationSnoozeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "NotificationsController_unsnooze",
+        "summary": "End an issue's notification snooze early (Module 11)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
             "description": ""
           }
         },
@@ -9504,6 +9681,132 @@
           }
         ]
       }
+    },
+    "/api/v1/api-tokens": {
+      "get": {
+        "operationId": "ApiTokensController_listMine",
+        "summary": "My active API tokens (Module 11)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "ApiTokensController_create",
+        "summary": "Create an API token - the secret is returned only this once",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/api-tokens/{id}": {
+      "delete": {
+        "operationId": "ApiTokensController_revoke",
+        "summary": "Revoke one of my API tokens",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/api-tokens/org": {
+      "get": {
+        "operationId": "ApiTokensController_listOrg",
+        "summary": "Every active API token in this organization (Admin)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/api-tokens/org/{id}": {
+      "delete": {
+        "operationId": "ApiTokensController_revokeAny",
+        "summary": "Revoke anyone's API token in this organization (Admin)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
     }
   },
   "info": {
@@ -10857,6 +11160,25 @@
           "refreshToken"
         ]
       },
+      "UpdateOwnProfileDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Jane Doe"
+          },
+          "email": {
+            "type": "string",
+            "example": "jane@example.com"
+          },
+          "timezone": {
+            "type": "object",
+            "nullable": true,
+            "example": "Asia/Kolkata",
+            "description": "IANA time zone for showing dates and times; null = use the browser default"
+          }
+        }
+      },
       "ChangePasswordDto": {
         "type": "object",
         "properties": {
@@ -11392,6 +11714,18 @@
           }
         }
       },
+      "PutNotificationSnoozeDto": {
+        "type": "object",
+        "properties": {
+          "until": {
+            "type": "string",
+            "example": "2026-10-06T09:00:00.000Z"
+          }
+        },
+        "required": [
+          "until"
+        ]
+      },
       "PutNotificationPreferenceDto": {
         "type": "object",
         "properties": {
@@ -11412,6 +11746,15 @@
                 "ApprovalDecided"
               ]
             }
+          },
+          "digest": {
+            "type": "string",
+            "enum": [
+              "off",
+              "daily",
+              "weekly"
+            ],
+            "description": "Module 11: digest frequency"
           }
         },
         "required": [
@@ -11944,6 +12287,29 @@
             "description": "Whether the field is required in this project (default false)"
           }
         }
+      },
+      "CreateApiTokenDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "CI pipeline"
+          },
+          "expiresInDays": {
+            "type": "number",
+            "enum": [
+              30,
+              90,
+              365,
+              null
+            ],
+            "nullable": true,
+            "description": "Days until it expires; null = never (default 90)"
+          }
+        },
+        "required": [
+          "name"
+        ]
       }
     }
   }
