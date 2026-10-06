@@ -13,6 +13,7 @@ import {
   MaxLength,
   MinLength,
   ValidateNested,
+  Max,
 } from 'class-validator';
 import { StatusCategory } from '../../../common/enums/status-category.enum';
 import { Role } from '../../../common/enums/role.enum';
@@ -118,6 +119,19 @@ export class WorkflowTransitionDto {
   @ArrayUnique()
   @IsObjectId({ each: true })
   approverProjectRoleIds?: string[];
+
+  @ApiPropertyOptional({
+    minimum: 1,
+    maximum: 10,
+    description:
+      'Module 12: how many different eligible approvers must approve (default 1). Any one ' +
+      'rejection rejects the request.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  requiredApprovals?: number;
 }
 
 export class PutWorkflowDto {

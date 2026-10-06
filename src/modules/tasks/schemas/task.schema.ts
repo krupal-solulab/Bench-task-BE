@@ -16,6 +16,18 @@ export type TaskDocument = HydratedDocument<Task>;
  * already-in-flight request - the same "resolved once, trusted after" convention this codebase
  * already uses for denormalized fields like Task.organizationId.
  */
+/** Module 12 gap-closure: one approver's approval of a multi-approver request. */
+@Schema({ _id: false })
+export class ApprovalVote {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  user!: Types.ObjectId;
+
+  @Prop({ type: Date, required: true })
+  at!: Date;
+}
+
+export const ApprovalVoteSchema = SchemaFactory.createForClass(ApprovalVote);
+
 @Schema({ _id: false })
 export class PendingApproval {
   @Prop({ required: true, trim: true, maxlength: 40 })
@@ -38,6 +50,14 @@ export class PendingApproval {
 
   @Prop({ type: [Types.ObjectId], ref: 'ProjectRoleDefinition', default: [] })
   approverProjectRoleIds!: Types.ObjectId[];
+
+  // Module 12 gap-closure: snapshotted from the transition's requiredApprovals (1 for every
+  // request made before this existed), plus who has approved so far.
+  @Prop({ type: Number, default: 1 })
+  requiredApprovals!: number;
+
+  @Prop({ type: [ApprovalVoteSchema], default: [] })
+  approvals!: ApprovalVote[];
 }
 
 export const PendingApprovalSchema = SchemaFactory.createForClass(PendingApproval);

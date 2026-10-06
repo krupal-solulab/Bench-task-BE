@@ -27,6 +27,8 @@ export enum TaskActivityAction {
   // Module 5 gap-closure - `from`/`to` carry the old/new issueKey (the most visible thing that
   // changed), not the project ids.
   MOVED_PROJECT = 'moved_project',
+  // Module 12 gap-closure: one approver approved a multi-approver request that still needs more.
+  APPROVAL_RECORDED = 'approval_recorded',
 }
 
 @Schema({
@@ -64,6 +66,12 @@ export class TaskActivity {
   // `actor` - null for every entry logged before this feature and for every human-initiated change.
   @Prop({ type: String, default: null })
   viaAutomationRule!: string | null;
+
+  // Module 12 gap-closure: field-level audit trail - for an `updated` entry, which field changed
+  // (a built-in field id such as "labels", or a custom field id); from/to hold its old/new value.
+  // Null on every entry written before this existed (shown as a generic "updated").
+  @Prop({ type: String, default: null })
+  field!: string | null;
 
   createdAt!: Date;
 }

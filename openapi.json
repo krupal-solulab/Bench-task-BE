@@ -4949,6 +4949,35 @@
         ]
       }
     },
+    "/api/v1/tasks/{id}/transitions/preview": {
+      "get": {
+        "operationId": "TasksController_previewTransitions",
+        "summary": "Dry-run every next status: allowed?, why not, approvals needed, automations (M12)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tasks"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/tasks/{id}/approval/approve": {
       "post": {
         "operationId": "TasksController_approveApproval",
@@ -10290,6 +10319,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "requiredApprovals": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Module 12: how many different eligible approvers must approve (default 1). Any one rejection rejects the request."
           }
         },
         "required": [
@@ -10547,7 +10582,12 @@
               "IssueCreated",
               "StatusChanged",
               "UnassignedForDuration",
-              "AllSubtasksDone"
+              "AllSubtasksDone",
+              "ApprovalRequested",
+              "ApprovalDecided",
+              "AssigneeChanged",
+              "PriorityChanged",
+              "CommentAdded"
             ]
           },
           "toStatus": {
@@ -10561,6 +10601,25 @@
           "afterHours": {
             "type": "number",
             "description": "Required, only meaningful, for UnassignedForDuration"
+          },
+          "approvalOutcome": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "nullable": true,
+            "description": "Optional, only meaningful for ApprovalDecided - omit/null for either outcome"
+          },
+          "toPriority": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3"
+            ],
+            "nullable": true,
+            "description": "Optional, only meaningful for PriorityChanged - omit/null for any priority"
           }
         },
         "required": [

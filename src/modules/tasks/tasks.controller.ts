@@ -256,6 +256,17 @@ export class TasksController {
 
   // Module 12's Approval Workflows - self-service like watch/vote below (no request body; the
   // acting user is always the one deciding, resolved from their own JWT).
+  @Get(':id/transitions/preview')
+  @ApiOperation({
+    summary: 'Dry-run every next status: allowed?, why not, approvals needed, automations (M12)',
+  })
+  async previewTransitions(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.tasksService.previewTransitions(id, user);
+  }
+
   @Post(':id/approval/approve')
   @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Approve a transition awaiting approval (Module 12)' })

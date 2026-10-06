@@ -1,4 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { TasksService } from '../tasks/tasks.service';
+import { AutomationTriggerType } from '../projects/schemas/automation-rule.schema';
 import { Types } from 'mongoose';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
 import { extractId } from '../../common/utils/mongo.util';
@@ -30,6 +32,7 @@ export class CommentsService {
     private readonly projectsService: ProjectsService,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsService: NotificationsService,
+    private readonly tasksService: TasksService,
   ) {}
 
   async create(
@@ -100,6 +103,13 @@ export class CommentsService {
 
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
     await this.notifyScheme(project, NotificationSchemeEvent.COMMENTED, taskId, task.title);
+    // Module 12 gap-closure: CommentAdded automation trigger. Automation-added comments never go
+    // through here (TasksService writes them directly), so rules can't chain off each other.
+    await this.tasksService.fireAutomationTrigger(
+      taskId,
+      { type: AutomationTriggerType.COMMENT_ADDED },
+      actingUser,
+    );
 
     return created;
   }

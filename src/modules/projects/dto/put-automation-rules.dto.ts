@@ -6,6 +6,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -16,10 +17,13 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  APPROVAL_OUTCOMES,
+  ApprovalOutcome,
   AutomationActionType,
   AutomationConditionField,
   AutomationTriggerType,
 } from '../schemas/automation-rule.schema';
+import { TaskPriority } from '../../../common/enums/task-priority.enum';
 
 export class AutomationConditionDto {
   @ApiProperty({ enum: AutomationConditionField })
@@ -82,6 +86,24 @@ export class AutomationTriggerDto {
   @IsInt()
   @Min(1)
   afterHours?: number;
+
+  @ApiPropertyOptional({
+    enum: APPROVAL_OUTCOMES,
+    nullable: true,
+    description: 'Optional, only meaningful for ApprovalDecided - omit/null for either outcome',
+  })
+  @IsOptional()
+  @IsIn(APPROVAL_OUTCOMES)
+  approvalOutcome?: ApprovalOutcome | null;
+
+  @ApiPropertyOptional({
+    enum: TaskPriority,
+    nullable: true,
+    description: 'Optional, only meaningful for PriorityChanged - omit/null for any priority',
+  })
+  @IsOptional()
+  @IsEnum(TaskPriority)
+  toPriority?: TaskPriority | null;
 }
 
 export class AutomationRuleDto {

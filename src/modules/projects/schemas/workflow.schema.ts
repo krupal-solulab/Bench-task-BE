@@ -73,6 +73,12 @@ export class WorkflowTransition {
 
   @Prop({ type: [Types.ObjectId], ref: 'ProjectRoleDefinition', default: [] })
   approverProjectRoleIds?: Types.ObjectId[];
+
+  // Module 12 gap-closure: how many DIFFERENT eligible approvers must approve before the
+  // transition applies (any one rejection still rejects). Unset (every existing transition) = 1,
+  // exactly the original any-one-approver behavior.
+  @Prop({ type: Number, min: 1, max: 10 })
+  requiredApprovals?: number;
 }
 
 export const WorkflowTransitionSchema = SchemaFactory.createForClass(WorkflowTransition);
@@ -208,6 +214,7 @@ export interface WorkflowTransitionInput {
   approverUserIds?: string[];
   approverTeamIds?: string[];
   approverProjectRoleIds?: string[];
+  requiredApprovals?: number;
 }
 
 export function toWorkflowTransitions(inputs: WorkflowTransitionInput[]): WorkflowTransition[] {
@@ -220,6 +227,7 @@ export function toWorkflowTransitions(inputs: WorkflowTransitionInput[]): Workfl
       ? { requiredCustomFieldIds: t.requiredCustomFieldIds }
       : {}),
     ...(t.requiresApproval !== undefined ? { requiresApproval: t.requiresApproval } : {}),
+    ...(t.requiredApprovals !== undefined ? { requiredApprovals: t.requiredApprovals } : {}),
     ...(t.approverRoles !== undefined ? { approverRoles: t.approverRoles } : {}),
     ...(t.approverUserIds?.length
       ? { approverUserIds: t.approverUserIds.map((id) => new Types.ObjectId(id)) }
