@@ -253,6 +253,7 @@ export class TasksRepository {
     from: string | null = null,
     to: string | null = null,
     viaAutomationRule: string | null = null,
+    field: string | null = null,
   ): Promise<void> {
     await this.activityModel.create({
       task: new Types.ObjectId(taskId),
@@ -261,7 +262,29 @@ export class TasksRepository {
       from,
       to,
       viaAutomationRule,
+      field,
     });
+  }
+
+  /**
+   * Module 12 gap-closure: atomically records one approver's vote on the pending request - only if
+   * a request is still pending and this user hasn't already voted - so two approvers clicking at
+   * once can never lose a vote or double-count one. Null when nothing was recorded.
+   */
+  async addApprovalVote(id: string, userId: string): Promise<TaskDocument | null> {
+    const user = new Types.ObjectId(userId);
+    return this.model
+      .findOneAndUpdate(
+        {
+          _id: id,
+          deletedAt: null,
+          pendingApproval: { $ne: null },
+          'pendingApproval.approvals.user': { $ne: user },
+        },
+        { $push: { 'pendingApproval.approvals': { user, at: new Date() } } },
+        { new: true },
+      )
+      .exec();
   }
 
   async paginateActivity(

@@ -11,7 +11,19 @@ export enum AutomationTriggerType {
   // cross-issue trigger: unlike every other trigger, its actions target the PARENT task, not the
   // one whose own change caused the check (see tasks.service.ts's own comment on this).
   ALL_SUBTASKS_DONE = 'AllSubtasksDone',
+  // Module 12 gap-closure: extended triggers. Like every other trigger, only a human-initiated
+  // change fires them - an automation's own change never re-evaluates rules (no chaining).
+  APPROVAL_REQUESTED = 'ApprovalRequested',
+  // Fired once a request is finally decided - optionally scoped by `approvalOutcome`.
+  APPROVAL_DECIDED = 'ApprovalDecided',
+  ASSIGNEE_CHANGED = 'AssigneeChanged',
+  // Optionally scoped by `toPriority`.
+  PRIORITY_CHANGED = 'PriorityChanged',
+  COMMENT_ADDED = 'CommentAdded',
 }
+
+export const APPROVAL_OUTCOMES = ['approved', 'rejected'] as const;
+export type ApprovalOutcome = (typeof APPROVAL_OUTCOMES)[number];
 
 export enum AutomationActionType {
   SET_STATUS = 'SetStatus',
@@ -75,6 +87,14 @@ export class AutomationTrigger {
   // task must have been unassigned before this rule fires.
   @Prop({ type: Number, default: null })
   afterHours?: number | null;
+
+  // Module 12 gap-closure - only meaningful for ApprovalDecided; null/unset = either outcome.
+  @Prop({ type: String, enum: [...APPROVAL_OUTCOMES, null], default: null })
+  approvalOutcome?: ApprovalOutcome | null;
+
+  // Module 12 gap-closure - only meaningful for PriorityChanged; null/unset = any new priority.
+  @Prop({ type: String, default: null })
+  toPriority?: string | null;
 }
 
 export const AutomationTriggerSchema = SchemaFactory.createForClass(AutomationTrigger);
@@ -119,6 +139,8 @@ export interface AutomationTriggerEvent {
   // Only set (by the scheduled checker) for a UnassignedForDuration trigger - this task's actual
   // elapsed unassigned duration, compared against each candidate rule's own `afterHours`.
   unassignedHours?: number;
+  approvalOutcome?: ApprovalOutcome;
+  toPriority?: string;
 }
 
 export interface AutomationTaskSnapshot {
@@ -160,6 +182,20 @@ export function evaluateAutomationRules(
       const threshold = rule.trigger.afterHours;
       if (threshold == null || trigger.unassignedHours == null) continue;
       if (trigger.unassignedHours < threshold) continue;
+    }
+    if (
+      trigger.type === AutomationTriggerType.APPROVAL_DECIDED &&
+      rule.trigger.approvalOutcome &&
+      rule.trigger.approvalOutcome !== trigger.approvalOutcome
+    ) {
+      continue;
+    }
+    if (
+      trigger.type === AutomationTriggerType.PRIORITY_CHANGED &&
+      rule.trigger.toPriority &&
+      rule.trigger.toPriority !== trigger.toPriority
+    ) {
+      continue;
     }
     if (!matchesConditions(rule.conditions, task)) continue;
 

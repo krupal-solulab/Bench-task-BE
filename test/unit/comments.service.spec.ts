@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Role } from 'src/common/enums/role.enum';
 import { AuthenticatedUser } from 'src/common/interfaces/jwt-payload.interface';
+import { TasksService } from 'src/modules/tasks/tasks.service';
 import { CommentsService } from 'src/modules/comments/comments.service';
 import { CommentsRepository } from 'src/modules/comments/comments.repository';
 import { TasksRepository } from 'src/modules/tasks/tasks.repository';
@@ -122,6 +123,7 @@ describe('CommentsService', () => {
       projectsService as unknown as ProjectsService,
       eventsGateway as unknown as EventsGateway,
       notificationsService as unknown as NotificationsService,
+      { fireAutomationTrigger: jest.fn() } as unknown as TasksService,
     );
   });
 

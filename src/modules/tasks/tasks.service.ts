@@ -24,7 +24,12 @@ import { NotificationsService } from '../../notifications/notifications.service'
 import { EventsGateway } from '../../events/events.gateway';
 import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
-import { categoryOf, resolveWorkflow, Workflow } from '../projects/schemas/workflow.schema';
+import {
+  categoryOf,
+  resolveWorkflow,
+  Workflow,
+  WorkflowTransition,
+} from '../projects/schemas/workflow.schema';
 import {
   NotificationSchemeEvent,
   resolveNotificationSchemeRule,
@@ -42,6 +47,7 @@ import {
   AutomationAction,
   AutomationActionType,
   AutomationFiredAction,
+  AutomationTriggerEvent,
   AutomationTriggerType,
   evaluateAutomationRules,
   renderTemplate,
@@ -181,6 +187,39 @@ const SIMILARITY_CANDIDATE_LIMIT = 1000;
 const SIMILAR_RESULT_LIMIT = 5;
 const RISK_SCAN_LIMIT = 2000;
 const AT_RISK_RESULT_LIMIT = 50;
+
+/** Module 12 gap-closure: field-level audit trail values are stored as short display strings. */
+const AUDIT_VALUE_MAX_LENGTH = 500;
+
+function auditValue(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (Array.isArray(value)) return value.length ? auditValue(value.map(String).join(', ')) : null;
+  if (value instanceof Date) return value.toISOString();
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value);
+  return text.length > AUDIT_VALUE_MAX_LENGTH
+    ? `${text.slice(0, AUDIT_VALUE_MAX_LENGTH - 1)}…`
+    : text;
+}
+
+/** One reason a transition can't happen right now, plus the HTTP error updateStatus throws. */
+interface TransitionBlocker {
+  kind: 'bad_request' | 'conflict' | 'forbidden';
+  message: string;
+}
+
+interface TransitionCheck {
+  permissionDenied: boolean;
+  blockers: TransitionBlocker[];
+  workflow: Workflow;
+  newCategory: StatusCategory | null;
+  transitionRule: WorkflowTransition | undefined;
+}
+
+function blockerToException(blocker: TransitionBlocker): Error {
+  if (blocker.kind === 'forbidden') return new ForbiddenException(blocker.message);
+  if (blocker.kind === 'conflict') return new ConflictException(blocker.message);
+  return new BadRequestException(blocker.message);
+}
 
 @Injectable()
 export class TasksService {
@@ -585,19 +624,22 @@ export class TasksService {
       dto.customFieldValues ?? {},
     );
 
-    const activities: Array<[TaskActivityAction, string | null, string | null]> = [];
+    const activities: Array<[TaskActivityAction, string | null, string | null, string | null]> = [];
     if (dto.priority && dto.priority !== task.priority) {
-      activities.push([TaskActivityAction.PRIORITY_CHANGED, task.priority, dto.priority]);
+      activities.push([TaskActivityAction.PRIORITY_CHANGED, task.priority, dto.priority, null]);
     }
     if (dto.dueDate !== undefined && dto.dueDate !== task.dueDate?.toISOString()) {
       activities.push([
         TaskActivityAction.DUE_DATE_CHANGED,
         task.dueDate?.toISOString() ?? null,
         dto.dueDate ?? null,
+        null,
       ]);
     }
-    if ((dto.title && dto.title !== task.title) || dto.description !== undefined) {
-      activities.push([TaskActivityAction.UPDATED, null, null]);
+    // Module 12 gap-closure: field-level audit trail - one `updated` entry per changed field,
+    // with its old and new value, instead of a single generic "updated" entry.
+    for (const change of await this.fieldChanges(task, project.id, dto)) {
+      activities.push([TaskActivityAction.UPDATED, change.from, change.to, change.field]);
     }
 
     const updated = await this.tasksRepository.updateById(id, {
@@ -624,7 +666,7 @@ export class TasksService {
       ...(dto.securityLevel !== undefined ? { securityLevel: dto.securityLevel } : {}),
     });
 
-    for (const [action, from, to] of activities) {
+    for (const [action, from, to, field] of activities) {
       await this.tasksRepository.logActivity(
         id,
         actingUser.id,
@@ -632,10 +674,72 @@ export class TasksService {
         from,
         to,
         automation?.viaRuleName ?? null,
+        field,
       );
     }
     await this.invalidateDashboardCache();
+
+    // Module 12 gap-closure: PriorityChanged automation trigger (human-initiated changes only).
+    if (!automation && dto.priority && dto.priority !== task.priority) {
+      const fired = await this.runAutomations(
+        project,
+        { type: AutomationTriggerType.PRIORITY_CHANGED, toPriority: dto.priority },
+        updated!,
+        actingUser,
+      );
+      if (fired) return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
+    }
     return updated!;
+  }
+
+  /**
+   * Module 12 gap-closure: which fields an update actually changes, as display strings for the
+   * audit trail. Priority and due date keep their own dedicated activity entries.
+   */
+  private async fieldChanges(
+    task: TaskDocument,
+    projectId: string,
+    dto: UpdateTaskDto,
+  ): Promise<Array<{ field: string; from: string | null; to: string | null }>> {
+    const changes: Array<{ field: string; from: string | null; to: string | null }> = [];
+    const push = (field: string, before: unknown, after: unknown) => {
+      const from = auditValue(before);
+      const to = auditValue(after);
+      if (from !== to) changes.push({ field, from, to });
+    };
+    if (dto.title !== undefined && dto.title) push('title', task.title, dto.title);
+    if (dto.description !== undefined) push('description', task.description, dto.description);
+    if (dto.labels !== undefined) push('labels', task.labels, dto.labels);
+    if (dto.components !== undefined) push('components', task.components, dto.components);
+    if (dto.originalEstimateHours !== undefined) {
+      push('originalEstimateHours', task.originalEstimateHours, dto.originalEstimateHours);
+    }
+    if (dto.securityLevel !== undefined)
+      push('securityLevel', task.securityLevel, dto.securityLevel);
+
+    const releaseFields = (['fixVersions', 'affectsVersions'] as const).filter(
+      (key) => dto[key] !== undefined,
+    );
+    if (releaseFields.length) {
+      const allIds = releaseFields.flatMap((key) => [
+        ...(task[key] ?? []).map(extractId),
+        ...(dto[key] ?? []),
+      ]);
+      const names = await this.releasesService.namesForIds(projectId, allIds);
+      const label = (ids: string[]) =>
+        ids
+          .map((id) => names.get(id) ?? '(deleted release)')
+          .sort()
+          .join(', ');
+      for (const key of releaseFields) {
+        push(key, label((task[key] ?? []).map(extractId)), label(dto[key] ?? []));
+      }
+    }
+
+    for (const [fieldId, value] of Object.entries(dto.customFieldValues ?? {})) {
+      push(fieldId, task.customFieldValues?.[fieldId], value);
+    }
+    return changes;
   }
 
   async updateStatus(
@@ -647,96 +751,14 @@ export class TasksService {
     const task = await this.getWritableOrThrow(id);
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
 
-    const isManagerOrAdmin =
-      (actingUser.role === Role.ADMIN &&
-        extractId(project.organizationId) === requireOrgId(actingUser)) ||
-      (actingUser.role === Role.MANAGER && this.isOwner(project, actingUser.id));
-    const isAssignedDeveloper =
-      actingUser.role === Role.DEVELOPER &&
-      !!task.assignee &&
-      extractId(task.assignee) === actingUser.id;
-    const hasStatusGrant = this.projectsService.memberHasCapability(
-      project,
-      actingUser.id,
-      'canChangeAnyTaskStatus',
-    );
-    const hasSchemeGrant = await this.projectsService.hasSchemeGrant(
-      project,
-      actingUser,
-      SchemeAction.TRANSITION,
-    );
-
-    if (
-      !automation?.bypassPermission &&
-      !isManagerOrAdmin &&
-      !isAssignedDeveloper &&
-      !hasStatusGrant &&
-      !hasSchemeGrant
-    ) {
+    const check = await this.checkTransition(task, project, status, actingUser, automation);
+    if (check.permissionDenied) {
       throw new ForbiddenException('You cannot change the status of this task');
     }
-
     if (task.status === status) return task;
-
-    const workflow = resolveWorkflow(project, task.issueType);
-    const newCategory = categoryOf(workflow, status);
-    if (!newCategory) {
-      throw new BadRequestException(
-        `"${status}" is not a status in this project's workflow. Allowed: ${workflow.statuses.map((s) => s.name).join(', ')}`,
-      );
-    }
-
-    if (!isLegalTaskTransition(workflow, task.status, status)) {
-      throw new ConflictException(
-        `Cannot transition from ${task.status} to ${status}. Allowed: ${legalTaskTransitions(workflow, task.status).join(', ') || 'none'}`,
-      );
-    }
-
-    // Module 12's Approval Workflows - a task with a transition already awaiting a decision is
-    // frozen from any OTHER status change (including automation-driven ones) until that decision
-    // is made, so a stale approval can never be granted against a status the task has since moved
-    // away from. Approve/reject go through their own dedicated methods, not this one.
-    if (task.pendingApproval) {
-      throw new ConflictException(
-        `This task has a transition to "${task.pendingApproval.toStatus}" pending approval - approve or reject it first`,
-      );
-    }
-
-    // Transition Conditions/Validators - additive to the permission gate above, and only ever
-    // narrow a transition further (never widen), so a transition with neither field set behaves
-    // exactly as before this feature existed. Automation-driven transitions bypass both, same as
-    // the permission gate above (the rule's Admin/Manager author already authorized this).
-    const transitionRule = workflow.transitions.find(
-      (t) => t.from === task.status && t.to === status,
-    );
-    if (
-      !automation?.bypassPermission &&
-      transitionRule?.allowedRoles?.length &&
-      !transitionRule.allowedRoles.includes(actingUser.role)
-    ) {
-      throw new ForbiddenException(
-        `Only ${transitionRule.allowedRoles.join('/')} can make this transition`,
-      );
-    }
-    if (!automation?.bypassPermission && transitionRule?.requireComment) {
-      const hasComment = await this.commentModel.exists({ task: task._id, deletedAt: null });
-      if (!hasComment) {
-        throw new BadRequestException('This transition requires a comment on the task first');
-      }
-    }
-    if (!automation?.bypassPermission && transitionRule?.requiredCustomFieldIds?.length) {
-      const effectiveCustomFields = resolveCustomFields(project, task.issueType);
-      const byId = new Map(effectiveCustomFields.map((f) => [f.id, f]));
-      const missing = transitionRule.requiredCustomFieldIds
-        .map((id) => byId.get(id))
-        .filter((def): def is CustomFieldDefinition => !!def)
-        .filter((def) => isEmpty(task.customFieldValues?.[def.id]));
-      if (missing.length > 0) {
-        throw new BadRequestException(
-          `This transition requires a value for: ${missing.map((d) => d.name).join(', ')}`,
-        );
-      }
-    }
+    if (check.blockers.length) throw blockerToException(check.blockers[0]);
+    const { workflow, transitionRule } = check;
+    const newCategory = check.newCategory!;
 
     if (!automation?.bypassPermission && transitionRule?.requiresApproval) {
       const pendingApproval = {
@@ -747,6 +769,8 @@ export class TasksService {
         approverUserIds: transitionRule.approverUserIds ?? [],
         approverTeamIds: transitionRule.approverTeamIds ?? [],
         approverProjectRoleIds: transitionRule.approverProjectRoleIds ?? [],
+        requiredApprovals: Math.max(1, transitionRule.requiredApprovals ?? 1),
+        approvals: [],
       };
       const updated = await this.tasksRepository.updateById(id, { pendingApproval });
       await this.tasksRepository.logActivity(
@@ -783,6 +807,18 @@ export class TasksService {
         toStatus: status,
         approverIds,
       });
+      // Module 12 gap-closure: ApprovalRequested automation trigger.
+      const fired = await this.runAutomations(
+        project,
+        {
+          type: AutomationTriggerType.APPROVAL_REQUESTED,
+          toStatus: status,
+          fromStatus: task.status,
+        },
+        updated!,
+        actingUser,
+      );
+      if (fired) return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
       return updated!;
     }
 
@@ -804,11 +840,36 @@ export class TasksService {
    * status change via applyStatusChange, so an approved transition behaves identically to one
    * that never needed approval in the first place, once it actually applies. */
   async approveTransition(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
-    const { task, project } = await this.getPendingApprovalOrThrow(id, actingUser);
-    const pendingApproval = task.pendingApproval!;
+    const { task, project, pendingApproval } = await this.getPendingApprovalOrThrow(id, actingUser);
+    // Module 12 gap-closure: multi-approver requests. Each eligible approver's approval is
+    // recorded once; the transition applies only when the snapshotted requiredApprovals count is
+    // reached (1 = the original any-one-approver behavior).
+    if ((pendingApproval.approvals ?? []).some((v) => extractId(v.user) === actingUser.id)) {
+      throw new ConflictException('You have already approved this request');
+    }
+    const required = Math.max(1, pendingApproval.requiredApprovals ?? 1);
+    const voted = await this.tasksRepository.addApprovalVote(id, actingUser.id);
+    if (!voted?.pendingApproval) {
+      throw new ConflictException('This approval request has already been decided');
+    }
+    const count = voted.pendingApproval.approvals.length;
+    if (count < required) {
+      await this.tasksRepository.logActivity(
+        id,
+        actingUser.id,
+        TaskActivityAction.APPROVAL_RECORDED,
+        task.status,
+        pendingApproval.toStatus,
+        null,
+      );
+      return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
+    }
+    // Only the vote that reaches the count exactly applies it - a simultaneous extra vote can't
+    // apply the same transition twice.
+    if (count > required) return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
+
     const workflow = resolveWorkflow(project, task.issueType);
     const newCategory = categoryOf(workflow, pendingApproval.toStatus)!;
-
     const updated = await this.applyStatusChange(
       id,
       project,
@@ -826,12 +887,23 @@ export class TasksService {
       toStatus: pendingApproval.toStatus,
       approved: true,
     });
+    const fired = await this.runAutomations(
+      project,
+      {
+        type: AutomationTriggerType.APPROVAL_DECIDED,
+        approvalOutcome: 'approved',
+        toStatus: pendingApproval.toStatus,
+      },
+      updated,
+      actingUser,
+    );
+    if (fired) return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
     return updated;
   }
 
-  /** The other half - clears the pending request without ever changing the task's status. */
+  /** The other half - any one eligible rejection clears the request without changing status. */
   async rejectTransition(id: string, actingUser: AuthenticatedUser): Promise<TaskDocument> {
-    const { task, pendingApproval } = await this.getPendingApprovalOrThrow(id, actingUser);
+    const { task, project, pendingApproval } = await this.getPendingApprovalOrThrow(id, actingUser);
     const updated = await this.tasksRepository.updateById(id, { pendingApproval: null });
     await this.tasksRepository.logActivity(
       id,
@@ -848,7 +920,230 @@ export class TasksService {
       toStatus: pendingApproval.toStatus,
       approved: false,
     });
+    const fired = await this.runAutomations(
+      project,
+      {
+        type: AutomationTriggerType.APPROVAL_DECIDED,
+        approvalOutcome: 'rejected',
+        toStatus: pendingApproval.toStatus,
+      },
+      updated!,
+      actingUser,
+    );
+    if (fired) return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
     return updated!;
+  }
+
+  /**
+   * Every check updateStatus() applies before a status change, collected rather than thrown, in
+   * the same order - so updateStatus() (which throws the first) and previewTransitions() (which
+   * lists them all) can never disagree about whether a transition is allowed.
+   */
+  private async checkTransition(
+    task: TaskDocument,
+    project: ProjectDocument,
+    status: string,
+    actingUser: AuthenticatedUser,
+    automation?: AutomationContext,
+  ): Promise<TransitionCheck> {
+    const isManagerOrAdmin =
+      (actingUser.role === Role.ADMIN &&
+        extractId(project.organizationId) === requireOrgId(actingUser)) ||
+      (actingUser.role === Role.MANAGER && this.isOwner(project, actingUser.id));
+    const isAssignedDeveloper =
+      actingUser.role === Role.DEVELOPER &&
+      !!task.assignee &&
+      extractId(task.assignee) === actingUser.id;
+    const hasStatusGrant = this.projectsService.memberHasCapability(
+      project,
+      actingUser.id,
+      'canChangeAnyTaskStatus',
+    );
+    const hasSchemeGrant = await this.projectsService.hasSchemeGrant(
+      project,
+      actingUser,
+      SchemeAction.TRANSITION,
+    );
+    const permissionDenied =
+      !automation?.bypassPermission &&
+      !isManagerOrAdmin &&
+      !isAssignedDeveloper &&
+      !hasStatusGrant &&
+      !hasSchemeGrant;
+
+    const workflow = resolveWorkflow(project, task.issueType);
+    const newCategory = categoryOf(workflow, status);
+    const blockers: TransitionBlocker[] = [];
+    const result = (transitionRule?: WorkflowTransition): TransitionCheck => ({
+      permissionDenied,
+      blockers,
+      workflow,
+      newCategory: newCategory ?? null,
+      transitionRule,
+    });
+
+    if (!newCategory) {
+      blockers.push({
+        kind: 'bad_request',
+        message: `"${status}" is not a status in this project's workflow. Allowed: ${workflow.statuses.map((st) => st.name).join(', ')}`,
+      });
+      return result();
+    }
+    if (!isLegalTaskTransition(workflow, task.status, status)) {
+      blockers.push({
+        kind: 'conflict',
+        message: `Cannot transition from ${task.status} to ${status}. Allowed: ${legalTaskTransitions(workflow, task.status).join(', ') || 'none'}`,
+      });
+    }
+
+    // Module 12's Approval Workflows - a task with a transition already awaiting a decision is
+    // frozen from any OTHER status change (including automation-driven ones) until that decision
+    // is made, so a stale approval can never be granted against a status the task has since moved
+    // away from. Approve/reject go through their own dedicated methods, not this one.
+    if (task.pendingApproval) {
+      blockers.push({
+        kind: 'conflict',
+        message: `This task has a transition to "${task.pendingApproval.toStatus}" pending approval - approve or reject it first`,
+      });
+    }
+
+    // Transition Conditions/Validators - additive to the permission gate above, and only ever
+    // narrow a transition further (never widen), so a transition with neither field set behaves
+    // exactly as before this feature existed. Automation-driven transitions bypass both, same as
+    // the permission gate above (the rule's Admin/Manager author already authorized this).
+    const transitionRule = workflow.transitions.find(
+      (t) => t.from === task.status && t.to === status,
+    );
+    if (
+      !automation?.bypassPermission &&
+      transitionRule?.allowedRoles?.length &&
+      !transitionRule.allowedRoles.includes(actingUser.role)
+    ) {
+      blockers.push({
+        kind: 'forbidden',
+        message: `Only ${transitionRule.allowedRoles.join('/')} can make this transition`,
+      });
+    }
+    if (!automation?.bypassPermission && transitionRule?.requireComment) {
+      const hasComment = await this.commentModel.exists({ task: task._id, deletedAt: null });
+      if (!hasComment) {
+        blockers.push({
+          kind: 'bad_request',
+          message: 'This transition requires a comment on the task first',
+        });
+      }
+    }
+    if (!automation?.bypassPermission && transitionRule?.requiredCustomFieldIds?.length) {
+      const effectiveCustomFields = resolveCustomFields(project, task.issueType);
+      const byId = new Map(effectiveCustomFields.map((f) => [f.id, f]));
+      const missing = transitionRule.requiredCustomFieldIds
+        .map((fieldId) => byId.get(fieldId))
+        .filter((def): def is CustomFieldDefinition => !!def)
+        .filter((def) => isEmpty(task.customFieldValues?.[def.id]));
+      if (missing.length > 0) {
+        blockers.push({
+          kind: 'bad_request',
+          message: `This transition requires a value for: ${missing.map((d) => d.name).join(', ')}`,
+        });
+      }
+    }
+    return result(transitionRule);
+  }
+
+  /**
+   * Module 12 gap-closure: workflow dry-run. For every status this issue could move to next,
+   * whether the caller can make that move right now (and every reason why not), whether it needs
+   * approval (and how many approvals), and which automation rules would fire. Changes nothing.
+   */
+  async previewTransitions(id: string, actingUser: AuthenticatedUser) {
+    const task = await this.getActiveOrThrow(id);
+    await this.assertCanView(task, actingUser);
+    const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+    const workflow = resolveWorkflow(project, task.issueType);
+    const snapshot = {
+      issueType: task.issueType,
+      priority: task.priority,
+      components: task.components,
+    };
+    const firedRules = (trigger: AutomationTriggerEvent, whenApproved: boolean) => {
+      try {
+        return evaluateAutomationRules(project.automationRules ?? [], trigger, snapshot).map(
+          ({ ruleName, action }) => ({
+            ruleName,
+            trigger: trigger.type,
+            actionType: action.type,
+            value: action.value,
+            whenApproved,
+          }),
+        );
+      } catch {
+        return [];
+      }
+    };
+
+    const transitions = [];
+    for (const toStatus of legalTaskTransitions(workflow, task.status)) {
+      const check = await this.checkTransition(task, project, toStatus, actingUser);
+      const rule = check.transitionRule;
+      const requiresApproval = !!rule?.requiresApproval;
+      const statusTrigger: AutomationTriggerEvent = {
+        type: AutomationTriggerType.STATUS_CHANGED,
+        toStatus,
+        fromStatus: task.status,
+      };
+      transitions.push({
+        toStatus,
+        category: check.newCategory,
+        allowed: !check.permissionDenied && check.blockers.length === 0,
+        blockers: [
+          ...(check.permissionDenied ? ['You cannot change the status of this task'] : []),
+          ...check.blockers.map((b) => b.message),
+        ],
+        requiresApproval,
+        requiredApprovals: requiresApproval ? Math.max(1, rule?.requiredApprovals ?? 1) : 0,
+        approverRoles: requiresApproval ? (rule?.approverRoles ?? []) : [],
+        approverUserCount: requiresApproval ? (rule?.approverUserIds?.length ?? 0) : 0,
+        approverTeamCount: requiresApproval ? (rule?.approverTeamIds?.length ?? 0) : 0,
+        approverProjectRoleCount: requiresApproval
+          ? (rule?.approverProjectRoleIds?.length ?? 0)
+          : 0,
+        automations: requiresApproval
+          ? [
+              ...firedRules(
+                { ...statusTrigger, type: AutomationTriggerType.APPROVAL_REQUESTED },
+                false,
+              ),
+              ...firedRules(statusTrigger, true),
+            ]
+          : firedRules(statusTrigger, false),
+      });
+    }
+    return {
+      currentStatus: task.status,
+      pendingApprovalTo: task.pendingApproval?.toStatus ?? null,
+      transitions,
+    };
+  }
+
+  /**
+   * Module 12 gap-closure: fires an automation trigger raised outside this service (e.g. a new
+   * comment, from CommentsService). Best-effort - an automation problem never fails the caller.
+   */
+  async fireAutomationTrigger(
+    taskId: string,
+    trigger: AutomationTriggerEvent,
+    actingUser: AuthenticatedUser,
+  ): Promise<void> {
+    try {
+      const task = await this.tasksRepository.findByIdActive(taskId);
+      if (!task) return;
+      const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+      await this.runAutomations(project, trigger, task, actingUser);
+    } catch (err) {
+      this.logger.warn(
+        `Automation trigger ${trigger.type} failed on task ${taskId}: ${(err as Error).message}`,
+      );
+    }
   }
 
   /** Shared eligibility gate for approve/reject: the task must actually have a pending request,
@@ -1052,6 +1347,16 @@ export class TasksService {
       await this.notifyScheme(project, NotificationSchemeEvent.ASSIGNED, id, task.title);
     }
 
+    // Module 12 gap-closure: AssigneeChanged automation trigger (human-initiated changes only).
+    if (!automation && (assignee ?? null) !== previousAssignee) {
+      const fired = await this.runAutomations(
+        project,
+        { type: AutomationTriggerType.ASSIGNEE_CHANGED },
+        updated!,
+        actingUser,
+      );
+      if (fired) return (await this.tasksRepository.findByIdActive(id)) as TaskDocument;
+    }
     return updated!;
   }
 
@@ -1604,7 +1909,35 @@ export class TasksService {
     const task = await this.getActiveOrThrow(id);
     await this.assertCanView(task, actingUser);
     const { data, total } = await this.tasksRepository.paginateActivity(id, page, limit);
-    return { data, meta: buildPaginationMeta(total, page, limit) };
+    // Module 12 gap-closure: the field-level audit trail never reveals a value from a field the
+    // viewer's role can't see - the entry stays (something changed), its values are blanked.
+    const hidden = await this.hiddenFieldIds(task, actingUser);
+    if (hidden.size === 0) return { data, meta: buildPaginationMeta(total, page, limit) };
+    const redacted = data.map((entry) => {
+      const plain = entry.toJSON() as unknown as Record<string, unknown>;
+      if (typeof plain.field === 'string' && hidden.has(plain.field)) {
+        return { ...plain, from: null, to: null, redacted: true };
+      }
+      return plain;
+    });
+    return { data: redacted, meta: buildPaginationMeta(total, page, limit) };
+  }
+
+  private async hiddenFieldIds(
+    task: TaskDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<Set<string>> {
+    const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+    if (!project.fieldPermissionSchemeId) return new Set();
+    const scheme = await this.fieldPermissionSchemesService.findByIdOrNull(
+      extractId(project.fieldPermissionSchemeId),
+    );
+    if (!scheme) return new Set();
+    return new Set(
+      scheme.rules
+        .map((rule) => rule.fieldId)
+        .filter((fieldId) => !canViewField(scheme, fieldId, actingUser.role)),
+    );
   }
 
   async epicProgress(id: string, actingUser: AuthenticatedUser) {
@@ -2265,12 +2598,7 @@ export class TasksService {
    */
   private async runAutomations(
     project: ProjectDocument,
-    trigger: {
-      type: AutomationTriggerType;
-      toStatus?: string;
-      fromStatus?: string;
-      unassignedHours?: number;
-    },
+    trigger: AutomationTriggerEvent,
     task: TaskDocument,
     actingUser: AuthenticatedUser,
   ): Promise<boolean> {

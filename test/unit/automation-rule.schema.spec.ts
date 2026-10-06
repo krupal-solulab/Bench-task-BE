@@ -214,3 +214,60 @@ describe('renderTemplate', () => {
     expect(renderTemplate('Welcome!', task)).toBe('Welcome!');
   });
 });
+
+describe('evaluateAutomationRules - Module 12 extended triggers', () => {
+  it('scopes ApprovalDecided by outcome, and an unscoped rule fires for either', () => {
+    const onlyRejected = makeRule({
+      id: 'r',
+      trigger: {
+        type: AutomationTriggerType.APPROVAL_DECIDED,
+        toStatus: null,
+        approvalOutcome: 'rejected',
+      },
+    });
+    const either = makeRule({
+      id: 'e',
+      trigger: { type: AutomationTriggerType.APPROVAL_DECIDED, toStatus: null },
+    });
+    const approved = evaluateAutomationRules(
+      [onlyRejected, either],
+      { type: AutomationTriggerType.APPROVAL_DECIDED, approvalOutcome: 'approved' },
+      BUG_TASK,
+    );
+    expect(approved.map((f) => f.ruleId)).toEqual(['e']);
+    const rejected = evaluateAutomationRules(
+      [onlyRejected, either],
+      { type: AutomationTriggerType.APPROVAL_DECIDED, approvalOutcome: 'rejected' },
+      BUG_TASK,
+    );
+    expect(rejected.map((f) => f.ruleId)).toEqual(['r', 'e']);
+  });
+
+  it('scopes PriorityChanged by the new priority', () => {
+    const toP1 = makeRule({
+      trigger: { type: AutomationTriggerType.PRIORITY_CHANGED, toStatus: null, toPriority: 'P1' },
+    });
+    const trigger = (toPriority: string) => ({
+      type: AutomationTriggerType.PRIORITY_CHANGED,
+      toPriority,
+    });
+    expect(evaluateAutomationRules([toP1], trigger('P1'), BUG_TASK)).toHaveLength(1);
+    expect(evaluateAutomationRules([toP1], trigger('P3'), BUG_TASK)).toHaveLength(0);
+  });
+
+  it('never fires a rule for a different new trigger type', () => {
+    const onComment = makeRule({
+      trigger: { type: AutomationTriggerType.COMMENT_ADDED, toStatus: null },
+    });
+    expect(
+      evaluateAutomationRules(
+        [onComment],
+        { type: AutomationTriggerType.ASSIGNEE_CHANGED },
+        BUG_TASK,
+      ),
+    ).toHaveLength(0);
+    expect(
+      evaluateAutomationRules([onComment], { type: AutomationTriggerType.COMMENT_ADDED }, BUG_TASK),
+    ).toHaveLength(1);
+  });
+});

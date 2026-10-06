@@ -449,6 +449,14 @@ export class ReleasesService {
     }
   }
 
+  /** Module 12 gap-closure: id -> name for the field-level audit trail (unknown ids omitted). */
+  async namesForIds(projectId: string, ids: string[]): Promise<Map<string, string>> {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) return new Map();
+    const found = await this.releasesRepository.findManyActiveInProject(uniqueIds, projectId);
+    return new Map(found.map((r) => [r.id, r.name]));
+  }
+
   private async getActiveOrThrow(releaseId: string, projectId: string): Promise<ReleaseDocument> {
     const release = await this.releasesRepository.findByIdActiveInProject(releaseId, projectId);
     if (!release) throw new NotFoundException('Release not found');

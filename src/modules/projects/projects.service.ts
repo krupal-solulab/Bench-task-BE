@@ -1301,6 +1301,15 @@ export class ProjectsService {
           toStatus: r.trigger.toStatus ?? null,
           fromStatus: r.trigger.fromStatus ?? null,
           afterHours: r.trigger.afterHours ?? null,
+          // Module 12 gap-closure: only kept for the trigger type they scope.
+          approvalOutcome:
+            r.trigger.type === AutomationTriggerType.APPROVAL_DECIDED
+              ? (r.trigger.approvalOutcome ?? null)
+              : null,
+          toPriority:
+            r.trigger.type === AutomationTriggerType.PRIORITY_CHANGED
+              ? (r.trigger.toPriority ?? null)
+              : null,
         },
         conditions: r.conditions.map((c) => ({ field: c.field, value: c.value.trim() })),
         actions: r.actions.map((a) => ({ type: a.type, value: a.value.trim() })),
