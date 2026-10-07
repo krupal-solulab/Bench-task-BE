@@ -18,7 +18,6 @@ import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { Role } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
-import { ListTasksDto } from '../tasks/dto/list-tasks.dto';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -169,15 +168,8 @@ export class ProjectsController {
     return this.projectsService.setMemberPermissions(id, userId, dto, user);
   }
 
-  @Get(':id/tasks')
-  @ApiOperation({ summary: 'List tasks for a project (pre-scoped, same filters as /tasks)' })
-  async listTasks(
-    @Param('id', ParseObjectIdPipe) id: string,
-    @Query() query: ListTasksDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ) {
-    return this.projectsService.listTasksForProject(id, query, user);
-  }
+  // GET :id/tasks is served by TasksModule's ProjectTasksController (gap-closure), so the
+  // project's own list/board applies issue security levels and field-level redaction.
 
   @Get(':id/stats')
   @ApiOperation({ summary: 'Per-project task aggregation for the detail page' })

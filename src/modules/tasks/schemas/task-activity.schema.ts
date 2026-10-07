@@ -73,9 +73,19 @@ export class TaskActivity {
   @Prop({ type: String, default: null })
   field!: string | null;
 
+  // Gap-closure: for fixVersions/affectsVersions changes, the release ids before and after (from/to
+  // hold display names, which can be renamed). Lets a release comparison find issues that were
+  // later moved OUT of a release. Unset on every other entry.
+  @Prop({ type: [String], default: undefined })
+  fromRefs?: string[];
+
+  @Prop({ type: [String], default: undefined })
+  toRefs?: string[];
+
   createdAt!: Date;
 }
 
 export const TaskActivitySchema = SchemaFactory.createForClass(TaskActivity);
 
 TaskActivitySchema.index({ task: 1, createdAt: -1 });
+TaskActivitySchema.index({ field: 1, fromRefs: 1 });

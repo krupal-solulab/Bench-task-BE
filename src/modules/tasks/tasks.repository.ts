@@ -254,6 +254,7 @@ export class TasksRepository {
     to: string | null = null,
     viaAutomationRule: string | null = null,
     field: string | null = null,
+    refs?: { fromRefs: string[]; toRefs: string[] },
   ): Promise<void> {
     await this.activityModel.create({
       task: new Types.ObjectId(taskId),
@@ -263,6 +264,7 @@ export class TasksRepository {
       to,
       viaAutomationRule,
       field,
+      ...(refs ?? {}),
     });
   }
 

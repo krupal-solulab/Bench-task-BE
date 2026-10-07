@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ProjectsModule } from '../projects/projects.module';
 import { UsersModule } from '../users/users.module';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
+import { TaskActivity, TaskActivitySchema } from '../tasks/schemas/task-activity.schema';
 import { Release, ReleaseSchema } from './schemas/release.schema';
 import { ReleasesRepository } from './releases.repository';
 import { ReleasesService } from './releases.service';
@@ -18,6 +19,7 @@ import { ReleasesController } from './releases.controller';
     MongooseModule.forFeature([
       { name: Release.name, schema: ReleaseSchema },
       { name: Task.name, schema: TaskSchema },
+      { name: TaskActivity.name, schema: TaskActivitySchema },
     ]),
   ],
   controllers: [ReleasesController],

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { FilterQuery, Model, Types } from 'mongoose';
 import { CacheService } from '../../redis/cache.service';
 import { BoardType } from '../../common/enums/board-type.enum';
 import { dashboardCachePattern } from '../../common/utils/cache-key.util';
@@ -497,11 +497,20 @@ export class ProjectsService {
     return { data, meta: buildPaginationMeta(total, page, limit) };
   }
 
-  async listTasksForProject(id: string, query: ListTasksDto, actingUser: AuthenticatedUser) {
+  /** `extraFilter` - extra conditions the caller (TasksService, which serves this route) ANDs in,
+   * e.g. its issue security-level exclusion. */
+  async listTasksForProject(
+    id: string,
+    query: ListTasksDto,
+    actingUser: AuthenticatedUser,
+    extraFilter: FilterQuery<TaskDocument> = {},
+  ) {
     const project = await this.getActiveOrThrow(id);
     this.assertCanView(project, actingUser);
 
-    const filter = buildTaskListFilter(query, { project: project._id });
+    const baseFilter = buildTaskListFilter(query, { project: project._id });
+    const filter: FilterQuery<TaskDocument> =
+      Object.keys(extraFilter).length > 0 ? { $and: [baseFilter, extraFilter] } : baseFilter;
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;
     const skip = (query.page - 1) * query.limit;
     const sort = buildTaskListSort(query.sortBy, sortOrder);
