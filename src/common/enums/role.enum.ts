@@ -14,3 +14,10 @@ export enum Role {
  */
 export const ORG_ROLES = [Role.ADMIN, Role.MANAGER, Role.DEVELOPER] as const;
 export type OrgRole = (typeof ORG_ROLES)[number];
+
+/**
+ * Org roles a project member may hold - and so the roles a project invite can grant. Admins
+ * oversee every project already and are never members; new member-level roles belong here.
+ */
+export const PROJECT_MEMBER_ROLES = [Role.MANAGER, Role.DEVELOPER] as const;
+export type ProjectMemberRole = (typeof PROJECT_MEMBER_ROLES)[number];

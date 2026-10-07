@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppConfig } from '../../config/configuration';
-import { Role } from '../../common/enums/role.enum';
+import { OrgRole, Role } from '../../common/enums/role.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
 import { TaskStatus } from '../../common/enums/task-status.enum';
 import { buildPaginationMeta } from '../../common/utils/pagination.util';
@@ -164,9 +164,41 @@ export class UsersService {
     return bcrypt.compare(plain, user.passwordHash);
   }
 
+  /** Also clears a pending forced change - any password the user picks themselves satisfies it. */
   async setPassword(id: string, newPassword: string): Promise<void> {
     const passwordHash = await this.hashPassword(newPassword);
-    await this.usersRepository.updateById(id, { passwordHash });
+    await this.usersRepository.updateById(id, { passwordHash, mustChangePassword: false });
+  }
+
+  /**
+   * The account an accepted project invite turns into. `passwordHash` is the invite's own hash
+   * of the temporary password (the plain text is never stored anywhere), and the user must set
+   * their own password before doing anything else.
+   */
+  async createFromInvite(input: {
+    name: string;
+    email: string;
+    role: OrgRole;
+    organizationId: string;
+    passwordHash: string;
+  }): Promise<UserDocument> {
+    await this.assertEmailAvailable(input.email);
+    return this.usersRepository.create({
+      name: input.name,
+      email: input.email.toLowerCase(),
+      passwordHash: input.passwordHash,
+      role: input.role,
+      organizationId: new Types.ObjectId(input.organizationId),
+      mustChangePassword: true,
+    });
+  }
+
+  async setName(id: string, name: string): Promise<void> {
+    await this.usersRepository.updateById(id, { name });
+  }
+
+  async isEmailRegistered(email: string): Promise<boolean> {
+    return !!(await this.usersRepository.findByEmail(email));
   }
 
   async getWorkload(userId: string, organizationId: string): Promise<UserWorkload> {
@@ -213,7 +245,7 @@ export class UsersService {
     };
   }
 
-  private async hashPassword(plain: string): Promise<string> {
+  async hashPassword(plain: string): Promise<string> {
     const rounds = this.configService.get('bcryptSaltRounds', { infer: true });
     return bcrypt.hash(plain, rounds);
   }

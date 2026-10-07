@@ -49,6 +49,7 @@ export class SmtpEmailService implements IEmailService {
       to: payload.to,
       subject: payload.subject,
       text: renderEmailText(payload),
+      ...(payload.html ? { html: payload.html } : {}),
     });
     this.logger.info({ to: payload.to, template: payload.template }, 'email sent via SMTP');
   }

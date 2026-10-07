@@ -18,4 +18,6 @@ export interface AuthenticatedUser {
   impersonatedBy?: string;
   /** Module 11 gap-closure: the id of the personal API token used, when not a normal sign-in. */
   viaApiToken?: string;
+  /** Signed in with an invite's temporary password and hasn't set their own one yet. */
+  mustChangePassword?: boolean;
 }

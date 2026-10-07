@@ -15,7 +15,13 @@ import { extractId } from '../../common/utils/mongo.util';
 import { requireOrgId } from '../../common/utils/auth-user.util';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { PaginatedResponseDto } from '../../common/dto/paginated-response.dto';
-import { ORG_ROLES, OrgRole, Role } from '../../common/enums/role.enum';
+import {
+  ORG_ROLES,
+  OrgRole,
+  PROJECT_MEMBER_ROLES,
+  ProjectMemberRole,
+  Role,
+} from '../../common/enums/role.enum';
 import { ProjectStatus } from '../../common/enums/project-status.enum';
 import { StatusCategory } from '../../common/enums/status-category.enum';
 import { IssueType, IssueTypeLevel } from '../../common/enums/issue-type.enum';
@@ -194,7 +200,7 @@ export class ProjectsService {
     }
 
     if (dto.memberIds?.length) {
-      await this.assertActiveDevelopers(dto.memberIds, organizationId);
+      await this.assertActiveMemberCandidates(dto.memberIds, organizationId);
     }
 
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
@@ -391,7 +397,7 @@ export class ProjectsService {
     const project = await this.getActiveOrThrow(id);
     this.assertCanManage(project, actingUser);
     this.assertProjectWritable(project);
-    await this.assertActiveDevelopers(userIds, requireOrgId(actingUser));
+    await this.assertActiveMemberCandidates(userIds, requireOrgId(actingUser));
     const addedIds = await this.projectsRepository.addMembers(id, userIds);
     for (const addedId of addedIds) {
       await this.projectsRepository.logActivity(
@@ -404,6 +410,52 @@ export class ProjectsService {
     }
     const updated = await this.projectsRepository.findByIdActive(id);
     return this.toResponse(updated!);
+  }
+
+  /**
+   * Active org users who could be added to this project (member-level role, not already a member
+   * or the owner) - what the Add member picker offers, so it never lists someone already in.
+   */
+  async listMemberCandidates(id: string, actingUser: AuthenticatedUser): Promise<UserDocument[]> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+    const users = await this.usersRepository.findActiveByRoles(
+      requireOrgId(actingUser),
+      PROJECT_MEMBER_ROLES,
+    );
+    return users.filter((u) => !this.projectsRepository.isMember(project, u.id));
+  }
+
+  /** For project invites: the project, if `actingUser` may manage its membership. Archived
+   * projects are refused only when `forWrite` (they can still have their invites listed). */
+  async getManageableProject(
+    id: string,
+    actingUser: AuthenticatedUser,
+    forWrite = true,
+  ): Promise<ProjectDocument> {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanManage(project, actingUser);
+    if (forWrite) this.assertProjectWritable(project);
+    return project;
+  }
+
+  /** For project invites: null when the project was deleted since the invite was sent. */
+  async findActiveProject(id: string): Promise<ProjectDocument | null> {
+    return this.projectsRepository.findByIdActive(id);
+  }
+
+  /** Joins an accepted invitee to the project, logged as added by whoever invited them. */
+  async addMemberFromInvite(projectId: string, userId: string, inviterId: string): Promise<void> {
+    const added = await this.projectsRepository.addMembers(projectId, [userId]);
+    if (added.length > 0) {
+      await this.projectsRepository.logActivity(
+        projectId,
+        inviterId,
+        ProjectActivityAction.MEMBER_ADDED,
+        null,
+        userId,
+      );
+    }
   }
 
   async removeMember(
@@ -1817,14 +1869,19 @@ export class ProjectsService {
     );
   }
 
-  private async assertActiveDevelopers(userIds: string[], organizationId: string): Promise<void> {
+  private async assertActiveMemberCandidates(
+    userIds: string[],
+    organizationId: string,
+  ): Promise<void> {
     const users = await this.usersRepository.findByIds(userIds, organizationId);
     if (users.length !== userIds.length) {
       throw new BadRequestException('One or more member ids do not exist');
     }
-    const invalid = users.filter((u) => u.role !== Role.DEVELOPER || !u.isActive);
+    const invalid = users.filter(
+      (u) => !PROJECT_MEMBER_ROLES.includes(u.role as ProjectMemberRole) || !u.isActive,
+    );
     if (invalid.length > 0) {
-      throw new BadRequestException('Members must be active Developers');
+      throw new BadRequestException('Members must be active Developers or Managers');
     }
   }
 

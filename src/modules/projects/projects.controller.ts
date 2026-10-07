@@ -133,9 +133,19 @@ export class ProjectsController {
     return this.projectsService.listMembers(id, query, user);
   }
 
+  @Get(':id/member-candidates')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Active Developers/Managers who are not yet members of this project' })
+  async listMemberCandidates(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.listMemberCandidates(id, user);
+  }
+
   @Post(':id/members')
   @Roles(Role.ADMIN, Role.MANAGER)
-  @ApiOperation({ summary: 'Add members (must be active Developers, idempotent)' })
+  @ApiOperation({ summary: 'Add members (active Developers or Managers, idempotent)' })
   async addMembers(
     @Param('id', ParseObjectIdPipe) id: string,
     @Body() dto: AddMembersDto,
