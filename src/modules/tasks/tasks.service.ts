@@ -82,6 +82,7 @@ import {
   IAutomationQueue,
 } from '../automation-queue/automation-queue.interface';
 import { isLegalTaskTransition, legalTaskTransitions } from './task-status.rules';
+import { redactTaskFields } from './field-redaction.util';
 import { midpointRank, needsRenumber, nextAppendRank } from './utils/rank.util';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -199,6 +200,29 @@ function auditValue(value: unknown): string | null {
   return text.length > AUDIT_VALUE_MAX_LENGTH
     ? `${text.slice(0, AUDIT_VALUE_MAX_LENGTH - 1)}…`
     : text;
+}
+
+/** Whether `next` (as sent in an update) differs from the task's current value of a built-in
+ * field - normalized so e.g. '' vs null, reordered labels or an equivalent date aren't a change. */
+function builtInFieldChanged(task: TaskDocument, fieldId: string, next: unknown): boolean {
+  const record = task as unknown as Record<string, unknown>;
+  const current = record[fieldId];
+  if (fieldId === 'dueDate') {
+    const toIso = (v: unknown) => (v ? new Date(v as string | Date).toISOString() : null);
+    return toIso(current) !== toIso(next);
+  }
+  if (fieldId === 'fixVersions' || fieldId === 'affectsVersions') {
+    const ids = (v: unknown) =>
+      [...new Set(((v as unknown[] | null) ?? []).map((id) => extractId(id as string)))]
+        .sort()
+        .join(',');
+    return ids(current) !== ids(next);
+  }
+  if (fieldId === 'labels' || fieldId === 'components') {
+    const sorted = (v: unknown) => JSON.stringify([...((v as string[] | null) ?? [])].sort());
+    return sorted(current) !== sorted(next);
+  }
+  return auditValue(current) !== auditValue(next);
 }
 
 /** One reason a transition can't happen right now, plus the HTTP error updateStatus throws. */
@@ -357,7 +381,49 @@ export class TasksService {
   async paginate(query: ListTasksDto, actingUser: AuthenticatedUser) {
     const scope = await this.buildScope(actingUser);
     const { data, total } = await this.tasksRepository.paginate(query, scope);
-    return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
+    return {
+      data: await this.redactForViewer(data, actingUser),
+      meta: buildPaginationMeta(total, query.page, query.limit),
+    };
+  }
+
+  /** Gap-closure: drops tasks at an issue security level the viewer may not see (for callers that
+   * load a project's tasks directly, e.g. the project CSV export). */
+  async excludeRestricted<T extends TaskDocument>(
+    tasks: T[],
+    actingUser: AuthenticatedUser,
+  ): Promise<T[]> {
+    const blockedByProject = new Map<string, Promise<string[]>>();
+    const blockedFor = (projectId: string) => {
+      if (!blockedByProject.has(projectId)) {
+        blockedByProject.set(
+          projectId,
+          this.projectsService
+            .getActiveProjectOrThrow(projectId)
+            .then((project) => this.blockedSecurityLevels(project, actingUser)),
+        );
+      }
+      return blockedByProject.get(projectId)!;
+    };
+    const visible = await Promise.all(
+      tasks.map(async (task) => {
+        if (!task.securityLevel) return true;
+        return !(await blockedFor(extractId(task.project))).includes(task.securityLevel);
+      }),
+    );
+    return tasks.filter((_task, index) => visible[index]);
+  }
+
+  /** GET projects/:id/tasks (see ProjectTasksController): the project's own query, plus the issue
+   * security-level exclusion and field-level redaction every other task list applies. */
+  async listTasksForProject(id: string, query: ListTasksDto, actingUser: AuthenticatedUser) {
+    const result = await this.projectsService.listTasksForProject(
+      id,
+      query,
+      actingUser,
+      await this.buildSecurityExclusionFilter(actingUser),
+    );
+    return { ...result, data: await this.redactForViewer(result.data, actingUser) };
   }
 
   async myTasks(query: ListTasksDto, actingUser: AuthenticatedUser) {
@@ -366,13 +432,19 @@ export class TasksService {
       organizationId: new Types.ObjectId(requireOrgId(actingUser)),
       ...(await this.buildSecurityExclusionFilter(actingUser)),
     });
-    return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
+    return {
+      data: await this.redactForViewer(data, actingUser),
+      meta: buildPaginationMeta(total, query.page, query.limit),
+    };
   }
 
   async overdue(query: ListTasksDto, actingUser: AuthenticatedUser) {
     const scope = await this.buildScope(actingUser);
     const { data, total } = await this.tasksRepository.paginate({ ...query, overdue: true }, scope);
-    return { data, meta: buildPaginationMeta(total, query.page, query.limit) };
+    return {
+      data: await this.redactForViewer(data, actingUser),
+      meta: buildPaginationMeta(total, query.page, query.limit),
+    };
   }
 
   /**
@@ -426,7 +498,10 @@ export class TasksService {
       dto.page,
       dto.limit,
     );
-    return { data, meta: buildPaginationMeta(total, dto.page, dto.limit) };
+    return {
+      data: await this.redactForViewer(data, actingUser),
+      meta: buildPaginationMeta(total, dto.page, dto.limit),
+    };
   }
 
   /** Module 4 gap-closure: exports a JQL search's FULL matching set (not just the current page) as
@@ -435,7 +510,10 @@ export class TasksService {
    * design, since a JQL search itself is never project-scoped. */
   async exportSearchCsv(jql: string, actingUser: AuthenticatedUser): Promise<CsvExportResult> {
     const { filter, sort } = await this.buildJqlSearchFilter(jql, actingUser);
-    const tasks = await this.tasksRepository.findAllWithFilter(filter, sort);
+    const tasks = await this.redactForViewer(
+      await this.tasksRepository.findAllWithFilter(filter, sort),
+      actingUser,
+    );
 
     const rows: string[][] = [
       ['issueKey', 'title', 'issueType', 'status', 'priority', 'project', 'assignee', 'dueDate'],
@@ -447,7 +525,7 @@ export class TasksService {
           t.title,
           t.issueType,
           t.status,
-          t.priority,
+          t.priority ?? '',
           project?.name ?? '',
           assignee?.name ?? '',
           t.dueDate ? t.dueDate.toISOString().slice(0, 10) : '',
@@ -504,23 +582,44 @@ export class TasksService {
     project: ProjectDocument,
     actingUser: AuthenticatedUser,
   ): Promise<TaskDocument | Record<string, unknown>> {
-    if (!project.fieldPermissionSchemeId) return task;
-    const scheme = await this.fieldPermissionSchemesService.findByIdOrNull(
-      extractId(project.fieldPermissionSchemeId),
-    );
-    if (!scheme) return task;
+    const hidden = await this.hiddenFieldIdsForProject(project, actingUser);
+    if (hidden.size === 0) return task;
+    return redactTaskFields(task.toJSON() as unknown as Record<string, unknown>, hidden);
+  }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const plain = task.toJSON() as Record<string, any>;
-    for (const rule of scheme.rules) {
-      if (canViewField(scheme, rule.fieldId, actingUser.role)) continue;
-      if ((BUILT_IN_TASK_FIELD_IDS as readonly string[]).includes(rule.fieldId)) {
-        plain[rule.fieldId] = null;
-      } else if (plain.customFieldValues && typeof plain.customFieldValues === 'object') {
-        delete plain.customFieldValues[rule.fieldId];
+  /**
+   * Gap-closure: the same field-level VIEW redaction for every list, search and export - a field
+   * hidden from the viewer's role used to be redacted only on the single-issue read. Each project's
+   * field permission scheme is loaded once per call; tasks in projects without one are returned
+   * untouched (the same document objects, so their serialization is unchanged).
+   */
+  async redactForViewer<T extends TaskDocument>(
+    tasks: T[],
+    actingUser: AuthenticatedUser,
+  ): Promise<T[]> {
+    const byProject = new Map<string, Promise<Set<string>>>();
+    const hiddenFor = (projectId: string) => {
+      if (!byProject.has(projectId)) {
+        byProject.set(
+          projectId,
+          this.projectsService
+            .getActiveProjectOrThrow(projectId)
+            .then((project) => this.hiddenFieldIdsForProject(project, actingUser))
+            .catch(() => new Set<string>()),
+        );
       }
-    }
-    return plain;
+      return byProject.get(projectId)!;
+    };
+    return Promise.all(
+      tasks.map(async (task) => {
+        const hidden = await hiddenFor(extractId(task.project));
+        if (hidden.size === 0) return task;
+        return redactTaskFields(
+          task.toJSON() as unknown as Record<string, unknown>,
+          hidden,
+        ) as unknown as T;
+      }),
+    );
   }
 
   /**
@@ -609,7 +708,7 @@ export class TasksService {
         'canEditAnyTask',
       );
     }
-    await this.assertFieldsEditable(project, actingUser, dto, automation);
+    await this.assertFieldsEditable(project, actingUser, dto, task, automation);
     this.assertValidComponents(project, dto.components);
     await this.assertValidSecurityLevel(project, dto.securityLevel);
     await this.releasesService.validateIdsForProject(project.id, [
@@ -624,7 +723,15 @@ export class TasksService {
       dto.customFieldValues ?? {},
     );
 
-    const activities: Array<[TaskActivityAction, string | null, string | null, string | null]> = [];
+    const activities: Array<
+      [
+        TaskActivityAction,
+        string | null,
+        string | null,
+        string | null,
+        { fromRefs: string[]; toRefs: string[] }?,
+      ]
+    > = [];
     if (dto.priority && dto.priority !== task.priority) {
       activities.push([TaskActivityAction.PRIORITY_CHANGED, task.priority, dto.priority, null]);
     }
@@ -639,7 +746,13 @@ export class TasksService {
     // Module 12 gap-closure: field-level audit trail - one `updated` entry per changed field,
     // with its old and new value, instead of a single generic "updated" entry.
     for (const change of await this.fieldChanges(task, project.id, dto)) {
-      activities.push([TaskActivityAction.UPDATED, change.from, change.to, change.field]);
+      activities.push([
+        TaskActivityAction.UPDATED,
+        change.from,
+        change.to,
+        change.field,
+        change.refs,
+      ]);
     }
 
     const updated = await this.tasksRepository.updateById(id, {
@@ -658,6 +771,9 @@ export class TasksService {
       ...(dto.originalEstimateHours !== undefined
         ? { originalEstimateHours: dto.originalEstimateHours }
         : {}),
+      // Gap-closure: story points were accepted by UpdateTaskDto but never saved, so an edit was
+      // silently dropped. null clears them, the same as originalEstimateHours above.
+      ...(dto.storyPoints !== undefined ? { storyPoints: dto.storyPoints ?? null } : {}),
       // Merged (not replaced) - omitting a key on update keeps its previously-stored value,
       // matching UpdateTaskDto's partial-patch semantics for every other field.
       ...(dto.customFieldValues !== undefined
@@ -666,7 +782,7 @@ export class TasksService {
       ...(dto.securityLevel !== undefined ? { securityLevel: dto.securityLevel } : {}),
     });
 
-    for (const [action, from, to, field] of activities) {
+    for (const [action, from, to, field, refs] of activities) {
       await this.tasksRepository.logActivity(
         id,
         actingUser.id,
@@ -675,6 +791,7 @@ export class TasksService {
         to,
         automation?.viaRuleName ?? null,
         field,
+        refs,
       );
     }
     await this.invalidateDashboardCache();
@@ -700,8 +817,20 @@ export class TasksService {
     task: TaskDocument,
     projectId: string,
     dto: UpdateTaskDto,
-  ): Promise<Array<{ field: string; from: string | null; to: string | null }>> {
-    const changes: Array<{ field: string; from: string | null; to: string | null }> = [];
+  ): Promise<
+    Array<{
+      field: string;
+      from: string | null;
+      to: string | null;
+      refs?: { fromRefs: string[]; toRefs: string[] };
+    }>
+  > {
+    const changes: Array<{
+      field: string;
+      from: string | null;
+      to: string | null;
+      refs?: { fromRefs: string[]; toRefs: string[] };
+    }> = [];
     const push = (field: string, before: unknown, after: unknown) => {
       const from = auditValue(before);
       const to = auditValue(after);
@@ -714,6 +843,7 @@ export class TasksService {
     if (dto.originalEstimateHours !== undefined) {
       push('originalEstimateHours', task.originalEstimateHours, dto.originalEstimateHours);
     }
+    if (dto.storyPoints !== undefined) push('storyPoints', task.storyPoints, dto.storyPoints);
     if (dto.securityLevel !== undefined)
       push('securityLevel', task.securityLevel, dto.securityLevel);
 
@@ -732,7 +862,17 @@ export class TasksService {
           .sort()
           .join(', ');
       for (const key of releaseFields) {
-        push(key, label((task[key] ?? []).map(extractId)), label(dto[key] ?? []));
+        const fromRefs = (task[key] ?? []).map(extractId);
+        const toRefs = [...new Set(dto[key] ?? [])];
+        const before = changes.length;
+        push(key, label(fromRefs), label(toRefs));
+        // Compare by id too: two releases with the same name would otherwise hide a real change.
+        const sameIds =
+          fromRefs.length === toRefs.length && fromRefs.every((id) => toRefs.includes(id));
+        if (changes.length === before && !sameIds) {
+          changes.push({ field: key, from: label(fromRefs), to: label(toRefs) });
+        }
+        if (changes.length > before) changes[changes.length - 1].refs = { fromRefs, toRefs };
       }
     }
 
@@ -1525,15 +1665,12 @@ export class TasksService {
   }
 
   /**
-   * Module 5 gap-closure: "no pre-validation before a bulk transition" - a read-only pass over the
-   * same two most common failure reasons bulkStatus's real per-task call would hit (an unknown
-   * status name for that task's own workflow, or a transition its workflow doesn't allow from the
-   * task's current status), without ever calling updateStatus(). Deliberately NOT a byte-for-byte
-   * simulation of every guard updateStatus enforces (role-gated transitions, requireComment,
-   * required custom fields, an in-flight approval) - those are comparatively rare blockers, and
-   * duplicating updateStatus's entire rule engine a second time here would be a second place for
-   * the two to drift out of sync. This closes "no way to know before committing", not "a perfect
-   * dry-run".
+   * Module 5 gap-closure: "no pre-validation before a bulk transition" - a read-only pass that
+   * predicts, per task, whether bulkStatus's real updateStatus() call would succeed. The two most
+   * common failures keep their original wording; every other guard (permission, role-gated
+   * transitions, requireComment, required custom fields, an in-flight approval, an archived
+   * project) now comes from the same checkTransition() updateStatus() itself uses (Module 12
+   * gap-closure), so the preview and the real change can't disagree.
    */
   async previewBulkStatus(
     dto: PreviewBulkStatusDto,
@@ -1542,7 +1679,7 @@ export class TasksService {
     const entries: BulkStatusPreviewEntry[] = [];
     for (const taskId of dto.taskIds) {
       try {
-        const task = await this.getActiveOrThrow(taskId);
+        const task = await this.getWritableOrThrow(taskId);
         const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
         this.projectsService.assertUserCanView(project, actingUser);
         const workflow = resolveWorkflow(project, task.issueType);
@@ -1564,7 +1701,11 @@ export class TasksService {
           });
           continue;
         }
-        entries.push({ taskId, willSucceed: true, reason: null });
+        const check = await this.checkTransition(task, project, dto.status, actingUser);
+        const reason = check.permissionDenied
+          ? 'You cannot change the status of this task'
+          : (check.blockers[0]?.message ?? null);
+        entries.push({ taskId, willSucceed: reason === null, reason });
       } catch (err) {
         entries.push({
           taskId,
@@ -1928,6 +2069,14 @@ export class TasksService {
     actingUser: AuthenticatedUser,
   ): Promise<Set<string>> {
     const project = await this.projectsService.getActiveProjectOrThrow(extractId(task.project));
+    return this.hiddenFieldIdsForProject(project, actingUser);
+  }
+
+  /** Field ids (built-in or custom) the viewer's role may not see on this project. */
+  private async hiddenFieldIdsForProject(
+    project: ProjectDocument,
+    actingUser: AuthenticatedUser,
+  ): Promise<Set<string>> {
     if (!project.fieldPermissionSchemeId) return new Set();
     const scheme = await this.fieldPermissionSchemesService.findByIdOrNull(
       extractId(project.fieldPermissionSchemeId),
@@ -2128,6 +2277,7 @@ export class TasksService {
     project: ProjectDocument,
     actingUser: AuthenticatedUser,
     dto: UpdateTaskDto,
+    task: TaskDocument,
     automation?: AutomationContext,
   ): Promise<void> {
     if (automation?.bypassPermission) return;
@@ -2137,11 +2287,19 @@ export class TasksService {
     );
     if (!scheme) return;
 
+    // Gap-closure: only a field whose value would actually CHANGE counts as an edit. Re-sending a
+    // read-only field's current value (the issue edit form sends every field) used to fail the
+    // whole save; a real change to it is still refused exactly as before.
     const dtoRecord = dto as unknown as Record<string, unknown>;
     const fieldIds: string[] = BUILT_IN_TASK_FIELD_IDS.filter(
-      (fieldId) => dtoRecord[fieldId] !== undefined,
+      (fieldId) =>
+        dtoRecord[fieldId] !== undefined && builtInFieldChanged(task, fieldId, dtoRecord[fieldId]),
     );
-    if (dto.customFieldValues) fieldIds.push(...Object.keys(dto.customFieldValues));
+    for (const [fieldId, value] of Object.entries(dto.customFieldValues ?? {})) {
+      if (auditValue(task.customFieldValues?.[fieldId]) !== auditValue(value)) {
+        fieldIds.push(fieldId);
+      }
+    }
 
     const blocked = [...new Set(fieldIds)].filter(
       (fieldId) => !canEditField(scheme, fieldId, actingUser.role),

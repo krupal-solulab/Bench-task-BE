@@ -107,7 +107,15 @@ export class ImportExportService {
     const project = await this.projectsService.getActiveProjectOrThrow(projectId);
     this.projectsService.assertUserCanView(project, actingUser);
 
-    const tasks = await this.tasksRepository.findAllForProject(projectId);
+    // Gap-closure: fields hidden from the viewer's role are blanked in the export too.
+    // Gap-closure: restricted (security-level) issues are left out, and hidden fields blanked.
+    const tasks = await this.tasksService.redactForViewer(
+      await this.tasksService.excludeRestricted(
+        await this.tasksRepository.findAllForProject(projectId),
+        actingUser,
+      ),
+      actingUser,
+    );
     const rows: string[][] = [
       [...EXPORT_COLUMNS],
       ...tasks.map((t) => {
@@ -118,7 +126,7 @@ export class ImportExportService {
           t.description,
           t.issueType,
           t.status,
-          t.priority,
+          t.priority ?? '',
           assignee?.name ?? '',
           t.storyPoints != null ? String(t.storyPoints) : '',
           t.labels.join(';'),

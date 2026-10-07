@@ -14,6 +14,7 @@ import { extractId } from '../../common/utils/mongo.util';
 import { ProjectsService } from '../projects/projects.service';
 import { UsersService } from '../users/users.service';
 import { Task, TaskDocument } from '../tasks/schemas/task.schema';
+import { TaskActivity, TaskActivityDocument } from '../tasks/schemas/task-activity.schema';
 import { ReleasesRepository } from './releases.repository';
 import { ReleaseDocument } from './schemas/release.schema';
 import { isLegalReleaseTransition, legalReleaseTransitions } from './release-status.rules';
@@ -57,10 +58,19 @@ export interface ReleaseCompareIssue {
   statusCategory: string;
 }
 
+/** Gap-closure: an issue that was tagged with the release at some point but no longer is. */
+export interface ReleaseMovedOutIssue extends ReleaseCompareIssue {
+  movedOutAt: string;
+}
+
 export interface ReleaseCompareResult {
   onlyInA: ReleaseCompareIssue[];
   onlyInB: ReleaseCompareIssue[];
   inBoth: ReleaseCompareIssue[];
+  // Gap-closure (additive): issues later removed from each release's fix versions. Tracked from
+  // the field-level audit trail, so only removals made after that trail recorded release ids.
+  movedOutOfA: ReleaseMovedOutIssue[];
+  movedOutOfB: ReleaseMovedOutIssue[];
 }
 
 export interface ReleaseNotes {
@@ -78,6 +88,7 @@ export class ReleasesService {
     private readonly projectsService: ProjectsService,
     private readonly usersService: UsersService,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
+    @InjectModel(TaskActivity.name) private readonly activityModel: Model<TaskActivityDocument>,
   ) {}
 
   /** The owner is purely informational (doesn't gate any action) so it only needs to be a real,
@@ -396,11 +407,53 @@ export class ReleasesService {
     const idsA = new Set(tasksA.map((t) => t.id));
     const idsB = new Set(tasksB.map((t) => t.id));
 
+    const [movedOutOfA, movedOutOfB] = await Promise.all([
+      this.movedOutOf(releaseA.id, projectId),
+      this.movedOutOf(releaseB.id, projectId),
+    ]);
+
     return {
       onlyInA: tasksA.filter((t) => !idsB.has(t.id)).map(toCompareIssue),
       onlyInB: tasksB.filter((t) => !idsA.has(t.id)).map(toCompareIssue),
       inBoth: tasksA.filter((t) => idsB.has(t.id)).map(toCompareIssue),
+      movedOutOfA,
+      movedOutOfB,
     };
+  }
+
+  /** Issues in this project whose fix versions once included the release but no longer do, with
+   * when it was (most recently) removed. */
+  private async movedOutOf(releaseId: string, projectId: string): Promise<ReleaseMovedOutIssue[]> {
+    const removals = await this.activityModel
+      .find({ field: 'fixVersions', fromRefs: releaseId, toRefs: { $ne: releaseId } })
+      .sort({ createdAt: -1 })
+      .select('task createdAt')
+      .limit(500)
+      .exec();
+    if (removals.length === 0) return [];
+    const lastRemoval = new Map<string, Date>();
+    for (const r of removals) {
+      const taskId = r.task.toString();
+      if (!lastRemoval.has(taskId)) lastRemoval.set(taskId, r.createdAt);
+    }
+    const tasks = await this.taskModel
+      .find({
+        _id: { $in: [...lastRemoval.keys()].map((id) => new Types.ObjectId(id)) },
+        project: new Types.ObjectId(projectId),
+        deletedAt: null,
+        fixVersions: { $ne: new Types.ObjectId(releaseId) },
+      })
+      .select('issueKey title statusCategory')
+      .exec();
+    return tasks
+      .map((t) => ({
+        id: t.id,
+        issueKey: t.issueKey,
+        title: t.title,
+        statusCategory: t.statusCategory,
+        movedOutAt: lastRemoval.get(t.id)!.toISOString(),
+      }))
+      .sort((a, b) => b.movedOutAt.localeCompare(a.movedOutAt));
   }
 
   /** See release-notes.util.ts's own doc comment: a deterministic composer from real completed-

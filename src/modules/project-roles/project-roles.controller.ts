@@ -51,7 +51,10 @@ export class ProjectRolesController {
   }
 
   @Get()
-  @ApiOperation({ summary: "List this organization's project roles" })
+  // Gap-closure: Managers assign project roles to their own projects (and pick them as approvers),
+  // so they need to read the list; creating/editing/deleting roles stays Admin-only (class-level).
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: "List this organization's project roles (Admin, Manager)" })
   async list(@CurrentUser() user: AuthenticatedUser) {
     return this.projectRolesService.listMine(user);
   }

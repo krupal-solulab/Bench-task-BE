@@ -1379,244 +1379,6 @@
         ]
       }
     },
-    "/api/v1/projects/{id}/tasks": {
-      "get": {
-        "operationId": "ProjectsController_listTasks",
-        "summary": "List tasks for a project (pre-scoped, same filters as /tasks)",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "page",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "minimum": 1,
-              "default": 1,
-              "type": "number"
-            }
-          },
-          {
-            "name": "limit",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20,
-              "type": "number"
-            }
-          },
-          {
-            "name": "sortOrder",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "default": "desc",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "name": "project",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "assignee",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "status",
-            "required": false,
-            "in": "query",
-            "description": "Status name(s) from the project's workflow (custom or system default)",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "name": "priority",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "enum": [
-                  "P1",
-                  "P2",
-                  "P3"
-                ]
-              }
-            }
-          },
-          {
-            "name": "dueDateFrom",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "dueDateTo",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "overdue",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "search",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "createdBy",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "sprintId",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "unassignedSprint",
-            "required": false,
-            "in": "query",
-            "description": "true = only backlog tasks (no sprint assigned)",
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "issueType",
-            "required": false,
-            "in": "query",
-            "description": "Filter by the project's issue type names",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "name": "parent",
-            "required": false,
-            "in": "query",
-            "description": "An issue's parent (Epic-link or Sub-task's parent)",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "labels",
-            "required": false,
-            "in": "query",
-            "description": "Filter to tasks with any of these labels",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "name": "components",
-            "required": false,
-            "in": "query",
-            "description": "Filter to tasks with any of these components",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          {
-            "name": "sortBy",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "default": "createdAt",
-              "enum": [
-                "dueDate",
-                "priority",
-                "status",
-                "createdAt",
-                "updatedAt",
-                "rank"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "name": "customFieldFilters",
-            "required": false,
-            "in": "query",
-            "description": "JSON-encoded array of {fieldId, value} - equals-match against a custom field, ANDed. Malformed/wrongly-shaped entries are silently dropped rather than rejected.",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "projects"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
     "/api/v1/projects/{id}/stats": {
       "get": {
         "operationId": "ProjectsController_stats",
@@ -3146,7 +2908,7 @@
       },
       "get": {
         "operationId": "ProjectRolesController_list",
-        "summary": "List this organization's project roles",
+        "summary": "List this organization's project roles (Admin, Manager)",
         "parameters": [],
         "responses": {
           "200": {
@@ -5614,6 +5376,244 @@
         },
         "tags": [
           "automation-log"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/tasks": {
+      "get": {
+        "operationId": "ProjectTasksController_listTasks",
+        "summary": "List tasks for a project (pre-scoped, same filters as /tasks)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "project",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Status name(s) from the project's workflow (custom or system default)",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3"
+                ]
+              }
+            }
+          },
+          {
+            "name": "dueDateFrom",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dueDateTo",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "overdue",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "createdBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sprintId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unassignedSprint",
+            "required": false,
+            "in": "query",
+            "description": "true = only backlog tasks (no sprint assigned)",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "issueType",
+            "required": false,
+            "in": "query",
+            "description": "Filter by the project's issue type names",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "parent",
+            "required": false,
+            "in": "query",
+            "description": "An issue's parent (Epic-link or Sub-task's parent)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "labels",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these labels",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "components",
+            "required": false,
+            "in": "query",
+            "description": "Filter to tasks with any of these components",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "sortBy",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "createdAt",
+              "enum": [
+                "dueDate",
+                "priority",
+                "status",
+                "createdAt",
+                "updatedAt",
+                "rank"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "customFieldFilters",
+            "required": false,
+            "in": "query",
+            "description": "JSON-encoded array of {fieldId, value} - equals-match against a custom field, ANDed. Malformed/wrongly-shaped entries are silently dropped rather than rejected.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
         ],
         "security": [
           {

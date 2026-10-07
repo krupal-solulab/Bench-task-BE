@@ -21,6 +21,7 @@ import { TasksRepository } from './tasks.repository';
 import { BulkOperationLogsRepository } from './bulk-operation-logs.repository';
 import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
+import { ProjectTasksController } from './project-tasks.controller';
 import { AutomationLogController } from './automation-log.controller';
 import { TasksDueDateReminderService } from './tasks-due-date-reminder.service';
 import { UnassignedAutomationTriggerService } from './unassigned-automation-trigger.service';
@@ -53,7 +54,7 @@ import { AutomationJobProcessor } from './automation-job.processor';
       { name: Organization.name, schema: OrganizationSchema },
     ]),
   ],
-  controllers: [TasksController, AutomationLogController],
+  controllers: [TasksController, AutomationLogController, ProjectTasksController],
   providers: [
     TasksRepository,
     BulkOperationLogsRepository,
