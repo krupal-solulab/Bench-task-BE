@@ -459,7 +459,11 @@
                 "ImpersonationStarted",
                 "ImpersonationEnded",
                 "ApiTokenCreated",
-                "ApiTokenRevoked"
+                "ApiTokenRevoked",
+                "ProjectInviteSent",
+                "ProjectInviteResent",
+                "ProjectInviteRevoked",
+                "ProjectInviteAccepted"
               ],
               "type": "string"
             }
@@ -1259,7 +1263,7 @@
       },
       "post": {
         "operationId": "ProjectsController_addMembers",
-        "summary": "Add members (must be active Developers, idempotent)",
+        "summary": "Add members (active Developers or Managers, idempotent)",
         "parameters": [
           {
             "name": "id",
@@ -1282,6 +1286,35 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/member-candidates": {
+      "get": {
+        "operationId": "ProjectsController_listMemberCandidates",
+        "summary": "Active Developers/Managers who are not yet members of this project",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -3059,6 +3092,64 @@
         ]
       }
     },
+    "/api/v1/auth/invites/{token}": {
+      "get": {
+        "operationId": "AuthController_previewInvite",
+        "summary": "Public: what a project invitation link is for, and its state",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/invites/{token}/accept": {
+      "post": {
+        "operationId": "AuthController_acceptInvite",
+        "summary": "Public: accept a project invitation with its temporary password (signs in)",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptProjectInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/refresh": {
       "post": {
         "operationId": "AuthController_refresh",
@@ -3202,6 +3293,36 @@
         ]
       }
     },
+    "/api/v1/auth/me/initial-password": {
+      "post": {
+        "operationId": "AuthController_setInitialPassword",
+        "summary": "Set own password after signing in with an invite's temporary one (new session)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetInitialPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/impersonate/{userId}": {
       "post": {
         "operationId": "AuthController_impersonate",
@@ -3243,6 +3364,469 @@
         },
         "tags": [
           "auth"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/invites": {
+      "get": {
+        "operationId": "ProjectInvitesController_list",
+        "summary": "List the project's invitations (newest first)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "ProjectInvitesController_create",
+        "summary": "Invite by email: generates a temporary password and a 7-day link (shown once)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/invites/{inviteId}/resend": {
+      "post": {
+        "operationId": "ProjectInvitesController_resend",
+        "summary": "New link + temporary password, 7 more days (old ones stop working)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/invites/{inviteId}": {
+      "delete": {
+        "operationId": "ProjectInvitesController_revoke",
+        "summary": "Revoke a pending invitation",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "project-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "NotificationsController_list",
+        "summary": "List the caller's own notifications, newest first",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "sortOrder",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "unreadOnly",
+            "required": false,
+            "in": "query",
+            "description": "true = only unread notifications",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "description": "Module 11 - filter to one type",
+            "schema": {
+              "enum": [
+                "TaskAssigned",
+                "StatusChanged",
+                "CommentAdded",
+                "DueSoon",
+                "Automation",
+                "Scheme",
+                "Mentioned",
+                "WatchedTaskUpdated",
+                "ApprovalRequested",
+                "ApprovalDecided",
+                "InviteAccepted"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/unread-count": {
+      "get": {
+        "operationId": "NotificationsController_unreadCount",
+        "summary": "The caller's unread notification count",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/{id}/read": {
+      "patch": {
+        "operationId": "NotificationsController_markRead",
+        "summary": "Mark one of the caller's own notifications as read",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/read-all": {
+      "post": {
+        "operationId": "NotificationsController_markAllRead",
+        "summary": "Mark every unread notification of the caller's as read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/digest": {
+      "get": {
+        "operationId": "NotificationsController_digest",
+        "summary": "My digest of unread notifications for a period (Module 11)",
+        "parameters": [
+          {
+            "name": "period",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "daily",
+              "enum": [
+                "daily",
+                "weekly"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/snoozes": {
+      "get": {
+        "operationId": "NotificationsController_listSnoozes",
+        "summary": "My active per-issue notification snoozes (Module 11)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/snoozes/{taskId}": {
+      "put": {
+        "operationId": "NotificationsController_snooze",
+        "summary": "Snooze one issue's notifications until a time (Module 11)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutNotificationSnoozeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "NotificationsController_unsnooze",
+        "summary": "End an issue's notification snooze early (Module 11)",
+        "parameters": [
+          {
+            "name": "taskId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "operationId": "NotificationsController_getPreferences",
+        "summary": "The caller's muted notification types (defaults if never set)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "operationId": "NotificationsController_updatePreferences",
+        "summary": "Save the caller's own muted notification types",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutNotificationPreferenceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "notifications"
         ],
         "security": [
           {
@@ -6200,328 +6784,6 @@
         },
         "tags": [
           "sprints"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications": {
-      "get": {
-        "operationId": "NotificationsController_list",
-        "summary": "List the caller's own notifications, newest first",
-        "parameters": [
-          {
-            "name": "page",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "minimum": 1,
-              "default": 1,
-              "type": "number"
-            }
-          },
-          {
-            "name": "limit",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "minimum": 1,
-              "maximum": 100,
-              "default": 20,
-              "type": "number"
-            }
-          },
-          {
-            "name": "sortOrder",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "default": "desc",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "type": "string"
-            }
-          },
-          {
-            "name": "unreadOnly",
-            "required": false,
-            "in": "query",
-            "description": "true = only unread notifications",
-            "schema": {
-              "type": "boolean"
-            }
-          },
-          {
-            "name": "type",
-            "required": false,
-            "in": "query",
-            "description": "Module 11 - filter to one type",
-            "schema": {
-              "enum": [
-                "TaskAssigned",
-                "StatusChanged",
-                "CommentAdded",
-                "DueSoon",
-                "Automation",
-                "Scheme",
-                "Mentioned",
-                "WatchedTaskUpdated",
-                "ApprovalRequested",
-                "ApprovalDecided"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/unread-count": {
-      "get": {
-        "operationId": "NotificationsController_unreadCount",
-        "summary": "The caller's unread notification count",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/{id}/read": {
-      "patch": {
-        "operationId": "NotificationsController_markRead",
-        "summary": "Mark one of the caller's own notifications as read",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/read-all": {
-      "post": {
-        "operationId": "NotificationsController_markAllRead",
-        "summary": "Mark every unread notification of the caller's as read",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/digest": {
-      "get": {
-        "operationId": "NotificationsController_digest",
-        "summary": "My digest of unread notifications for a period (Module 11)",
-        "parameters": [
-          {
-            "name": "period",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "default": "daily",
-              "enum": [
-                "daily",
-                "weekly"
-              ],
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/snoozes": {
-      "get": {
-        "operationId": "NotificationsController_listSnoozes",
-        "summary": "My active per-issue notification snoozes (Module 11)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/snoozes/{taskId}": {
-      "put": {
-        "operationId": "NotificationsController_snooze",
-        "summary": "Snooze one issue's notifications until a time (Module 11)",
-        "parameters": [
-          {
-            "name": "taskId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PutNotificationSnoozeDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      },
-      "delete": {
-        "operationId": "NotificationsController_unsnooze",
-        "summary": "End an issue's notification snooze early (Module 11)",
-        "parameters": [
-          {
-            "name": "taskId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      }
-    },
-    "/api/v1/notifications/preferences": {
-      "get": {
-        "operationId": "NotificationsController_getPreferences",
-        "summary": "The caller's muted notification types (defaults if never set)",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
-        ],
-        "security": [
-          {
-            "bearer": []
-          }
-        ]
-      },
-      "put": {
-        "operationId": "NotificationsController_updatePreferences",
-        "summary": "Save the caller's own muted notification types",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PutNotificationPreferenceDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "notifications"
         ],
         "security": [
           {
@@ -11208,6 +11470,18 @@
           "password"
         ]
       },
+      "AcceptProjectInviteDto": {
+        "type": "object",
+        "properties": {
+          "temporaryPassword": {
+            "type": "string",
+            "description": "The temporary password from the invitation"
+          }
+        },
+        "required": [
+          "temporaryPassword"
+        ]
+      },
       "RefreshDto": {
         "type": "object",
         "properties": {
@@ -11251,6 +11525,91 @@
         "required": [
           "currentPassword",
           "newPassword"
+        ]
+      },
+      "SetInitialPasswordDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Asha Patel"
+          },
+          "newPassword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "newPassword"
+        ]
+      },
+      "CreateProjectInviteDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "asha@example.com"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "Manager",
+              "Developer"
+            ],
+            "example": "Developer"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ]
+      },
+      "PutNotificationSnoozeDto": {
+        "type": "object",
+        "properties": {
+          "until": {
+            "type": "string",
+            "example": "2026-10-06T09:00:00.000Z"
+          }
+        },
+        "required": [
+          "until"
+        ]
+      },
+      "PutNotificationPreferenceDto": {
+        "type": "object",
+        "properties": {
+          "mutedTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "TaskAssigned",
+                "StatusChanged",
+                "CommentAdded",
+                "DueSoon",
+                "Automation",
+                "Scheme",
+                "Mentioned",
+                "WatchedTaskUpdated",
+                "ApprovalRequested",
+                "ApprovalDecided",
+                "InviteAccepted"
+              ]
+            }
+          },
+          "digest": {
+            "type": "string",
+            "enum": [
+              "off",
+              "daily",
+              "weekly"
+            ],
+            "description": "Module 11: digest frequency"
+          }
+        },
+        "required": [
+          "mutedTypes"
         ]
       },
       "CreateTaskDto": {
@@ -11772,53 +12131,6 @@
             "description": "Where incomplete issues go (BRD 6.3's PM's choice) - omit/null for the default (the backlog); a Planned sprint id moves them there instead."
           }
         }
-      },
-      "PutNotificationSnoozeDto": {
-        "type": "object",
-        "properties": {
-          "until": {
-            "type": "string",
-            "example": "2026-10-06T09:00:00.000Z"
-          }
-        },
-        "required": [
-          "until"
-        ]
-      },
-      "PutNotificationPreferenceDto": {
-        "type": "object",
-        "properties": {
-          "mutedTypes": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "TaskAssigned",
-                "StatusChanged",
-                "CommentAdded",
-                "DueSoon",
-                "Automation",
-                "Scheme",
-                "Mentioned",
-                "WatchedTaskUpdated",
-                "ApprovalRequested",
-                "ApprovalDecided"
-              ]
-            }
-          },
-          "digest": {
-            "type": "string",
-            "enum": [
-              "off",
-              "daily",
-              "weekly"
-            ],
-            "description": "Module 11: digest frequency"
-          }
-        },
-        "required": [
-          "mutedTypes"
-        ]
       },
       "CreateReleaseDto": {
         "type": "object",

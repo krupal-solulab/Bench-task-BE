@@ -15,6 +15,7 @@ import { UsersService } from '../users/users.service';
 import { UserDocument } from '../users/schemas/user.schema';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { CreateOrganizationDto } from '../organizations/dto/create-organization.dto';
+import { ProjectInvitesService } from '../project-invites/project-invites.service';
 import { AuthRepository } from './auth.repository';
 import { parseDurationMs } from './utils/parse-duration.util';
 
@@ -34,6 +35,7 @@ export class AuthService {
     private readonly authRepository: AuthRepository,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AppConfig, true>,
+    private readonly projectInvitesService: ProjectInvitesService,
   ) {}
 
   async registerOrganization(
@@ -46,7 +48,14 @@ export class AuthService {
 
   async login(email: string, password: string): Promise<AuthTokens & { user: UserDocument }> {
     const user = await this.usersService.findByEmailWithPassword(email);
-    if (!user || !user.isActive) {
+    if (!user) {
+      // No account yet: the email + temporary password from a project invite accepts it here
+      // too, not only through the invitation link.
+      const invited = await this.projectInvitesService.acceptByEmail(email, password);
+      if (!invited) throw new UnauthorizedException('Invalid email or password');
+      return { ...(await this.issueTokens(invited, randomUUID())), user: invited };
+    }
+    if (!user.isActive) {
       throw new UnauthorizedException('Invalid email or password');
     }
     const valid = await this.usersService.validatePassword(user, password);
@@ -58,6 +67,40 @@ export class AuthService {
     await this.assertOrgActiveOrThrow(user);
     const tokens = await this.issueTokens(user, randomUUID());
     return { ...tokens, user };
+  }
+
+  /** Accepts a project invite through its link, creating the account and signing it in. */
+  async acceptInvite(
+    token: string,
+    temporaryPassword: string,
+  ): Promise<AuthTokens & { user: UserDocument }> {
+    const user = await this.projectInvitesService.acceptWithToken(token, temporaryPassword);
+    return { ...(await this.issueTokens(user, randomUUID())), user };
+  }
+
+  /**
+   * Completes an invite account: the invitee's own name and first password - no current password
+   * asked (they just signed in with the temporary one). Every older session is revoked and a fresh one
+   * issued, so the user carries straight on.
+   */
+  async setInitialPassword(
+    userId: string,
+    newPassword: string,
+    name: string,
+  ): Promise<AuthTokens & { user: UserDocument }> {
+    const current = await this.usersService.findByIdOrThrow(userId);
+    if (!current.mustChangePassword) {
+      throw new ConflictException('No password change is pending - use change password instead');
+    }
+    const withHash = await this.usersService.findByEmailWithPassword(current.email);
+    if (withHash && (await this.usersService.validatePassword(withHash, newPassword))) {
+      throw new BadRequestException('Choose a password different from your temporary one');
+    }
+    await this.usersService.setPassword(userId, newPassword);
+    await this.usersService.setName(userId, name.trim());
+    await this.authRepository.revokeAllForUser(userId);
+    const user = await this.usersService.findByIdOrThrow(userId);
+    return { ...(await this.issueTokens(user, randomUUID())), user };
   }
 
   async refresh(rawToken: string): Promise<AuthTokens> {

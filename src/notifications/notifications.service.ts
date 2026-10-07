@@ -18,6 +18,7 @@ import {
   NotificationChannel,
   NotificationSchemeEvent,
 } from '../modules/projects/schemas/notification-scheme.schema';
+import { renderEmailTemplate } from './email-templates';
 
 export interface TaskAssignedNotification {
   taskId: string;
@@ -106,6 +107,26 @@ export interface SchemeEventNotification {
  * reminder cron. The in-app notification row each method now also writes follows the same
  * contract: a failure to write it or to push it over the socket never fails the caller.
  */
+/** Product name shown in email headers/footers. */
+const EMAIL_APP_NAME = 'Project & Task Management';
+
+/** "October 14, 2026 at 9:36 AM UTC" - emails can't know the reader's time zone. */
+function formatEmailDate(date: Date): string {
+  return `${new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeStyle: 'short', timeZone: 'UTC' }).format(date)} UTC`;
+}
+
+export interface ProjectInviteEmail {
+  inviteId: string;
+  email: string;
+  inviterName: string;
+  role: string;
+  projectName: string;
+  organizationName: string | null;
+  inviteUrl: string;
+  temporaryPassword: string;
+  expiresAt: Date;
+}
+
 /** Module 11 gap-closure: most unread notifications a digest reads. */
 const DIGEST_SCAN_LIMIT = 200;
 
@@ -531,6 +552,78 @@ export class NotificationsService {
       throw new NotFoundException('Notification not found');
     }
     return notification;
+  }
+
+  /**
+   * The invitation email: the sign-in link plus the generated temporary password (masked in any
+   * log of the email). Unlike the courtesy notifications above this one reports failure, so the
+   * inviter can be told to share the link themselves - it never throws.
+   */
+  async sendProjectInvite(invite: ProjectInviteEmail): Promise<boolean> {
+    try {
+      if (await this.channelStatusService.isPaused('Email')) return false;
+      const expires = formatEmailDate(invite.expiresAt);
+      const subject = `${invite.inviterName} invited you to join ${invite.projectName}`;
+      const view = {
+        appName: EMAIL_APP_NAME,
+        subject,
+        inviterName: invite.inviterName,
+        projectName: invite.projectName,
+        organizationName: invite.organizationName,
+        role: invite.role,
+        email: invite.email,
+        temporaryPassword: invite.temporaryPassword,
+        inviteUrl: invite.inviteUrl,
+        expires,
+        year: new Date().getFullYear(),
+      };
+      await this.emailService.send({
+        to: invite.email,
+        subject,
+        template: 'project-invite',
+        redact: [invite.temporaryPassword],
+        html: await renderEmailTemplate('project-invite', view),
+        data: {
+          text: [
+            'Hello,',
+            '',
+            `${invite.inviterName} invited you to join the project "${invite.projectName}"` +
+              (invite.organizationName ? ` in ${invite.organizationName}` : '') +
+              ` as a ${invite.role}.`,
+            '',
+            `Accept the invitation: ${invite.inviteUrl}`,
+            '',
+            `Email: ${invite.email}`,
+            `Temporary password: ${invite.temporaryPassword}`,
+            '',
+            'After signing in you will enter your name and choose your own password.',
+            `This invitation expires on ${expires}.`,
+          ].join('\n'),
+        },
+      });
+      // Logged-only (no SMTP configured) counts as not sent: the inviter must share it.
+      return this.emailService.delivers !== false;
+    } catch (err) {
+      this.logger.warn({ err, inviteId: invite.inviteId }, 'failed to send project invite email');
+      return false;
+    }
+  }
+
+  async notifyInviteAccepted(input: {
+    inviterId: string;
+    organizationId: string;
+    projectId: string;
+    projectName: string;
+    inviteeName: string;
+  }): Promise<void> {
+    await this.createInAppNotification(
+      input.inviterId,
+      input.organizationId,
+      NotificationType.INVITE_ACCEPTED,
+      'Invitation accepted',
+      `${input.inviteeName} joined "${input.projectName}"`,
+      { projectId: input.projectId },
+    );
   }
 
   private async createInAppNotification(

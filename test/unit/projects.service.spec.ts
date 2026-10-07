@@ -283,10 +283,12 @@ describe('ProjectsService', () => {
       );
     });
 
-    it('rejects members who are not active Developers', async () => {
-      usersRepository.findByIds.mockResolvedValue([
-        { id: DEV_ID, role: Role.MANAGER, isActive: true } as never,
-      ]);
+    // Managers may be members (project invites can grant either role) - Admins never are.
+    it.each([
+      ['an Admin', { role: Role.ADMIN, isActive: true }],
+      ['an inactive Developer', { role: Role.DEVELOPER, isActive: false }],
+    ])('rejects %s as a member', async (_label, member) => {
+      usersRepository.findByIds.mockResolvedValue([{ id: DEV_ID, ...member } as never]);
 
       await expect(
         service.create(

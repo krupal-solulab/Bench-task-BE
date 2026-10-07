@@ -24,6 +24,8 @@ export enum NotificationType {
   // sign-off, and to the original requester once it's been granted or rejected.
   APPROVAL_REQUESTED = 'ApprovalRequested',
   APPROVAL_DECIDED = 'ApprovalDecided',
+  // Sent to whoever invited someone to a project, once the invitee accepts.
+  INVITE_ACCEPTED = 'InviteAccepted',
 }
 
 export const NOTIFICATION_TYPES = Object.values(NotificationType);

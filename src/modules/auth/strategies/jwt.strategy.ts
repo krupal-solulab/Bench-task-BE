@@ -46,6 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: user.role,
       organizationId: user.organizationId ? user.organizationId.toString() : null,
       ...(payload.impersonatedBy ? { impersonatedBy: payload.impersonatedBy } : {}),
+      ...(user.mustChangePassword ? { mustChangePassword: true } : {}),
     };
   }
 }

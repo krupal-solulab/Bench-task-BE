@@ -8,6 +8,7 @@ import { AuthService } from 'src/modules/auth/auth.service';
 import { AuthRepository } from 'src/modules/auth/auth.repository';
 import { UsersService } from 'src/modules/users/users.service';
 import { OrganizationsService } from 'src/modules/organizations/organizations.service';
+import { ProjectInvitesService } from 'src/modules/project-invites/project-invites.service';
 
 function makeUser(overrides: Record<string, unknown> = {}) {
   return {
@@ -38,6 +39,7 @@ describe('AuthService', () => {
     >
   >;
   let jwtService: jest.Mocked<Pick<JwtService, 'sign'>>;
+  let projectInvitesService: jest.Mocked<Pick<ProjectInvitesService, 'acceptByEmail'>>;
   let configService: ConfigService<AppConfig, true>;
   let service: AuthService;
 
@@ -72,6 +74,10 @@ describe('AuthService', () => {
       sign: jest.fn().mockReturnValue('signed.jwt.token'),
     } as unknown as typeof jwtService;
 
+    projectInvitesService = {
+      acceptByEmail: jest.fn().mockResolvedValue(null),
+    } as unknown as typeof projectInvitesService;
+
     configService = {
       get: jest.fn((key: string) => CONFIG[key]),
     } as unknown as ConfigService<AppConfig, true>;
@@ -82,6 +88,7 @@ describe('AuthService', () => {
       authRepository as unknown as AuthRepository,
       jwtService as unknown as JwtService,
       configService,
+      projectInvitesService as unknown as ProjectInvitesService,
     );
   });
 
@@ -118,6 +125,19 @@ describe('AuthService', () => {
     it('rejects an unknown email without revealing which part was wrong', async () => {
       usersService.findByEmailWithPassword.mockResolvedValue(null);
       await expect(service.login('nobody@example.com', 'x')).rejects.toThrow(UnauthorizedException);
+      expect(projectInvitesService.acceptByEmail).toHaveBeenCalledWith('nobody@example.com', 'x');
+    });
+
+    it('signs in an invitee whose email + temporary password match a pending invite', async () => {
+      usersService.findByEmailWithPassword.mockResolvedValue(null);
+      const invitee = makeUser({ email: 'new@example.com' });
+      projectInvitesService.acceptByEmail.mockResolvedValue(invitee as never);
+      authRepository.create.mockResolvedValue({} as never);
+
+      const result = await service.login('new@example.com', 'Temp12345abc');
+
+      expect(result.user).toBe(invitee);
+      expect(result.accessToken).toBe('signed.jwt.token');
     });
 
     it('rejects a deactivated account even with the correct password', async () => {

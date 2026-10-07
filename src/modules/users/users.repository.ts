@@ -57,6 +57,17 @@ export class UsersRepository {
     return { data, total };
   }
 
+  findActiveByRoles(organizationId: string, roles: readonly Role[]): Promise<UserDocument[]> {
+    return this.model
+      .find({
+        role: { $in: roles },
+        isActive: true,
+        organizationId: new Types.ObjectId(organizationId),
+      })
+      .sort({ name: 1 })
+      .exec();
+  }
+
   findAssignable(organizationId: string): Promise<UserDocument[]> {
     return this.model
       .find({

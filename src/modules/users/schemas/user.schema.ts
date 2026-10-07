@@ -53,6 +53,11 @@ export class User {
   @Prop({ type: String, default: null, maxlength: 60 })
   timezone!: string | null;
 
+  // Set for an account created from a project invite (signed in with a generated temporary
+  // password): every API call except setting a new password is refused until it is cleared.
+  @Prop({ default: false })
+  mustChangePassword!: boolean;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

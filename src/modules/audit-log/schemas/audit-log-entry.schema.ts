@@ -45,6 +45,10 @@ export enum AuditAction {
   IMPERSONATION_ENDED = 'ImpersonationEnded',
   API_TOKEN_CREATED = 'ApiTokenCreated',
   API_TOKEN_REVOKED = 'ApiTokenRevoked',
+  PROJECT_INVITE_SENT = 'ProjectInviteSent',
+  PROJECT_INVITE_RESENT = 'ProjectInviteResent',
+  PROJECT_INVITE_REVOKED = 'ProjectInviteRevoked',
+  PROJECT_INVITE_ACCEPTED = 'ProjectInviteAccepted',
 }
 
 export const AUDIT_ACTIONS = Object.values(AuditAction);

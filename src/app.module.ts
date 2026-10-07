@@ -17,6 +17,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { OrganizationScopeGuard } from './common/guards/organization-scope.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { PasswordChangeRequiredGuard } from './common/guards/password-change-required.guard';
 import { ImpersonationReadOnlyGuard } from './common/guards/impersonation-read-only.guard';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
@@ -47,6 +48,7 @@ import { IssueTemplatesModule } from './modules/issue-templates/issue-templates.
 import { ProjectCategoriesModule } from './modules/project-categories/project-categories.module';
 import { AdminConsoleModule } from './modules/admin-console/admin-console.module';
 import { CustomFieldLibraryModule } from './modules/custom-field-library/custom-field-library.module';
+import { ProjectInvitesModule } from './modules/project-invites/project-invites.module';
 import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
 import { ApiTokenRestrictionGuard } from './common/guards/api-token-restriction.guard';
 
@@ -73,12 +75,14 @@ import { ApiTokenRestrictionGuard } from './common/guards/api-token-restriction.
               'req.body.passwordHash',
               'req.body.currentPassword',
               'req.body.newPassword',
+              'req.body.temporaryPassword',
               'req.body.accessToken',
               'req.body.refreshToken',
               '*.password',
               '*.passwordHash',
               '*.accessToken',
               '*.refreshToken',
+              '*.temporaryPassword',
             ],
             censor: '[REDACTED]',
           },
@@ -135,6 +139,7 @@ import { ApiTokenRestrictionGuard } from './common/guards/api-token-restriction.
     AdminConsoleModule,
     CustomFieldLibraryModule,
     ApiTokensModule,
+    ProjectInvitesModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
@@ -148,6 +153,8 @@ import { ApiTokenRestrictionGuard } from './common/guards/api-token-restriction.
     { provide: APP_GUARD, useClass: ImpersonationReadOnlyGuard },
     // Module 11 gap-closure: refuses @DisallowApiToken routes for personal API tokens.
     { provide: APP_GUARD, useClass: ApiTokenRestrictionGuard },
+    // Invite accounts must set their own password before anything else (needs req.user).
+    { provide: APP_GUARD, useClass: PasswordChangeRequiredGuard },
   ],
 })
 export class AppModule {}
