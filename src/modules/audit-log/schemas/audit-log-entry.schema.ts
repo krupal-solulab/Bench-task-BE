@@ -49,6 +49,10 @@ export enum AuditAction {
   PROJECT_INVITE_RESENT = 'ProjectInviteResent',
   PROJECT_INVITE_REVOKED = 'ProjectInviteRevoked',
   PROJECT_INVITE_ACCEPTED = 'ProjectInviteAccepted',
+  CUSTOM_ROLE_CREATED = 'CustomRoleCreated',
+  CUSTOM_ROLE_UPDATED = 'CustomRoleUpdated',
+  CUSTOM_ROLE_DELETED = 'CustomRoleDeleted',
+  PROJECT_ROLE_PERMISSIONS_CHANGED = 'ProjectRolePermissionsChanged',
 }
 
 export const AUDIT_ACTIONS = Object.values(AuditAction);

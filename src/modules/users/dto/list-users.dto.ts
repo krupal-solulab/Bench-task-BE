@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBooleanString, IsEnum, IsIn, IsOptional, IsString } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto';
 import { Role } from '../../../common/enums/role.enum';
+import { IsObjectId } from '../../../common/validators/is-object-id.validator';
 
 const SORT_FIELDS = ['name', 'email', 'createdAt', 'role'] as const;
 export type UserSortBy = (typeof SORT_FIELDS)[number];
@@ -16,6 +17,11 @@ export class ListUsersDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(Role)
   role?: Role;
+
+  @ApiPropertyOptional({ description: 'Only users with this custom role' })
+  @IsOptional()
+  @IsObjectId()
+  customRoleId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -65,8 +65,10 @@ import { computeCycleTime } from './cycle-time.util';
 import {
   GrantableCapability,
   MemberPermissions,
+  NO_PERMISSIONS,
   resolveMemberPermissions,
 } from './schemas/member-permissions.schema';
+import { CustomRolesService } from '../custom-roles/custom-roles.service';
 import { PutWorkflowDto } from './dto/put-workflow.dto';
 import {
   CustomFieldDefinition,
@@ -141,6 +143,7 @@ export interface ProjectResponse {
   notificationScheme: NotificationSchemeRule[];
   boardType: BoardType;
   roleAssignments: RoleAssignmentResponse[];
+  rolePermissionOverrides: Array<{ roleId: string; permissions: MemberPermissions }>;
   defaultApprovers: {
     allowedRoles: Role[];
     allowedUserIds: string[];
@@ -179,6 +182,8 @@ export class ProjectsService {
     @InjectModel(Sprint.name) private readonly sprintModel: Model<SprintDocument>,
     @InjectModel(ProjectCategory.name)
     private readonly projectCategoryModel: Model<ProjectCategoryDocument>,
+    @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
+    private readonly customRolesService: CustomRolesService,
   ) {}
 
   async create(dto: CreateProjectDto, actingUser: AuthenticatedUser): Promise<ProjectResponse> {
@@ -352,7 +357,7 @@ export class ProjectsService {
 
   async softDelete(id: string, actingUser: AuthenticatedUser): Promise<void> {
     const project = await this.getActiveOrThrow(id);
-    this.assertCanManage(project, actingUser);
+    this.assertCanManageStrict(project, actingUser);
 
     const now = new Date();
     const tasks = await this.taskModel.find({ project: project._id, deletedAt: null }).exec();
@@ -424,6 +429,59 @@ export class ProjectsService {
       PROJECT_MEMBER_ROLES,
     );
     return users.filter((u) => !this.projectsRepository.isMember(project, u.id));
+  }
+
+  /**
+   * Per-project role permissions (Jira-style): every role of the organization with its defaults,
+   * this project's override (if any) and what applies here. Visible to anyone who can view it.
+   */
+  async listRolePermissions(id: string, actingUser: AuthenticatedUser) {
+    const project = await this.getActiveOrThrow(id);
+    this.assertCanView(project, actingUser);
+    const roles = await this.customRolesService.list(extractId(project.organizationId));
+    return roles.map((role) => {
+      const override = (project.rolePermissionOverrides ?? []).find(
+        (o) => extractId(o.roleId) === role.id,
+      );
+      return {
+        roleId: role.id,
+        name: role.name,
+        color: role.color,
+        builtInRole: role.builtInRole,
+        defaults: role.permissions,
+        override: override ? resolveMemberPermissions(override) : null,
+        effective: override ? resolveMemberPermissions(override) : role.permissions,
+      };
+    });
+  }
+
+  /** Sets (or with null, clears) this project's override of one role's permissions. Admin only -
+   * permissions are granted by the organization's Admins, never by people holding them. */
+  async setRolePermissionOverride(
+    id: string,
+    roleId: string,
+    permissions: MemberPermissions | null,
+    actingUser: AuthenticatedUser,
+  ) {
+    const project = await this.getActiveOrThrow(id);
+    if (!this.isSameOrgAdmin(project, actingUser)) {
+      throw new ForbiddenException('Only an Admin can change role permissions');
+    }
+    this.assertProjectWritable(project);
+    const role = await this.customRolesService.findInOrgOrThrow(
+      extractId(project.organizationId),
+      roleId,
+    );
+    const rest = (project.rolePermissionOverrides ?? []).filter(
+      (o) => extractId(o.roleId) !== role.id,
+    );
+    const next = permissions
+      ? [...rest, { roleId: role._id, permissions: { ...NO_PERMISSIONS, ...permissions } }]
+      : rest;
+    await this.projectModel
+      .updateOne({ _id: project._id }, { rolePermissionOverrides: next })
+      .exec();
+    return { roleName: role.name, rows: await this.listRolePermissions(id, actingUser) };
   }
 
   /** For project invites: the project, if `actingUser` may manage its membership. Archived
@@ -570,8 +628,8 @@ export class ProjectsService {
     const [data, total] = await Promise.all([
       this.taskModel
         .find(filter)
-        .populate('assignee', 'name email role isActive')
-        .populate('createdBy', 'name email role isActive')
+        .populate('assignee', 'name email role customRoleId isActive')
+        .populate('createdBy', 'name email role customRoleId isActive')
         .populate('sprint', 'name')
         .populate('parent', 'title issueKey')
         .sort(sort)
@@ -1451,7 +1509,7 @@ export class ProjectsService {
     actingUser: AuthenticatedUser,
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
-    this.assertCanManage(project, actingUser);
+    this.assertCanManageStrict(project, actingUser);
     this.assertProjectWritable(project);
 
     if (dto.permissionSchemeId) {
@@ -1603,11 +1661,17 @@ export class ProjectsService {
     capability: GrantableCapability,
   ): Promise<void> {
     if (this.isManager(project, actingUser)) return;
+    if (
+      capability === 'canManageSprints' &&
+      this.memberHasCapability(project, actingUser, 'canManageProject')
+    ) {
+      return;
+    }
     if (project.permissionSchemeId) {
       if (await this.hasSchemeGrant(project, actingUser, this.schemeActionFor(capability))) return;
       throw new ForbiddenException('You do not have permission to manage this project');
     }
-    if (this.memberHasCapability(project, actingUser.id, capability)) return;
+    if (this.memberHasCapability(project, actingUser, capability)) return;
     throw new ForbiddenException('You do not have permission to manage this project');
   }
 
@@ -1692,7 +1756,7 @@ export class ProjectsService {
     actingUser: AuthenticatedUser,
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
-    this.assertCanManage(project, actingUser);
+    this.assertCanManageStrict(project, actingUser);
     this.assertProjectWritable(project);
 
     const role = await this.projectRolesService.findByIdOrNull(projectRoleId);
@@ -1743,7 +1807,7 @@ export class ProjectsService {
     actingUser: AuthenticatedUser,
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
-    this.assertCanManage(project, actingUser);
+    this.assertCanManageStrict(project, actingUser);
     this.assertProjectWritable(project);
 
     if (dto.securitySchemeId) {
@@ -1765,7 +1829,7 @@ export class ProjectsService {
     actingUser: AuthenticatedUser,
   ): Promise<ProjectResponse> {
     const project = await this.getActiveOrThrow(id);
-    this.assertCanManage(project, actingUser);
+    this.assertCanManageStrict(project, actingUser);
     this.assertProjectWritable(project);
 
     if (dto.fieldPermissionSchemeId) {
@@ -1795,14 +1859,31 @@ export class ProjectsService {
 
   /** Whether a project member (by user id) was explicitly granted a specific capability on this
    * project - false for a non-member, and false for any capability nobody ever granted them. */
+  /** A project member's capability: their per-project grant, or their custom role's (QA,
+   * DevOps, ...) - which applies in every project they are a member of, never outside one. */
   memberHasCapability(
     project: ProjectDocument,
-    userId: string,
+    actingUser: Pick<AuthenticatedUser, 'id' | 'rolePermissions' | 'roleId'>,
     capability: GrantableCapability,
   ): boolean {
-    const member = project.members.find((m) => extractId(m.user) === userId);
+    const member = project.members.find((m) => extractId(m.user) === actingUser.id);
     if (!member) return false;
-    return resolveMemberPermissions(member)[capability] === true;
+    if (resolveMemberPermissions(member)[capability] === true) return true;
+    return this.rolePermissionsIn(project, actingUser)?.[capability] === true;
+  }
+
+  /** The acting user's role permissions in this project: the project's override for their role
+   * if it has one, else the role's organization-wide defaults. */
+  rolePermissionsIn(
+    project: Pick<ProjectDocument, 'rolePermissionOverrides'>,
+    actingUser: Pick<AuthenticatedUser, 'rolePermissions' | 'roleId'>,
+  ): MemberPermissions | undefined {
+    const override = actingUser.roleId
+      ? (project.rolePermissionOverrides ?? []).find(
+          (o) => extractId(o.roleId) === actingUser.roleId,
+        )
+      : undefined;
+    return override ? resolveMemberPermissions(override) : actingUser.rolePermissions;
   }
 
   isProjectMember(project: ProjectDocument, userId: string): boolean {
@@ -1848,9 +1929,19 @@ export class ProjectsService {
     throw new ForbiddenException('You do not have access to this project');
   }
 
+  /** Same-org Admin, the owning Manager, or a member whose role (or per-project grant) has
+   * "Manage project" in this project. */
   private assertCanManage(project: ProjectDocument, actingUser: AuthenticatedUser): void {
     if (this.isManager(project, actingUser)) return;
+    if (this.memberHasCapability(project, actingUser, 'canManageProject')) return;
     throw new ForbiddenException('You do not have permission to manage this project');
+  }
+
+  /** Admin / owning Manager only - deleting the project, scheme and project-role assignments.
+   * "Manage project" never reaches these. */
+  private assertCanManageStrict(project: ProjectDocument, actingUser: AuthenticatedUser): void {
+    if (this.isManager(project, actingUser)) return;
+    throw new ForbiddenException('Only an Admin or the project owner can do this');
   }
 
   /** Same-org Admin, or the project's owning Manager - the authority level that has always been
@@ -1940,6 +2031,10 @@ export class ProjectsService {
       permissionSchemeId: project.permissionSchemeId ? extractId(project.permissionSchemeId) : null,
       notificationScheme: project.notificationScheme,
       boardType: project.boardType,
+      rolePermissionOverrides: (project.rolePermissionOverrides ?? []).map((o) => ({
+        roleId: extractId(o.roleId),
+        permissions: resolveMemberPermissions(o),
+      })),
       roleAssignments: project.roleAssignments.map((a) => ({
         projectRoleId: extractId(a.projectRoleId),
         userIds: a.userIds.map(extractId),

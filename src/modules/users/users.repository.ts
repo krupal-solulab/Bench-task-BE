@@ -39,6 +39,7 @@ export class UsersRepository {
       ];
     }
     if (query.role) filter.role = query.role;
+    if (query.customRoleId) filter.customRoleId = new Types.ObjectId(query.customRoleId);
     if (query.isActive !== undefined) filter.isActive = query.isActive === 'true';
 
     const sortOrder = query.sortOrder === 'asc' ? 1 : -1;

@@ -63,6 +63,15 @@
             }
           },
           {
+            "name": "customRoleId",
+            "required": false,
+            "in": "query",
+            "description": "Only users with this custom role",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "isActive",
             "required": false,
             "in": "query",
@@ -463,7 +472,11 @@
                 "ProjectInviteSent",
                 "ProjectInviteResent",
                 "ProjectInviteRevoked",
-                "ProjectInviteAccepted"
+                "ProjectInviteAccepted",
+                "CustomRoleCreated",
+                "CustomRoleUpdated",
+                "CustomRoleDeleted",
+                "ProjectRolePermissionsChanged"
               ],
               "type": "string"
             }
@@ -503,6 +516,120 @@
         },
         "tags": [
           "audit-log"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/custom-roles": {
+      "get": {
+        "operationId": "CustomRolesController_list",
+        "summary": "List the organization's roles (seeds the defaults on first use)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-roles"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "CustomRolesController_create",
+        "summary": "Create a role (Admin only)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-roles"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/custom-roles/{id}": {
+      "patch": {
+        "operationId": "CustomRolesController_update",
+        "summary": "Update a role; changing its access level moves its users too (Admin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-roles"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "CustomRolesController_remove",
+        "summary": "Delete a role nobody holds (Admin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "custom-roles"
         ],
         "security": [
           {
@@ -1286,6 +1413,117 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/role-permissions": {
+      "get": {
+        "operationId": "ProjectsController_listRolePermissions",
+        "summary": "Each role's permissions in this project (defaults + this project's override)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/projects/{id}/role-permissions/{roleId}": {
+      "put": {
+        "operationId": "ProjectsController_setRolePermissionOverride",
+        "summary": "Override one role's permissions in this project only (Admin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "roleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomRolePermissionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "projects"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "ProjectsController_resetRolePermissionOverride",
+        "summary": "Back to the role's organization defaults in this project (Admin only)",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "roleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -10140,6 +10378,11 @@
               "Developer"
             ],
             "example": "Developer"
+          },
+          "customRoleId": {
+            "type": "object",
+            "nullable": true,
+            "description": "A custom role id - the user's built-in role becomes its access level"
           }
         },
         "required": [
@@ -10178,6 +10421,11 @@
               "Manager",
               "Developer"
             ]
+          },
+          "customRoleId": {
+            "type": "object",
+            "nullable": true,
+            "description": "A custom role id - the user's built-in role becomes its access level"
           }
         },
         "required": [
@@ -10213,6 +10461,11 @@
               "Manager",
               "Developer"
             ]
+          },
+          "customRoleId": {
+            "type": "object",
+            "nullable": true,
+            "description": "A custom role id - the user's built-in role becomes its access level"
           }
         },
         "required": [
@@ -10230,6 +10483,114 @@
         "required": [
           "isActive"
         ]
+      },
+      "CustomRolePermissionsDto": {
+        "type": "object",
+        "properties": {
+          "canCreateTask": {
+            "type": "boolean"
+          },
+          "canEditAnyTask": {
+            "type": "boolean"
+          },
+          "canDeleteTask": {
+            "type": "boolean"
+          },
+          "canChangeAnyTaskStatus": {
+            "type": "boolean"
+          },
+          "canManageSprints": {
+            "type": "boolean"
+          },
+          "canManageProject": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canCreateTask",
+          "canEditAnyTask",
+          "canDeleteTask",
+          "canChangeAnyTaskStatus",
+          "canManageSprints",
+          "canManageProject"
+        ]
+      },
+      "CreateCustomRoleDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "QA"
+          },
+          "description": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "slate",
+              "blue",
+              "violet",
+              "emerald",
+              "amber",
+              "rose",
+              "cyan",
+              "orange"
+            ]
+          },
+          "accessLevel": {
+            "type": "string",
+            "enum": [
+              "Manager",
+              "Developer"
+            ],
+            "description": "Access level the role builds on"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/CustomRolePermissionsDto"
+          }
+        },
+        "required": [
+          "name",
+          "accessLevel",
+          "permissions"
+        ]
+      },
+      "UpdateCustomRoleDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "QA"
+          },
+          "description": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "slate",
+              "blue",
+              "violet",
+              "emerald",
+              "amber",
+              "rose",
+              "cyan",
+              "orange"
+            ]
+          },
+          "accessLevel": {
+            "type": "string",
+            "enum": [
+              "Manager",
+              "Developer"
+            ],
+            "description": "Access level the role builds on"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/CustomRolePermissionsDto"
+          }
+        }
       },
       "CreateOrganizationDto": {
         "type": "object",
@@ -10484,6 +10845,10 @@
           "canManageSprints": {
             "type": "boolean",
             "description": "Create/edit/start/complete/delete sprints, move tasks in/out"
+          },
+          "canManageProject": {
+            "type": "boolean",
+            "description": "Manage the project: details, members & invites, sprints & releases, settings"
           }
         }
       },
@@ -11557,6 +11922,11 @@
               "Developer"
             ],
             "example": "Developer"
+          },
+          "customRoleId": {
+            "type": "object",
+            "nullable": true,
+            "description": "A custom role id - the user's built-in role becomes its access level"
           }
         },
         "required": [

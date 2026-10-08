@@ -1167,7 +1167,7 @@ describe('TasksService', () => {
       ).resolves.toBeDefined();
       expect(projectsService.memberHasCapability).toHaveBeenCalledWith(
         expect.anything(),
-        DEV_ID,
+        expect.objectContaining({ id: DEV_ID }),
         'canChangeAnyTaskStatus',
       );
     });

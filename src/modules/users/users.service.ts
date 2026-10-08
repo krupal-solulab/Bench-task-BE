@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { ConfigService } from '@nestjs/config';
+import { CustomRolesService } from '../custom-roles/custom-roles.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppConfig } from '../../config/configuration';
@@ -36,16 +37,23 @@ export class UsersService {
     private readonly usersRepository: UsersRepository,
     private readonly configService: ConfigService<AppConfig, true>,
     @InjectModel(Task.name) private readonly taskModel: Model<TaskDocument>,
+    private readonly customRolesService: CustomRolesService,
   ) {}
 
   async create(dto: CreateUserDto, organizationId: string): Promise<UserDocument> {
     await this.assertEmailAvailable(dto.email);
+    const assignment = await this.customRolesService.resolveAssignment(
+      organizationId,
+      dto.role,
+      dto.customRoleId,
+    );
     const passwordHash = await this.hashPassword(dto.password);
     return this.usersRepository.create({
       name: dto.name,
       email: dto.email.toLowerCase(),
       passwordHash,
-      role: dto.role,
+      role: assignment.role,
+      customRoleId: assignment.customRoleId,
       organizationId: new Types.ObjectId(organizationId),
     });
   }
@@ -130,19 +138,36 @@ export class UsersService {
     return updated;
   }
 
+  /** Changes a user's role; returns the before/after labels (custom role name, else built-in
+   * role) for the audit log. */
   async updateRole(
     id: string,
-    role: Role,
+    role: OrgRole,
     actingUserId: string,
     organizationId: string,
-  ): Promise<UserDocument> {
+    customRoleId?: string | null,
+  ): Promise<{ user: UserDocument; from: string; to: string }> {
     if (id === actingUserId) {
       throw new ConflictException('Admins cannot change their own role');
     }
-    await this.findByIdInOrgOrThrow(id, organizationId);
-    const updated = await this.usersRepository.updateById(id, { role });
+    const current = await this.findByIdInOrgOrThrow(id, organizationId);
+    const from = await this.roleLabel(current);
+    const assignment = await this.customRolesService.resolveAssignment(
+      organizationId,
+      role,
+      customRoleId,
+    );
+    const updated = await this.usersRepository.updateById(id, {
+      role: assignment.role,
+      customRoleId: assignment.customRoleId,
+    });
     if (!updated) throw new NotFoundException('User not found');
-    return updated;
+    return { user: updated, from, to: assignment.label };
+  }
+
+  /** "QA" for a user with that custom role, else their built-in role. */
+  async roleLabel(user: Pick<UserDocument, 'role' | 'customRoleId'>): Promise<string> {
+    return (await this.customRolesService.summaryFor(user.customRoleId))?.name ?? user.role;
   }
 
   async updateStatus(
@@ -179,6 +204,7 @@ export class UsersService {
     name: string;
     email: string;
     role: OrgRole;
+    customRoleId?: Types.ObjectId | null;
     organizationId: string;
     passwordHash: string;
   }): Promise<UserDocument> {
@@ -188,6 +214,7 @@ export class UsersService {
       email: input.email.toLowerCase(),
       passwordHash: input.passwordHash,
       role: input.role,
+      customRoleId: input.customRoleId ?? null,
       organizationId: new Types.ObjectId(input.organizationId),
       mustChangePassword: true,
     });

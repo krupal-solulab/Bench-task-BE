@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { NotificationsModule } from '../../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CustomRolesModule } from '../custom-roles/custom-roles.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { ProjectsModule } from '../projects/projects.module';
 import { UsersModule } from '../users/users.module';
@@ -16,6 +17,7 @@ import { ProjectInvitesService } from './project-invites.service';
     OrganizationsModule,
     NotificationsModule,
     AuditLogModule,
+    CustomRolesModule,
     MongooseModule.forFeature([{ name: ProjectInvite.name, schema: ProjectInviteSchema }]),
   ],
   controllers: [ProjectInvitesController],

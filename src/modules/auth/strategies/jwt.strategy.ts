@@ -6,6 +6,7 @@ import { AppConfig } from '../../../config/configuration';
 import { JwtPayload, AuthenticatedUser } from '../../../common/interfaces/jwt-payload.interface';
 import { UsersService } from '../../users/users.service';
 import { OrganizationsService } from '../../organizations/organizations.service';
+import { CustomRolesService } from '../../custom-roles/custom-roles.service';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -13,6 +14,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     configService: ConfigService<AppConfig, true>,
     private readonly usersService: UsersService,
     private readonly organizationsService: OrganizationsService,
+    private readonly customRolesService: CustomRolesService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -40,6 +42,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     ) {
       throw new UnauthorizedException('This "view as" session is no longer valid');
     }
+    const effective = await this.customRolesService.effectiveFor(user);
     return {
       id: user.id,
       email: user.email,
@@ -47,6 +50,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       organizationId: user.organizationId ? user.organizationId.toString() : null,
       ...(payload.impersonatedBy ? { impersonatedBy: payload.impersonatedBy } : {}),
       ...(user.mustChangePassword ? { mustChangePassword: true } : {}),
+      ...(effective ? { rolePermissions: effective.permissions, roleId: effective.roleId } : {}),
     };
   }
 }

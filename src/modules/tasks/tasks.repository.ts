@@ -17,7 +17,7 @@ export interface RankScope {
   sprint: Types.ObjectId | null;
 }
 
-const POPULATE_FIELDS = 'name email role isActive';
+const POPULATE_FIELDS = 'name email role customRoleId isActive';
 const RELEASE_POPULATE_FIELDS = 'name status';
 
 @Injectable()

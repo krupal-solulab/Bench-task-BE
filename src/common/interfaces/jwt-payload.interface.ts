@@ -1,4 +1,5 @@
 import { Role } from '../enums/role.enum';
+import type { MemberPermissions } from '../../modules/projects/schemas/member-permissions.schema';
 
 export interface JwtPayload {
   sub: string;
@@ -20,4 +21,10 @@ export interface AuthenticatedUser {
   viaApiToken?: string;
   /** Signed in with an invite's temporary password and hasn't set their own one yet. */
   mustChangePassword?: boolean;
+  /** Capabilities from the user's custom role (QA, DevOps, ...), added on top of per-project
+   * member grants in every project they belong to. */
+  rolePermissions?: MemberPermissions;
+  /** The role whose permissions those are - a custom role, or the built-in Manager/Developer
+   * row - so a project can override them for that role. */
+  roleId?: string;
 }

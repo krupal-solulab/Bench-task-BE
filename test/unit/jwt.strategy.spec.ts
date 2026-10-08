@@ -3,6 +3,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { AppConfig } from 'src/config/configuration';
 import { Role } from 'src/common/enums/role.enum';
 import { JwtStrategy } from 'src/modules/auth/strategies/jwt.strategy';
+import { CustomRolesService } from 'src/modules/custom-roles/custom-roles.service';
 import { UsersService } from 'src/modules/users/users.service';
 import { OrganizationsService } from 'src/modules/organizations/organizations.service';
 
@@ -21,6 +22,7 @@ describe('JwtStrategy', () => {
       configService,
       usersService as unknown as UsersService,
       organizationsService as unknown as OrganizationsService,
+      { effectiveFor: jest.fn().mockResolvedValue(null) } as unknown as CustomRolesService,
     );
   });
 

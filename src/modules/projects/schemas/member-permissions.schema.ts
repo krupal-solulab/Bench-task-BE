@@ -16,6 +16,13 @@ export class MemberPermissions {
 
   @Prop({ default: false })
   canManageSprints!: boolean;
+
+  // Manage the project itself: details/status/archive, members & invites, sprints & releases and
+  // project settings (workflow, fields, issue types, automation, notifications, SLA). Never
+  // project deletion, owner changes, scheme assignments or role permissions - those stay with an
+  // Admin / the owning Manager.
+  @Prop({ default: false })
+  canManageProject!: boolean;
 }
 
 export const MemberPermissionsSchema = SchemaFactory.createForClass(MemberPermissions);
@@ -26,6 +33,7 @@ export const NO_PERMISSIONS: MemberPermissions = {
   canDeleteTask: false,
   canChangeAnyTaskStatus: false,
   canManageSprints: false,
+  canManageProject: false,
 };
 
 export type GrantableCapability = keyof MemberPermissions;
@@ -51,5 +59,6 @@ export function resolveMemberPermissions(member: PermissionsCarrier): MemberPerm
     canDeleteTask: p.canDeleteTask,
     canChangeAnyTaskStatus: p.canChangeAnyTaskStatus,
     canManageSprints: p.canManageSprints,
+    canManageProject: p.canManageProject === true,
   };
 }

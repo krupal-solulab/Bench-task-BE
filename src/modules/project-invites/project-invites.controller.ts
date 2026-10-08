@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { Role } from '../../common/enums/role.enum';
+import { ORG_ROLES } from '../../common/enums/role.enum';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
 import { CreateProjectInviteDto } from './dto/create-project-invite.dto';
@@ -13,7 +13,9 @@ import { ProjectInvitesService } from './project-invites.service';
 @ApiTags('project-invites')
 @ApiBearerAuth()
 @Controller('projects/:id/invites')
-@Roles(Role.ADMIN, Role.MANAGER)
+// Any org role reaches these; the service lets through Admins, the owning Manager and members
+// whose role has "Manage project" in this project.
+@Roles(...ORG_ROLES)
 export class ProjectInvitesController {
   constructor(private readonly invitesService: ProjectInvitesService) {}
 

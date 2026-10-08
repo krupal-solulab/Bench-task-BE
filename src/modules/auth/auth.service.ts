@@ -16,6 +16,9 @@ import { UserDocument } from '../users/schemas/user.schema';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { CreateOrganizationDto } from '../organizations/dto/create-organization.dto';
 import { ProjectInvitesService } from '../project-invites/project-invites.service';
+import { CustomRolesService } from '../custom-roles/custom-roles.service';
+
+export type PresentedUser = Record<string, unknown>;
 import { AuthRepository } from './auth.repository';
 import { parseDurationMs } from './utils/parse-duration.util';
 
@@ -36,24 +39,45 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService<AppConfig, true>,
     private readonly projectInvitesService: ProjectInvitesService,
+    private readonly customRolesService: CustomRolesService,
   ) {}
+
+  /** The signed-in user as the client sees it: the user plus their custom role (QA, DevOps, ...)
+   * with its permissions, so the UI applies the same capabilities the API enforces. */
+  async presentUser(user: UserDocument): Promise<PresentedUser> {
+    return {
+      ...(user.toJSON() as Record<string, unknown>),
+      customRole: await this.customRolesService.summaryFor(user.customRoleId),
+      ...(await this.roleInfo(user)),
+    };
+  }
+
+  /** The role id + organization-wide permissions the API applies to this user (custom role, or
+   * built-in Manager/Developer row) - projects may override them per role. */
+  private async roleInfo(user: UserDocument) {
+    const effective = await this.customRolesService.effectiveFor(user);
+    return { roleId: effective?.roleId ?? null, rolePermissions: effective?.permissions ?? null };
+  }
 
   async registerOrganization(
     dto: CreateOrganizationDto,
-  ): Promise<AuthTokens & { user: UserDocument }> {
+  ): Promise<AuthTokens & { user: PresentedUser }> {
     const { admin } = await this.organizationsService.createWithAdmin(dto, null);
     const tokens = await this.issueTokens(admin);
-    return { ...tokens, user: admin };
+    return { ...tokens, user: await this.presentUser(admin) };
   }
 
-  async login(email: string, password: string): Promise<AuthTokens & { user: UserDocument }> {
+  async login(email: string, password: string): Promise<AuthTokens & { user: PresentedUser }> {
     const user = await this.usersService.findByEmailWithPassword(email);
     if (!user) {
       // No account yet: the email + temporary password from a project invite accepts it here
       // too, not only through the invitation link.
       const invited = await this.projectInvitesService.acceptByEmail(email, password);
       if (!invited) throw new UnauthorizedException('Invalid email or password');
-      return { ...(await this.issueTokens(invited, randomUUID())), user: invited };
+      return {
+        ...(await this.issueTokens(invited, randomUUID())),
+        user: await this.presentUser(invited),
+      };
     }
     if (!user.isActive) {
       throw new UnauthorizedException('Invalid email or password');
@@ -66,16 +90,16 @@ export class AuthService {
     // wrong password would - not a distinct error that would confirm the org exists/is suspended.
     await this.assertOrgActiveOrThrow(user);
     const tokens = await this.issueTokens(user, randomUUID());
-    return { ...tokens, user };
+    return { ...tokens, user: await this.presentUser(user) };
   }
 
   /** Accepts a project invite through its link, creating the account and signing it in. */
   async acceptInvite(
     token: string,
     temporaryPassword: string,
-  ): Promise<AuthTokens & { user: UserDocument }> {
+  ): Promise<AuthTokens & { user: PresentedUser }> {
     const user = await this.projectInvitesService.acceptWithToken(token, temporaryPassword);
-    return { ...(await this.issueTokens(user, randomUUID())), user };
+    return { ...(await this.issueTokens(user, randomUUID())), user: await this.presentUser(user) };
   }
 
   /**
@@ -87,7 +111,7 @@ export class AuthService {
     userId: string,
     newPassword: string,
     name: string,
-  ): Promise<AuthTokens & { user: UserDocument }> {
+  ): Promise<AuthTokens & { user: PresentedUser }> {
     const current = await this.usersService.findByIdOrThrow(userId);
     if (!current.mustChangePassword) {
       throw new ConflictException('No password change is pending - use change password instead');
@@ -100,7 +124,7 @@ export class AuthService {
     await this.usersService.setName(userId, name.trim());
     await this.authRepository.revokeAllForUser(userId);
     const user = await this.usersService.findByIdOrThrow(userId);
-    return { ...(await this.issueTokens(user, randomUUID())), user };
+    return { ...(await this.issueTokens(user, randomUUID())), user: await this.presentUser(user) };
   }
 
   async refresh(rawToken: string): Promise<AuthTokens> {

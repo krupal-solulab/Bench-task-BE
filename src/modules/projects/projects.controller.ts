@@ -15,7 +15,11 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ParseObjectIdPipe } from '../../common/pipes/parse-object-id.pipe';
-import { Role } from '../../common/enums/role.enum';
+import { ORG_ROLES, Role } from '../../common/enums/role.enum';
+import { requireOrgId } from '../../common/utils/auth-user.util';
+import { AuditLogService } from '../audit-log/audit-log.service';
+import { AuditAction } from '../audit-log/schemas/audit-log-entry.schema';
+import { CustomRolePermissionsDto } from '../custom-roles/dto/custom-role.dto';
 import { AuthenticatedUser } from '../../common/interfaces/jwt-payload.interface';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 import { ProjectsService } from './projects.service';
@@ -44,7 +48,27 @@ import { PutIssueTypesDto } from './dto/put-issue-types.dto';
 @ApiBearerAuth()
 @Controller('projects')
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly auditLogService: AuditLogService,
+  ) {}
+
+  private auditRoleOverride(
+    user: AuthenticatedUser,
+    projectId: string,
+    roleName: string,
+    change: 'set' | 'reset',
+  ) {
+    return this.auditLogService.record({
+      organizationId: requireOrgId(user),
+      actorId: user.id,
+      action: AuditAction.PROJECT_ROLE_PERMISSIONS_CHANGED,
+      targetType: 'Project',
+      targetId: projectId,
+      targetLabel: roleName,
+      metadata: { role: roleName, change },
+    });
+  }
 
   @Post()
   @Roles(Role.ADMIN, Role.MANAGER)
@@ -69,7 +93,7 @@ export class ProjectsController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Update project fields' })
   async update(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -80,7 +104,7 @@ export class ProjectsController {
   }
 
   @Patch(':id/status')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Transition project status' })
   async updateStatus(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -102,7 +126,7 @@ export class ProjectsController {
   }
 
   @Post(':id/archive')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Archive a project - hidden by default and read-only (Module 8)' })
   async archive(
@@ -113,7 +137,7 @@ export class ProjectsController {
   }
 
   @Post(':id/unarchive')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Restore an archived project (Module 8)' })
   async unarchive(
@@ -133,8 +157,48 @@ export class ProjectsController {
     return this.projectsService.listMembers(id, query, user);
   }
 
+  @Get(':id/role-permissions')
+  @ApiOperation({
+    summary: "Each role's permissions in this project (defaults + this project's override)",
+  })
+  async listRolePermissions(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.projectsService.listRolePermissions(id, user);
+  }
+
+  @Put(':id/role-permissions/:roleId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: "Override one role's permissions in this project only (Admin only)" })
+  async setRolePermissionOverride(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('roleId', ParseObjectIdPipe) roleId: string,
+    @Body() dto: CustomRolePermissionsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const result = await this.projectsService.setRolePermissionOverride(id, roleId, dto, user);
+    await this.auditRoleOverride(user, id, result.roleName, 'set');
+    return result.rows;
+  }
+
+  @Delete(':id/role-permissions/:roleId')
+  @Roles(Role.ADMIN)
+  @ApiOperation({
+    summary: "Back to the role's organization defaults in this project (Admin only)",
+  })
+  async resetRolePermissionOverride(
+    @Param('id', ParseObjectIdPipe) id: string,
+    @Param('roleId', ParseObjectIdPipe) roleId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const result = await this.projectsService.setRolePermissionOverride(id, roleId, null, user);
+    await this.auditRoleOverride(user, id, result.roleName, 'reset');
+    return result.rows;
+  }
+
   @Get(':id/member-candidates')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Active Developers/Managers who are not yet members of this project' })
   async listMemberCandidates(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -144,7 +208,7 @@ export class ProjectsController {
   }
 
   @Post(':id/members')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Add members (active Developers or Managers, idempotent)' })
   async addMembers(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -155,7 +219,7 @@ export class ProjectsController {
   }
 
   @Delete(':id/members/:userId')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Remove a member (409 if they have open tasks and no reassignTo)' })
   async removeMember(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -167,7 +231,7 @@ export class ProjectsController {
   }
 
   @Patch(':id/members/:userId/permissions')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Grant/revoke a member's per-project task/sprint capabilities" })
   async setMemberPermissions(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -254,7 +318,7 @@ export class ProjectsController {
   }
 
   @Put(':id/workflow')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace this project's custom workflow" })
   @ApiQuery({
     name: 'issueType',
@@ -271,7 +335,7 @@ export class ProjectsController {
   }
 
   @Delete(':id/workflow')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: 'Reset this project (or one issue type) to its fallback workflow' })
   @ApiQuery({
     name: 'issueType',
@@ -297,7 +361,7 @@ export class ProjectsController {
   }
 
   @Put(':id/components')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace this project's component list" })
   async updateComponents(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -308,7 +372,7 @@ export class ProjectsController {
   }
 
   @Patch(':id/components/lead')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Assign or clear one component's lead (Module 6 gap-closure)" })
   async updateComponentLead(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -319,7 +383,7 @@ export class ProjectsController {
   }
 
   @Patch(':id/default-approvers')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({
     summary:
       "Set/replace the project's default approver grant for Approval Workflows (Module 6 gap-closure)",
@@ -333,7 +397,7 @@ export class ProjectsController {
   }
 
   @Put(':id/issue-types')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace this project's issue types" })
   async updateIssueTypes(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -344,7 +408,7 @@ export class ProjectsController {
   }
 
   @Put(':id/custom-fields')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace this project's custom field definitions" })
   async updateCustomFields(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -383,7 +447,7 @@ export class ProjectsController {
   }
 
   @Put(':id/custom-field-overrides')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace one issue type's custom field hidden/required override" })
   @ApiQuery({ name: 'issueType', required: true })
   async updateCustomFieldOverride(
@@ -396,7 +460,7 @@ export class ProjectsController {
   }
 
   @Delete(':id/custom-field-overrides')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Remove one issue type's custom field override" })
   @ApiQuery({ name: 'issueType', required: true })
   async resetCustomFieldOverride(
@@ -408,7 +472,7 @@ export class ProjectsController {
   }
 
   @Put(':id/automation-rules')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace this project's automation rules" })
   async updateAutomationRules(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -419,7 +483,7 @@ export class ProjectsController {
   }
 
   @Put(':id/notification-scheme')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace this project's notification scheme" })
   async updateNotificationScheme(
     @Param('id', ParseObjectIdPipe) id: string,
@@ -439,7 +503,7 @@ export class ProjectsController {
   }
 
   @Put(':id/sla-policy')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(...ORG_ROLES)
   @ApiOperation({ summary: "Set/replace this project's SLA policy (empty resets to the default)" })
   async updateSlaPolicy(
     @Param('id', ParseObjectIdPipe) id: string,

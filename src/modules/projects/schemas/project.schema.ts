@@ -16,6 +16,10 @@ import { IssueTypeDefinition, IssueTypeDefinitionSchema } from './issue-type.sch
 import { NotificationSchemeRule, NotificationSchemeRuleSchema } from './notification-scheme.schema';
 import { SlaPolicyEntry, SlaPolicyEntrySchema } from './sla-policy.schema';
 import { ProjectRoleAssignment, ProjectRoleAssignmentSchema } from './role-assignment.schema';
+import {
+  RolePermissionOverride,
+  RolePermissionOverrideSchema,
+} from './role-permission-override.schema';
 
 export type ProjectDocument = HydratedDocument<Project>;
 
@@ -219,6 +223,11 @@ export class Project {
   // ProjectsService.setRoleAssignment(). See role-assignment.schema.ts.
   @Prop({ type: [ProjectRoleAssignmentSchema], default: [] })
   roleAssignments!: ProjectRoleAssignment[];
+
+  // Per-project replacements for roles' organization-wide permissions (Admin-managed). Empty =
+  // every role uses its organization defaults here. See role-permission-override.schema.ts.
+  @Prop({ type: [RolePermissionOverrideSchema], default: [] })
+  rolePermissionOverrides!: RolePermissionOverride[];
 
   // Module 6 gap-closure: see DefaultApprovers' own doc comment - an additive fallback approver
   // pool for Module 12's Approval Workflows. Null (every existing project) means "no project-wide

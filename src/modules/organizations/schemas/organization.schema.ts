@@ -53,6 +53,11 @@ export class Organization {
   @Prop({ type: String, default: null, maxlength: 500 })
   logoUrl!: string | null;
 
+  // Set once the default custom roles (QA, DevOps, ...) were created - deleting them all later
+  // must not bring them back.
+  @Prop({ default: false })
+  customRolesSeeded!: boolean;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

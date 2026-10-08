@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsIn, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { OptionalCustomRoleId } from '../../../common/validators/optional-custom-role';
 import { ORG_ROLES, OrgRole, Role } from '../../../common/enums/role.enum';
 
 export class CreateUserDto {
@@ -24,4 +25,7 @@ export class CreateUserDto {
   @ApiProperty({ enum: ORG_ROLES, example: Role.DEVELOPER })
   @IsIn(ORG_ROLES)
   role!: OrgRole;
+
+  @OptionalCustomRoleId()
+  customRoleId?: string | null;
 }

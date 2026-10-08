@@ -88,7 +88,7 @@ export class UsersController {
       targetType: 'User',
       targetId: created.id,
       targetLabel: created.name,
-      metadata: { role: created.role },
+      metadata: { role: await this.usersService.roleLabel(created) },
     });
     return created;
   }
@@ -131,14 +131,18 @@ export class UsersController {
   ): Promise<BulkUserResult> {
     const organizationId = requireOrgId(currentUser);
     return this.runBulk(dto.userIds, async (id) => {
-      const previousRole = (await this.usersService.findByIdInOrgOrThrow(id, organizationId)).role;
-      const updated = await this.usersService.updateRole(
+      const {
+        user: updated,
+        from,
+        to,
+      } = await this.usersService.updateRole(
         id,
         dto.role,
         currentUser.id,
         organizationId,
+        dto.customRoleId,
       );
-      if (previousRole === dto.role) return;
+      if (from === to) return;
       await this.auditLogService.record({
         organizationId,
         actorId: currentUser.id,
@@ -146,7 +150,7 @@ export class UsersController {
         targetType: 'User',
         targetId: updated.id,
         targetLabel: updated.name,
-        metadata: { from: previousRole, to: dto.role, bulk: true },
+        metadata: { from, to, bulk: true },
       });
     });
   }
@@ -191,12 +195,16 @@ export class UsersController {
     @CurrentUser() currentUser: AuthenticatedUser,
   ) {
     const organizationId = requireOrgId(currentUser);
-    const previousRole = (await this.usersService.findByIdInOrgOrThrow(id, organizationId)).role;
-    const updated = await this.usersService.updateRole(
+    const {
+      user: updated,
+      from,
+      to,
+    } = await this.usersService.updateRole(
       id,
       dto.role,
       currentUser.id,
       organizationId,
+      dto.customRoleId,
     );
     await this.auditLogService.record({
       organizationId,
@@ -205,7 +213,7 @@ export class UsersController {
       targetType: 'User',
       targetId: updated.id,
       targetLabel: updated.name,
-      metadata: { from: previousRole, to: dto.role },
+      metadata: { from, to },
     });
     return updated;
   }
