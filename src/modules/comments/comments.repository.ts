@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Comment, CommentDocument } from './schemas/comment.schema';
 
-const AUTHOR_POPULATE = 'name email role isActive';
+const AUTHOR_POPULATE = 'name email role customRoleId isActive';
 
 @Injectable()
 export class CommentsRepository {

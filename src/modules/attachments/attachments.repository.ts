@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Attachment, AttachmentDocument } from './schemas/attachment.schema';
 
-const UPLOADER_POPULATE = 'name email role isActive';
+const UPLOADER_POPULATE = 'name email role customRoleId isActive';
 
 @Injectable()
 export class AttachmentsRepository {

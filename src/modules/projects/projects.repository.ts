@@ -12,7 +12,7 @@ import {
 } from './schemas/project-activity.schema';
 import { ListProjectsDto } from './dto/list-projects.dto';
 
-const OWNER_POPULATE = 'name email role isActive';
+const OWNER_POPULATE = 'name email role customRoleId isActive';
 
 @Injectable()
 export class ProjectsRepository {

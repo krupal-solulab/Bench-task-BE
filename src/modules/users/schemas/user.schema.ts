@@ -58,6 +58,11 @@ export class User {
   @Prop({ default: false })
   mustChangePassword!: boolean;
 
+  // An organization-defined role (QA, DevOps, ...) layered on `role`, which then holds that custom
+  // role's access level. Null = just the built-in role. See CustomRole.
+  @Prop({ type: Types.ObjectId, ref: 'CustomRole', default: null })
+  customRoleId!: Types.ObjectId | null;
+
   createdAt!: Date;
   updatedAt!: Date;
 }

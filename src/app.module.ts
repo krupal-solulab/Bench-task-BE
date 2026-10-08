@@ -48,6 +48,7 @@ import { IssueTemplatesModule } from './modules/issue-templates/issue-templates.
 import { ProjectCategoriesModule } from './modules/project-categories/project-categories.module';
 import { AdminConsoleModule } from './modules/admin-console/admin-console.module';
 import { CustomFieldLibraryModule } from './modules/custom-field-library/custom-field-library.module';
+import { CustomRolesModule } from './modules/custom-roles/custom-roles.module';
 import { ProjectInvitesModule } from './modules/project-invites/project-invites.module';
 import { ApiTokensModule } from './modules/api-tokens/api-tokens.module';
 import { ApiTokenRestrictionGuard } from './common/guards/api-token-restriction.guard';
@@ -140,6 +141,7 @@ import { ApiTokenRestrictionGuard } from './common/guards/api-token-restriction.
     CustomFieldLibraryModule,
     ApiTokensModule,
     ProjectInvitesModule,
+    CustomRolesModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

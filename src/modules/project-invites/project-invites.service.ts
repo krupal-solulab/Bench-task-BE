@@ -22,6 +22,7 @@ import { ProjectsService } from '../projects/projects.service';
 import { ProjectDocument } from '../projects/schemas/project.schema';
 import { UserDocument } from '../users/schemas/user.schema';
 import { UsersService } from '../users/users.service';
+import { CustomRolesService } from '../custom-roles/custom-roles.service';
 import { CreateProjectInviteDto } from './dto/create-project-invite.dto';
 import {
   ProjectInvite,
@@ -45,6 +46,7 @@ export interface ProjectInviteView {
   email: string;
   name: string | null;
   role: string;
+  customRoleId: string | null;
   status: ProjectInviteViewStatus;
   expiresAt: Date;
   invitedBy: { id: string; name: string } | null;
@@ -92,6 +94,7 @@ export class ProjectInvitesService {
     private readonly notificationsService: NotificationsService,
     private readonly auditLogService: AuditLogService,
     private readonly configService: ConfigService<AppConfig, true>,
+    private readonly customRolesService: CustomRolesService,
   ) {}
 
   async create(
@@ -103,13 +106,20 @@ export class ProjectInvitesService {
     const email = dto.email.trim().toLowerCase();
     await this.assertEmailInvitable(email, projectId);
 
+    const orgId = requireOrgId(actingUser);
+    const assignment = await this.customRolesService.resolveAssignment(
+      orgId,
+      dto.role,
+      dto.customRoleId,
+    );
     const token = randomBytes(32).toString('base64url');
     const temporaryPassword = generateTemporaryPassword();
     const created = await this.model.create({
       organizationId: new Types.ObjectId(requireOrgId(actingUser)),
       project: project._id,
       email,
-      role: dto.role,
+      role: assignment.role,
+      customRoleId: assignment.customRoleId,
       tokenHash: hashToken(token),
       tempPasswordHash: await this.usersService.hashPassword(temporaryPassword),
       expiresAt: new Date(Date.now() + INVITE_TTL_MS),
@@ -204,7 +214,7 @@ export class ProjectInvitesService {
     return {
       status: view.status,
       email: invite.email,
-      role: invite.role,
+      role: (await this.customRolesService.summaryFor(invite.customRoleId))?.name ?? invite.role,
       projectName: project?.name ?? 'a deleted project',
       organizationName: organization?.name ?? null,
       inviterName: view.invitedBy?.name ?? null,
@@ -288,6 +298,7 @@ export class ProjectInvitesService {
         name: invite.name ?? placeholderName(invite.email),
         email: invite.email,
         role: invite.role,
+        customRoleId: invite.customRoleId,
         organizationId,
         passwordHash: invite.tempPasswordHash,
       });
@@ -373,7 +384,7 @@ export class ProjectInvitesService {
       inviteId: invite.id,
       email: invite.email,
       inviterName: inviter.name,
-      role: invite.role,
+      role: (await this.customRolesService.summaryFor(invite.customRoleId))?.name ?? invite.role,
       projectName: project.name,
       organizationName: organization?.name ?? null,
       inviteUrl,
@@ -436,6 +447,7 @@ function toView(invite: ProjectInviteDocument): ProjectInviteView {
     email: invite.email,
     name: invite.name,
     role: invite.role,
+    customRoleId: invite.customRoleId ? invite.customRoleId.toString() : null,
     status: expired ? 'Expired' : invite.status,
     expiresAt: invite.expiresAt,
     invitedBy:

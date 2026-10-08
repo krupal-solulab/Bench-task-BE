@@ -10,7 +10,7 @@ import {
 import { SprintStatus } from '../../common/enums/sprint-status.enum';
 import { ListSprintsDto } from './dto/list-sprints.dto';
 
-const POPULATE_FIELDS = 'name email role isActive';
+const POPULATE_FIELDS = 'name email role customRoleId isActive';
 
 @Injectable()
 export class SprintsRepository {

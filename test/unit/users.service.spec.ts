@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { AppConfig } from 'src/config/configuration';
 import { Role } from 'src/common/enums/role.enum';
 import { TaskStatus } from 'src/common/enums/task-status.enum';
+import { CustomRolesService } from 'src/modules/custom-roles/custom-roles.service';
 import { UsersService } from 'src/modules/users/users.service';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
@@ -46,6 +47,16 @@ describe('UsersService', () => {
       usersRepository as unknown as UsersRepository,
       configService,
       taskModel as unknown as Model<TaskDocument>,
+      {
+        resolveAssignment: jest.fn(
+          async (_org: string, role: string, customRoleId?: string | null) => ({
+            role,
+            customRoleId: customRoleId ?? null,
+            label: role,
+          }),
+        ),
+        summaryFor: jest.fn().mockResolvedValue(null),
+      } as unknown as CustomRolesService,
     );
   });
 
@@ -106,8 +117,12 @@ describe('UsersService', () => {
 
       const result = await service.updateRole('user-1', Role.MANAGER, 'admin-1', ORG_ID);
 
-      expect(result.role).toBe(Role.MANAGER);
-      expect(usersRepository.updateById).toHaveBeenCalledWith('user-1', { role: Role.MANAGER });
+      expect(result.user.role).toBe(Role.MANAGER);
+      expect(result).toMatchObject({ from: Role.DEVELOPER, to: Role.MANAGER });
+      expect(usersRepository.updateById).toHaveBeenCalledWith('user-1', {
+        role: Role.MANAGER,
+        customRoleId: null,
+      });
     });
 
     it('rejects changing the role of a user in a different organization (masked as 404)', async () => {

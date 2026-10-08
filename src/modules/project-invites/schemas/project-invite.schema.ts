@@ -50,6 +50,10 @@ export class ProjectInvite {
   @Prop({ type: String, enum: PROJECT_MEMBER_ROLES, required: true })
   role!: ProjectMemberRole;
 
+  /** Optional custom role the account gets (then `role` is that role's access level). */
+  @Prop({ type: Types.ObjectId, ref: 'CustomRole', default: null })
+  customRoleId!: Types.ObjectId | null;
+
   @Prop({ required: true, unique: true, select: false })
   tokenHash!: string;
 

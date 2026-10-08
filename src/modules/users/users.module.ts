@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CustomRolesModule } from '../custom-roles/custom-roles.module';
 import { User, UserSchema } from './schemas/user.schema';
 import { UsersRepository } from './users.repository';
 import { UsersService } from './users.service';
@@ -14,6 +15,7 @@ import { UsersController } from './users.controller';
       { name: Task.name, schema: TaskSchema },
     ]),
     AuditLogModule,
+    CustomRolesModule,
   ],
   controllers: [UsersController],
   providers: [UsersRepository, UsersService],

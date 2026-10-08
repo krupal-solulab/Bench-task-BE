@@ -117,7 +117,7 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get the current authenticated user' })
   async me(@CurrentUser() user: AuthenticatedUser) {
-    return this.usersService.findByIdOrThrow(user.id);
+    return this.authService.presentUser(await this.usersService.findByIdOrThrow(user.id));
   }
 
   @Patch('me')

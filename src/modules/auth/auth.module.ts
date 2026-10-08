@@ -8,6 +8,7 @@ import { UsersModule } from '../users/users.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { ProjectInvitesModule } from '../project-invites/project-invites.module';
+import { CustomRolesModule } from '../custom-roles/custom-roles.module';
 import { RefreshToken, RefreshTokenSchema } from './schemas/refresh-token.schema';
 import { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
@@ -20,6 +21,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     OrganizationsModule,
     AuditLogModule,
     ProjectInvitesModule,
+    CustomRolesModule,
     PassportModule,
     MongooseModule.forFeature([{ name: RefreshToken.name, schema: RefreshTokenSchema }]),
     JwtModule.registerAsync({

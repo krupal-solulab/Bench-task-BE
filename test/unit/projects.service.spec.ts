@@ -4,6 +4,14 @@ import {
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
+const NO_ROLE_PERMS = {
+  canCreateTask: false,
+  canEditAnyTask: false,
+  canDeleteTask: false,
+  canChangeAnyTaskStatus: false,
+  canManageSprints: false,
+  canManageProject: false,
+};
 import { Model } from 'mongoose';
 import { Role } from 'src/common/enums/role.enum';
 import { IssueTypeLevel } from 'src/common/enums/issue-type.enum';
@@ -191,6 +199,8 @@ describe('ProjectsService', () => {
       commentModel as unknown as Model<CommentDocument>,
       sprintModel as unknown as Model<SprintDocument>,
       { exists: jest.fn().mockResolvedValue(null) } as unknown as Model<ProjectCategoryDocument>,
+      { updateOne: jest.fn() } as never,
+      { list: jest.fn().mockResolvedValue([]), findInOrgOrThrow: jest.fn() } as never,
     );
   });
 
@@ -903,7 +913,19 @@ describe('ProjectsService', () => {
 
     it('memberHasCapability returns false for a member with no permissions set', () => {
       const project = makeProject({ members: [makeMember(DEV_ID, null)] });
-      expect(service.memberHasCapability(project, DEV_ID, 'canCreateTask')).toBe(false);
+      expect(service.memberHasCapability(project, { id: DEV_ID }, 'canCreateTask')).toBe(false);
+    });
+
+    it('memberHasCapability: a custom role permission applies to a member, never to a non-member', () => {
+      const qa = {
+        id: DEV_ID,
+        rolePermissions: { ...NO_ROLE_PERMS, canChangeAnyTaskStatus: true },
+      };
+      const member = makeProject({ members: [makeMember(DEV_ID, null)] });
+      const nonMember = makeProject({ members: [] });
+      expect(service.memberHasCapability(member, qa, 'canChangeAnyTaskStatus')).toBe(true);
+      expect(service.memberHasCapability(member, qa, 'canDeleteTask')).toBe(false);
+      expect(service.memberHasCapability(nonMember, qa, 'canChangeAnyTaskStatus')).toBe(false);
     });
 
     it('a scheme grant lets a Developer with no member flag pass, when the project has a scheme assigned', async () => {
@@ -997,6 +1019,7 @@ describe('ProjectsService', () => {
         canDeleteTask: false,
         canChangeAnyTaskStatus: false,
         canManageSprints: true,
+        canManageProject: false,
       });
     });
 

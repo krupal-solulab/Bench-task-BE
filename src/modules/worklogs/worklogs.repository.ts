@@ -4,7 +4,7 @@ import { FilterQuery, Model, Types } from 'mongoose';
 import { WorkLog, WorkLogDocument } from './schemas/work-log.schema';
 import { ListWorkLogsDto } from './dto/list-work-logs.dto';
 
-const USER_POPULATE = 'name email role isActive';
+const USER_POPULATE = 'name email role customRoleId isActive';
 
 export interface WorkLogUserTotal {
   _id: Types.ObjectId;

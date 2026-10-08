@@ -5,6 +5,8 @@ import { PermissionSchemesModule } from '../../permission-schemes/permission-sch
 import { SecuritySchemesModule } from '../../security-schemes/security-schemes.module';
 import { FieldPermissionSchemesModule } from '../../field-permission-schemes/field-permission-schemes.module';
 import { TeamsModule } from '../teams/teams.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
+import { CustomRolesModule } from '../custom-roles/custom-roles.module';
 import { ProjectRolesModule } from '../project-roles/project-roles.module';
 import { Task, TaskSchema } from '../tasks/schemas/task.schema';
 import { TaskActivity, TaskActivitySchema } from '../tasks/schemas/task-activity.schema';
@@ -28,6 +30,8 @@ import { ProjectsController } from './projects.controller';
     FieldPermissionSchemesModule,
     TeamsModule,
     ProjectRolesModule,
+    CustomRolesModule,
+    AuditLogModule,
     MongooseModule.forFeature([
       { name: Project.name, schema: ProjectSchema },
       { name: ProjectActivity.name, schema: ProjectActivitySchema },

@@ -28,4 +28,11 @@ export class PatchMemberPermissionsDto {
   @IsOptional()
   @IsBoolean()
   canManageSprints?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Manage the project: details, members & invites, sprints & releases, settings',
+  })
+  @IsOptional()
+  @IsBoolean()
+  canManageProject?: boolean;
 }

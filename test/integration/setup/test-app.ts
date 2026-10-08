@@ -70,6 +70,10 @@ export async function createTestApp(): Promise<TestAppContext> {
   process.env.THROTTLE_LIMIT = '100000';
   process.env.AUTH_THROTTLE_LIMIT = '100000';
   process.env.SWAGGER_ENABLED = 'false';
+  // Never send real email from tests, even when the developer's .env has SMTP configured -
+  // an empty SMTP_HOST selects the logging-only sender (dotenv won't override a set variable).
+  process.env.SMTP_HOST = '';
+  process.env.APP_URL = 'http://localhost:5173';
   process.env.SEED_ADMIN_EMAIL = 'seed-admin@example.com';
   process.env.SEED_ADMIN_PASSWORD = 'SeedAdmin123';
   process.env.PLATFORM_ADMIN_EMAIL = 'platform-admin@example.com';

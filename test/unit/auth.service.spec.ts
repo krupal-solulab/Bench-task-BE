@@ -9,17 +9,22 @@ import { AuthRepository } from 'src/modules/auth/auth.repository';
 import { UsersService } from 'src/modules/users/users.service';
 import { OrganizationsService } from 'src/modules/organizations/organizations.service';
 import { ProjectInvitesService } from 'src/modules/project-invites/project-invites.service';
+import { CustomRolesService } from 'src/modules/custom-roles/custom-roles.service';
 
 function makeUser(overrides: Record<string, unknown> = {}) {
-  return {
+  const user: Record<string, unknown> = {
     id: 'user-1',
     email: 'dev@example.com',
     role: Role.DEVELOPER,
     isActive: true,
     passwordHash: 'hashed',
     organizationId: 'org-1',
+    customRoleId: null,
     ...overrides,
   };
+  // AuthService presents users via toJSON() (plus their custom role).
+  user.toJSON = () => ({ ...user });
+  return user;
 }
 
 describe('AuthService', () => {
@@ -89,6 +94,10 @@ describe('AuthService', () => {
       jwtService as unknown as JwtService,
       configService,
       projectInvitesService as unknown as ProjectInvitesService,
+      {
+        summaryFor: jest.fn().mockResolvedValue(null),
+        effectiveFor: jest.fn().mockResolvedValue(null),
+      } as unknown as CustomRolesService,
     );
   });
 
@@ -136,7 +145,7 @@ describe('AuthService', () => {
 
       const result = await service.login('new@example.com', 'Temp12345abc');
 
-      expect(result.user).toBe(invitee);
+      expect(result.user).toMatchObject({ email: 'new@example.com', customRole: null });
       expect(result.accessToken).toBe('signed.jwt.token');
     });
 

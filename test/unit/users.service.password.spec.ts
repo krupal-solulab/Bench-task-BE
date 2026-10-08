@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { Model } from 'mongoose';
 import { AppConfig } from 'src/config/configuration';
 import { Role } from 'src/common/enums/role.enum';
+import { CustomRolesService } from 'src/modules/custom-roles/custom-roles.service';
 import { UsersService } from 'src/modules/users/users.service';
 import { UsersRepository } from 'src/modules/users/users.repository';
 import { TaskDocument } from 'src/modules/tasks/schemas/task.schema';
@@ -27,6 +28,16 @@ describe('UsersService password handling', () => {
       usersRepository as unknown as UsersRepository,
       configService,
       {} as unknown as Model<TaskDocument>,
+      {
+        resolveAssignment: jest.fn(
+          async (_org: string, role: string, customRoleId?: string | null) => ({
+            role,
+            customRoleId: customRoleId ?? null,
+            label: role,
+          }),
+        ),
+        summaryFor: jest.fn().mockResolvedValue(null),
+      } as unknown as CustomRolesService,
     );
   });
 

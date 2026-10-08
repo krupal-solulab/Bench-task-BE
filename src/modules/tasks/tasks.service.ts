@@ -1096,7 +1096,7 @@ export class TasksService {
       extractId(task.assignee) === actingUser.id;
     const hasStatusGrant = this.projectsService.memberHasCapability(
       project,
-      actingUser.id,
+      actingUser,
       'canChangeAnyTaskStatus',
     );
     const hasSchemeGrant = await this.projectsService.hasSchemeGrant(
