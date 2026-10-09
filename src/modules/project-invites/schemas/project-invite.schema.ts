@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { PROJECT_MEMBER_ROLES, ProjectMemberRole } from '../../../common/enums/role.enum';
+import { ORG_ROLES, OrgRole } from '../../../common/enums/role.enum';
 
 export type ProjectInviteDocument = HydratedDocument<ProjectInvite>;
 
@@ -36,8 +36,10 @@ export class ProjectInvite {
   @Prop({ type: Types.ObjectId, ref: 'Organization', required: true })
   organizationId!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Project', required: true })
-  project!: Types.ObjectId;
+  /** The project to join - or null for an organization invite (Admin > Users), which only
+   * creates the account. */
+  @Prop({ type: Types.ObjectId, ref: 'Project', default: null })
+  project!: Types.ObjectId | null;
 
   @Prop({ required: true, lowercase: true, trim: true })
   email!: string;
@@ -47,8 +49,10 @@ export class ProjectInvite {
   @Prop({ type: String, default: null, trim: true, maxlength: 60 })
   name!: string | null;
 
-  @Prop({ type: String, enum: PROJECT_MEMBER_ROLES, required: true })
-  role!: ProjectMemberRole;
+  // Project invites only ever carry Manager/Developer (their DTO enforces it); an organization
+  // invite may also be Admin.
+  @Prop({ type: String, enum: ORG_ROLES, required: true })
+  role!: OrgRole;
 
   /** Optional custom role the account gets (then `role` is that role's access level). */
   @Prop({ type: Types.ObjectId, ref: 'CustomRole', default: null })
@@ -95,3 +99,4 @@ export const ProjectInviteSchema = SchemaFactory.createForClass(ProjectInvite);
 
 ProjectInviteSchema.index({ project: 1, createdAt: -1 });
 ProjectInviteSchema.index({ email: 1, status: 1 });
+ProjectInviteSchema.index({ organizationId: 1, project: 1, createdAt: -1 });

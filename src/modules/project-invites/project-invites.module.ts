@@ -8,6 +8,7 @@ import { ProjectsModule } from '../projects/projects.module';
 import { UsersModule } from '../users/users.module';
 import { ProjectInvite, ProjectInviteSchema } from './schemas/project-invite.schema';
 import { ProjectInvitesController } from './project-invites.controller';
+import { OrganizationInvitesController } from './organization-invites.controller';
 import { ProjectInvitesService } from './project-invites.service';
 
 @Module({
@@ -20,7 +21,7 @@ import { ProjectInvitesService } from './project-invites.service';
     CustomRolesModule,
     MongooseModule.forFeature([{ name: ProjectInvite.name, schema: ProjectInviteSchema }]),
   ],
-  controllers: [ProjectInvitesController],
+  controllers: [ProjectInvitesController, OrganizationInvitesController],
   providers: [ProjectInvitesService],
   // AuthModule uses it for the public accept-invite routes and invite sign-in on the login form.
   exports: [ProjectInvitesService],

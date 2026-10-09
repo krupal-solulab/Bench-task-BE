@@ -473,6 +473,10 @@
                 "ProjectInviteResent",
                 "ProjectInviteRevoked",
                 "ProjectInviteAccepted",
+                "UserInviteSent",
+                "UserInviteResent",
+                "UserInviteRevoked",
+                "UserInviteAccepted",
                 "CustomRoleCreated",
                 "CustomRoleUpdated",
                 "CustomRoleDeleted",
@@ -3742,6 +3746,112 @@
         },
         "tags": [
           "project-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/organization-invites": {
+      "get": {
+        "operationId": "OrganizationInvitesController_list",
+        "summary": "List the organization's invitations (newest first, Admin)",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organization-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "OrganizationInvitesController_create",
+        "summary": "Invite by email: generates a temporary password and a 7-day link (shown once)",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organization-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/organization-invites/{inviteId}/resend": {
+      "post": {
+        "operationId": "OrganizationInvitesController_resend",
+        "summary": "New link + temporary password, 7 more days (old ones stop working)",
+        "parameters": [
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organization-invites"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/organization-invites/{inviteId}": {
+      "delete": {
+        "operationId": "OrganizationInvitesController_revoke",
+        "summary": "Revoke a pending invitation",
+        "parameters": [
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "organization-invites"
         ],
         "security": [
           {
@@ -11918,6 +12028,33 @@
           "role": {
             "type": "string",
             "enum": [
+              "Manager",
+              "Developer"
+            ],
+            "example": "Developer"
+          },
+          "customRoleId": {
+            "type": "object",
+            "nullable": true,
+            "description": "A custom role id - the user's built-in role becomes its access level"
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ]
+      },
+      "CreateOrganizationInviteDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "asha@example.com"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "Admin",
               "Manager",
               "Developer"
             ],

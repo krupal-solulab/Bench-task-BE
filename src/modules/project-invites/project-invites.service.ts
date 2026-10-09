@@ -24,6 +24,7 @@ import { UserDocument } from '../users/schemas/user.schema';
 import { UsersService } from '../users/users.service';
 import { CustomRolesService } from '../custom-roles/custom-roles.service';
 import { CreateProjectInviteDto } from './dto/create-project-invite.dto';
+import { CreateOrganizationInviteDto } from './dto/create-organization-invite.dto';
 import {
   ProjectInvite,
   ProjectInviteDocument,
@@ -42,7 +43,8 @@ export type ProjectInviteViewStatus = `${ProjectInviteStatus}` | 'Expired';
 
 export interface ProjectInviteView {
   id: string;
-  projectId: string;
+  /** Null for an organization invite (Admin > Users). */
+  projectId: string | null;
   email: string;
   name: string | null;
   role: string;
@@ -70,6 +72,9 @@ export interface ProjectInvitePreview {
   status: ProjectInviteViewStatus;
   email: string;
   role: string;
+  /** Whether accepting joins a project, or only the organization (an Admin > Users invite). */
+  scope: 'project' | 'organization';
+  /** For an organization invite this is the organization's name (what you join). */
   projectName: string;
   organizationName: string | null;
   inviterName: string | null;
@@ -81,6 +86,8 @@ const MESSAGES = {
   expired: 'This invitation has expired. Ask the project owner to resend it.',
   accepted: 'This invitation has already been accepted. Sign in with your email and password.',
   projectGone: 'The project for this invitation no longer exists.',
+  orgRevoked: 'This invitation has been revoked. Ask your administrator for a new one.',
+  orgExpired: 'This invitation has expired. Ask your administrator to resend it.',
   wrongPassword: 'Incorrect temporary password',
 };
 
@@ -151,6 +158,85 @@ export class ProjectInvitesService {
   ): Promise<SentProjectInvite> {
     const project = await this.projectsService.getManageableProject(projectId, actingUser);
     const invite = await this.findInProjectOrThrow(projectId, inviteId);
+    return this.resendInvite(invite, project, actingUser, AuditAction.PROJECT_INVITE_RESENT);
+  }
+
+  async revoke(
+    projectId: string,
+    inviteId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectInviteView> {
+    const project = await this.projectsService.getManageableProject(projectId, actingUser, false);
+    const invite = await this.findInProjectOrThrow(projectId, inviteId);
+    return this.revokeInvite(invite, project, actingUser, AuditAction.PROJECT_INVITE_REVOKED);
+  }
+
+  // ---------------------------------------------------------------- organization invites
+  // Admin > Users: the same invitation, with no project - accepting only creates the account.
+
+  async createForOrganization(
+    dto: CreateOrganizationInviteDto,
+    actingUser: AuthenticatedUser,
+  ): Promise<SentProjectInvite> {
+    const orgId = requireOrgId(actingUser);
+    const email = dto.email.trim().toLowerCase();
+    await this.assertEmailInvitable(email, null);
+    const assignment = await this.customRolesService.resolveAssignment(
+      orgId,
+      dto.role,
+      dto.customRoleId,
+    );
+    const token = randomBytes(32).toString('base64url');
+    const temporaryPassword = generateTemporaryPassword();
+    const created = await this.model.create({
+      organizationId: new Types.ObjectId(orgId),
+      project: null,
+      email,
+      role: assignment.role,
+      customRoleId: assignment.customRoleId,
+      tokenHash: hashToken(token),
+      tempPasswordHash: await this.usersService.hashPassword(temporaryPassword),
+      expiresAt: new Date(Date.now() + INVITE_TTL_MS),
+      invitedBy: new Types.ObjectId(actingUser.id),
+      lastSentAt: new Date(),
+    });
+    const sent = await this.deliver(created, null, token, temporaryPassword, actingUser);
+    await this.audit(actingUser, AuditAction.USER_INVITE_SENT, created, null);
+    return sent;
+  }
+
+  async listForOrganization(actingUser: AuthenticatedUser): Promise<ProjectInviteView[]> {
+    const invites = await this.model
+      .find({ organizationId: new Types.ObjectId(requireOrgId(actingUser)), project: null })
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .populate('invitedBy', 'name')
+      .exec();
+    return invites.map((i) => toView(i));
+  }
+
+  async resendForOrganization(
+    inviteId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<SentProjectInvite> {
+    const invite = await this.findInOrganizationOrThrow(requireOrgId(actingUser), inviteId);
+    return this.resendInvite(invite, null, actingUser, AuditAction.USER_INVITE_RESENT);
+  }
+
+  async revokeForOrganization(
+    inviteId: string,
+    actingUser: AuthenticatedUser,
+  ): Promise<ProjectInviteView> {
+    const invite = await this.findInOrganizationOrThrow(requireOrgId(actingUser), inviteId);
+    return this.revokeInvite(invite, null, actingUser, AuditAction.USER_INVITE_REVOKED);
+  }
+
+  private async resendInvite(
+    invite: ProjectInviteDocument,
+    project: ProjectDocument | null,
+    actingUser: AuthenticatedUser,
+    action: AuditAction,
+  ): Promise<SentProjectInvite> {
     if (invite.status === ProjectInviteStatus.ACCEPTED) {
       throw new ConflictException('This invitation has already been accepted');
     }
@@ -159,7 +245,9 @@ export class ProjectInvitesService {
     }
     if (await this.usersService.isEmailRegistered(invite.email)) {
       throw new ConflictException(
-        'A user with this email already exists - add them as an existing member instead',
+        project
+          ? 'A user with this email already exists - add them as an existing member instead'
+          : 'A user with this email already exists',
       );
     }
 
@@ -173,20 +261,21 @@ export class ProjectInvitesService {
     await invite.save();
 
     const sent = await this.deliver(invite, project, token, temporaryPassword, actingUser);
-    await this.audit(actingUser, AuditAction.PROJECT_INVITE_RESENT, invite, project);
+    await this.audit(actingUser, action, invite, project);
     return sent;
   }
 
-  async revoke(
-    projectId: string,
-    inviteId: string,
+  private async revokeInvite(
+    invite: ProjectInviteDocument,
+    project: ProjectDocument | null,
     actingUser: AuthenticatedUser,
+    action: AuditAction,
   ): Promise<ProjectInviteView> {
-    const project = await this.projectsService.getManageableProject(projectId, actingUser, false);
-    const invite = await this.findInProjectOrThrow(projectId, inviteId);
     if (invite.status === ProjectInviteStatus.ACCEPTED) {
       throw new ConflictException(
-        'This invitation has already been accepted - remove the member instead',
+        project
+          ? 'This invitation has already been accepted - remove the member instead'
+          : 'This invitation has already been accepted - deactivate the user instead',
       );
     }
     if (invite.status === ProjectInviteStatus.PENDING) {
@@ -194,7 +283,7 @@ export class ProjectInvitesService {
       invite.revokedAt = new Date();
       invite.revokedBy = new Types.ObjectId(actingUser.id);
       await invite.save();
-      await this.audit(actingUser, AuditAction.PROJECT_INVITE_REVOKED, invite, project);
+      await this.audit(actingUser, action, invite, project);
     }
     await invite.populate('invitedBy', 'name');
     return toView(invite);
@@ -206,17 +295,25 @@ export class ProjectInvitesService {
       .populate('invitedBy', 'name')
       .exec();
     if (!invite) throw new NotFoundException('Invitation not found');
-    const project = await this.projectsService.findActiveProject(extractId(invite.project));
+    const project = invite.project
+      ? await this.projectsService.findActiveProject(extractId(invite.project))
+      : null;
     const organization = await this.organizationsService
       .getOrganizationDocument(extractId(invite.organizationId))
       .catch(() => null);
     const view = toView(invite);
+    const isOrgInvite = !invite.project;
     return {
       status: view.status,
       email: invite.email,
       role: (await this.customRolesService.summaryFor(invite.customRoleId))?.name ?? invite.role,
-      projectName: project?.name ?? 'a deleted project',
-      organizationName: organization?.name ?? null,
+      scope: isOrgInvite ? 'organization' : 'project',
+      // An organization invite joins the organization itself, so that is the name to show (and
+      // organizationName stays null so the page doesn't say "join Acme ... to Acme").
+      projectName: isOrgInvite
+        ? (organization?.name ?? 'the organization')
+        : (project?.name ?? 'a deleted project'),
+      organizationName: isOrgInvite ? null : (organization?.name ?? null),
       inviterName: view.invitedBy?.name ?? null,
       expiresAt: invite.expiresAt,
     };
@@ -270,8 +367,13 @@ export class ProjectInvitesService {
     if (invite.status === ProjectInviteStatus.ACCEPTED) {
       throw new ConflictException(MESSAGES.accepted);
     }
-    if (invite.status === ProjectInviteStatus.REVOKED) throw new Fail(MESSAGES.revoked);
-    if (invite.expiresAt.getTime() <= Date.now()) throw new Fail(MESSAGES.expired);
+    const org = !invite.project;
+    if (invite.status === ProjectInviteStatus.REVOKED) {
+      throw new Fail(org ? MESSAGES.orgRevoked : MESSAGES.revoked);
+    }
+    if (invite.expiresAt.getTime() <= Date.now()) {
+      throw new Fail(org ? MESSAGES.orgExpired : MESSAGES.expired);
+    }
   }
 
   private async accept(invite: ProjectInviteDocument): Promise<UserDocument> {
@@ -279,9 +381,10 @@ export class ProjectInvitesService {
     await this.organizationsService.assertActive(organizationId).catch(() => {
       throw new UnauthorizedException('Organization is suspended');
     });
-    const projectId = extractId(invite.project);
-    const project = await this.projectsService.findActiveProject(projectId);
-    if (!project) throw new GoneException(MESSAGES.projectGone);
+    // Null for an organization invite: accepting only creates the account.
+    const projectId = invite.project ? extractId(invite.project) : null;
+    const project = projectId ? await this.projectsService.findActiveProject(projectId) : null;
+    if (projectId && !project) throw new GoneException(MESSAGES.projectGone);
 
     // Claim the invite atomically, so two simultaneous accepts can't both create the account.
     const claimed = await this.model
@@ -316,40 +419,49 @@ export class ProjectInvitesService {
 
     await this.model.updateOne({ _id: invite._id }, { acceptedUser: user._id }).exec();
     const inviterId = extractId(invite.invitedBy);
-    await this.projectsService.addMemberFromInvite(projectId, user.id, inviterId);
+    if (projectId && project) {
+      await this.projectsService.addMemberFromInvite(projectId, user.id, inviterId);
+    }
     await this.auditLogService.record({
       organizationId,
       actorId: user.id,
-      action: AuditAction.PROJECT_INVITE_ACCEPTED,
+      action: project ? AuditAction.PROJECT_INVITE_ACCEPTED : AuditAction.USER_INVITE_ACCEPTED,
       targetType: 'ProjectInvite',
       targetId: invite.id,
       targetLabel: invite.email,
-      metadata: { projectId, projectName: project.name, role: invite.role },
+      metadata: project
+        ? { projectId, projectName: project.name, role: invite.role }
+        : { role: invite.role },
     });
     await this.notificationsService.notifyInviteAccepted({
       inviterId,
       organizationId,
       projectId,
-      projectName: project.name,
+      projectName: project?.name ?? null,
       inviteeName: user.email,
     });
     return user;
   }
 
-  private async assertEmailInvitable(email: string, projectId: string): Promise<void> {
+  private async assertEmailInvitable(email: string, projectId: string | null): Promise<void> {
     if (await this.usersService.isEmailRegistered(email)) {
       throw new ConflictException(
-        'A user with this email already exists - add them as an existing member instead',
+        projectId
+          ? 'A user with this email already exists - add them as an existing member instead'
+          : 'A user with this email already exists',
       );
     }
     const pending = await this.model
       .findOne({ email, status: ProjectInviteStatus.PENDING, expiresAt: { $gt: new Date() } })
       .exec();
     if (pending) {
+      const pendingProjectId = pending.project ? extractId(pending.project) : null;
       throw new ConflictException(
-        extractId(pending.project) === projectId
-          ? 'This email already has a pending invitation to this project - resend or revoke it'
-          : 'This email already has a pending invitation to another project',
+        !pendingProjectId
+          ? 'This email already has a pending invitation to the organization - resend or revoke it'
+          : pendingProjectId === projectId
+            ? 'This email already has a pending invitation to this project - resend or revoke it'
+            : 'This email already has a pending invitation to another project',
       );
     }
   }
@@ -365,9 +477,24 @@ export class ProjectInvitesService {
     return invite;
   }
 
+  private async findInOrganizationOrThrow(
+    organizationId: string,
+    inviteId: string,
+  ): Promise<ProjectInviteDocument> {
+    const invite = await this.model
+      .findOne({
+        _id: inviteId,
+        organizationId: new Types.ObjectId(organizationId),
+        project: null,
+      })
+      .exec();
+    if (!invite) throw new NotFoundException('Invitation not found');
+    return invite;
+  }
+
   private async deliver(
     invite: ProjectInviteDocument,
-    project: ProjectDocument,
+    project: ProjectDocument | null,
     token: string,
     temporaryPassword: string,
     actingUser: AuthenticatedUser,
@@ -385,7 +512,7 @@ export class ProjectInvitesService {
       email: invite.email,
       inviterName: inviter.name,
       role: (await this.customRolesService.summaryFor(invite.customRoleId))?.name ?? invite.role,
-      projectName: project.name,
+      projectName: project?.name ?? null,
       organizationName: organization?.name ?? null,
       inviteUrl,
       temporaryPassword,
@@ -399,7 +526,7 @@ export class ProjectInvitesService {
     actingUser: AuthenticatedUser,
     action: AuditAction,
     invite: ProjectInviteDocument,
-    project: ProjectDocument,
+    project: ProjectDocument | null,
   ): Promise<void> {
     await this.auditLogService.record({
       organizationId: requireOrgId(actingUser),
@@ -408,7 +535,9 @@ export class ProjectInvitesService {
       targetType: 'ProjectInvite',
       targetId: invite.id,
       targetLabel: invite.email,
-      metadata: { projectId: project.id, projectName: project.name, role: invite.role },
+      metadata: project
+        ? { projectId: project.id, projectName: project.name, role: invite.role }
+        : { role: invite.role },
     });
   }
 }
@@ -443,7 +572,7 @@ function toView(invite: ProjectInviteDocument): ProjectInviteView {
   const inviter = invite.invitedBy as unknown as { _id?: Types.ObjectId; name?: string } | null;
   return {
     id: invite.id,
-    projectId: extractId(invite.project),
+    projectId: invite.project ? extractId(invite.project) : null,
     email: invite.email,
     name: invite.name,
     role: invite.role,
