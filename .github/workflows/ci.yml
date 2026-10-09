@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, development, develop]
   pull_request:
-    branches: [main, develop]
+    branches: [main, development, develop]
 
 jobs:
   build-and-test:
@@ -47,7 +47,7 @@ jobs:
       THROTTLE_TTL: 60
       THROTTLE_LIMIT: 1000
       AUTH_THROTTLE_LIMIT: 1000
-      SWAGGER_ENABLED: "true"
+      SWAGGER_ENABLED: 'true'
       SEED_ADMIN_EMAIL: admin@example.com
       SEED_ADMIN_PASSWORD: Admin@12345
       PLATFORM_ADMIN_EMAIL: platform-admin@example.com
@@ -59,11 +59,13 @@ jobs:
       S3_REGION: us-east-1
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          # Same Node as local development (.nvmrc). Node 20 is end-of-life and deprecated on
+          # GitHub-hosted runners.
+          node-version-file: .nvmrc
           cache: npm
 
       - run: npm ci
@@ -84,7 +86,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage
           path: coverage/
