@@ -120,7 +120,8 @@ export interface ProjectInviteEmail {
   email: string;
   inviterName: string;
   role: string;
-  projectName: string;
+  /** Null for an organization invite (Admin > Users) - the email then names the organization. */
+  projectName: string | null;
   organizationName: string | null;
   inviteUrl: string;
   temporaryPassword: string;
@@ -563,13 +564,15 @@ export class NotificationsService {
     try {
       if (await this.channelStatusService.isPaused('Email')) return false;
       const expires = formatEmailDate(invite.expiresAt);
-      const subject = `${invite.inviterName} invited you to join ${invite.projectName}`;
+      const target = invite.projectName ?? invite.organizationName ?? EMAIL_APP_NAME;
+      const subject = `${invite.inviterName} invited you to join ${target}`;
       const view = {
         appName: EMAIL_APP_NAME,
         subject,
         inviterName: invite.inviterName,
         projectName: invite.projectName,
         organizationName: invite.organizationName,
+        target,
         role: invite.role,
         email: invite.email,
         temporaryPassword: invite.temporaryPassword,
@@ -587,8 +590,10 @@ export class NotificationsService {
           text: [
             'Hello,',
             '',
-            `${invite.inviterName} invited you to join the project "${invite.projectName}"` +
-              (invite.organizationName ? ` in ${invite.organizationName}` : '') +
+            (invite.projectName
+              ? `${invite.inviterName} invited you to join the project "${invite.projectName}"` +
+                (invite.organizationName ? ` in ${invite.organizationName}` : '')
+              : `${invite.inviterName} invited you to join ${target} on ${EMAIL_APP_NAME}`) +
               ` as a ${invite.role}.`,
             '',
             `Accept the invitation: ${invite.inviteUrl}`,
@@ -612,8 +617,9 @@ export class NotificationsService {
   async notifyInviteAccepted(input: {
     inviterId: string;
     organizationId: string;
-    projectId: string;
-    projectName: string;
+    /** Null for an organization invite (Admin > Users). */
+    projectId: string | null;
+    projectName: string | null;
     inviteeName: string;
   }): Promise<void> {
     await this.createInAppNotification(
@@ -621,8 +627,10 @@ export class NotificationsService {
       input.organizationId,
       NotificationType.INVITE_ACCEPTED,
       'Invitation accepted',
-      `${input.inviteeName} joined "${input.projectName}"`,
-      { projectId: input.projectId },
+      input.projectName
+        ? `${input.inviteeName} joined "${input.projectName}"`
+        : `${input.inviteeName} accepted your invitation and joined the organization`,
+      input.projectId ? { projectId: input.projectId } : {},
     );
   }
 

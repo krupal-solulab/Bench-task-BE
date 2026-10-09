@@ -6,6 +6,8 @@ describe('project-invite email template', () => {
     subject: 'Max invited you to join Apollo',
     inviterName: 'Max Manager',
     projectName: 'Apollo <script>alert(1)</script>',
+    // What the invitation is to: the project (or, for an organization invite, the organization).
+    target: 'Apollo <script>alert(1)</script>',
     organizationName: 'Acme',
     role: 'Developer',
     email: 'asha@example.com',
@@ -38,5 +40,17 @@ describe('project-invite email template', () => {
     const html = await renderEmailTemplate('project-invite', { ...view, organizationName: null });
 
     expect(html).not.toContain(' in Acme');
+  });
+
+  it('words an organization invite (no project) as joining the organization', async () => {
+    const html = await renderEmailTemplate('project-invite', {
+      ...view,
+      projectName: null,
+      target: 'Acme',
+    });
+
+    expect(html).toContain("You're invited to join Acme");
+    expect(html).toContain('invited you to join');
+    expect(html).not.toContain('Project invitation');
   });
 });
