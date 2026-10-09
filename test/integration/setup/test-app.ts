@@ -130,7 +130,11 @@ export async function createTestApp(): Promise<TestAppContext> {
     }),
   );
 
-  await app.init();
+  // Listen on a random local port (listen() also runs init()). If the server were left
+  // unbound, supertest would bind and then close this same server around every single request,
+  // so parallel requests (Promise.all in a spec) close it under each other - on Linux CI that
+  // surfaces as `read ECONNRESET`. A bound server is reused as-is and closed by app.close().
+  await app.listen(0, '127.0.0.1');
 
   // Wired up post-init (not in the provider factory) since it needs TasksService resolved from
   // the fully-compiled app container - see FakeAutomationQueue's own doc comment.
